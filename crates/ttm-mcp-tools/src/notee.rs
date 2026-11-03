@@ -21,7 +21,7 @@ pub const GET_COMMENTS: &str = "notee-get-comments";
 /// URI of the Markdown specification resource.
 pub const SPEC_URI: &str = "notee://spec/markdown";
 /// `docs/en/notee-markdown.md`, embedded at build time.
-pub const SPEC_MARKDOWN: &str = include_str!("../../../docs/en/notee-markdown.md");
+pub const SPEC_MARKDOWN: &str = include_str!("../spec/notee-markdown.md");
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

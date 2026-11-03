@@ -75,3 +75,10 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - run: cargo build --release --locked --target ${{ matrix.target }} -p ttm-cli -p ttm-mcp
+
+  spec-in-sync:
+    name: Notee Markdown spec copy in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmp docs/en/notee-markdown.md crates/ttm-mcp-tools/spec/notee-markdown.md
