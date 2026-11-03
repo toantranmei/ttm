@@ -65,11 +65,10 @@ pub fn version_of(program: &Path) -> Option<String> {
         .filter(|l| !l.is_empty())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn which_finds_executables_only() {
         use std::os::unix::fs::PermissionsExt;
