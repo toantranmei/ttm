@@ -1,0 +1,4 @@
+# Steps injected by cargo-dist before each build (see github-build-setup in dist-workspace.toml).
+- name: Default host for release builds
+  shell: bash
+  run: echo "TTM_DEFAULT_HOST=${TTM_DEFAULT_HOST:-https://toantranmei.com}" >> "$GITHUB_ENV"

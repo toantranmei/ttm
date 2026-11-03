@@ -1,0 +1,57 @@
+{
+  "manifest_version": "0.3",
+  "name": "ttm",
+  "display_name": "ttm (toantranmei.com)",
+  "version": "0.1.0",
+  "description": "Notee pages, workspaces and Factory projects of toantranmei.com for Claude Desktop.",
+  "long_description": "Runs the open-source ttm-mcp server locally. Sign in once with `ttm login`, or paste a personal access token created at https://toantranmei.com/me/ket-noi.",
+  "author": { "name": "Toan Tran", "url": "https://toantranmei.com" },
+  "homepage": "https://toantranmei.com/help/ttm",
+  "documentation": "https://toantranmei.com/help/ttm/mcp",
+  "support": "https://github.com/toantranmei/ttm/issues",
+  "repository": { "type": "git", "url": "https://github.com/toantranmei/ttm" },
+  "license": "MIT",
+  "keywords": ["notes", "notee", "workspace", "factory", "productivity"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/ttm-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/ttm-mcp",
+      "args": [],
+      "env": {
+        "TTM_TOKEN": "${user_config.token}",
+        "TTM_HOST": "${user_config.host}",
+        "TTM_NO_KEYRING": "0"
+      },
+      "platform_overrides": {
+        "win32": { "command": "${__dirname}/server/ttm-mcp.exe" }
+      }
+    }
+  },
+  "tools": [
+    { "name": "workspace-get-self", "description": "The signed-in user and the current workspace" },
+    { "name": "workspace-list", "description": "Workspaces the user belongs to" },
+    { "name": "workspace-get-users", "description": "Members of a workspace" }
+  ],
+  "tools_generated": true,
+  "user_config": {
+    "token": {
+      "type": "string",
+      "title": "Access token",
+      "description": "Personal access token (ttm_pat_…) from https://toantranmei.com/me/ket-noi. Leave empty to use the token saved by `ttm login`.",
+      "sensitive": true,
+      "required": false
+    },
+    "host": {
+      "type": "string",
+      "title": "Server",
+      "description": "Server URL. Leave the default unless you use another host.",
+      "default": "https://toantranmei.com",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {}
+  }
+}

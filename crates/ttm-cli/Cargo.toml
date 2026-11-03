@@ -42,3 +42,14 @@ wiremock.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.dist]
+dist = true
+npm-package = "cli"
+formula = "ttm"
+
+[package.metadata.wix]
+upgrade-guid = "8BE21CBB-7FEA-4C7F-9D18-C4ED21C29D45"
+path-guid = "2014F98D-7E06-4B50-9BD1-B733CF36395D"
+license = false
+eula = false

@@ -27,3 +27,14 @@ time.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.dist]
+dist = true
+npm-package = "mcp"
+formula = "ttm-mcp"
+
+[package.metadata.wix]
+upgrade-guid = "38884EA4-6054-4349-8292-0EDE3F86196D"
+path-guid = "ECA8AAED-DABF-402D-AA0B-B4D52881F27C"
+license = false
+eula = false

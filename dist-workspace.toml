@@ -1,0 +1,34 @@
+# cargo-dist (https://opensource.axo.dev/cargo-dist/) release configuration.
+# Regenerate CI after edits with `dist generate` (release.yml is kept in sync by hand, see allow-dirty).
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.34.0"
+ci = "github"
+# Two shippable apps: ttm-cli (bin `ttm`) and ttm-mcp (bin `ttm-mcp`); libraries are not released.
+installers = ["shell", "powershell", "homebrew", "npm", "msi"]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+]
+tap = "toantranmei/homebrew-tap"
+formula = "ttm"
+npm-scope = "@toantranmei"
+publish-jobs = ["homebrew", "npm"]
+# SHA-256 next to every archive (`<archive>.sha256`), checked by `ttm self-update`.
+checksum = "sha256"
+# Sigstore-backed GitHub artifact attestations, checked by `ttm self-update` when `gh` is installed.
+github-attestations = true
+install-path = "CARGO_HOME"
+install-updater = false
+pr-run-mode = "plan"
+allow-dirty = ["ci"]
+# The release workflow builds with the production default host baked in.
+github-build-setup = "../build-setup.yml"
