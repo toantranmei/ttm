@@ -1,11 +1,12 @@
 //! Workspace tools: `workspace-get-self`, `workspace-list`, `workspace-get-users`.
 
-use crate::{Backend, BackendError};
+use crate::Backend;
+use crate::common::{ToolOutput, ToolResult, parse, read_only, to_value};
 use rmcp::handler::server::common::{schema_for_empty_input, schema_for_type};
-use rmcp::model::{Tool, ToolAnnotations};
+use rmcp::model::Tool;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 pub const GET_SELF: &str = "workspace-get-self";
 pub const LIST: &str = "workspace-list";
@@ -20,13 +21,6 @@ pub struct GetUsersArgs {
     /// Case-insensitive filter on name or e-mail.
     #[serde(default)]
     pub query: Option<String>,
-}
-
-fn read_only(title: &str) -> ToolAnnotations {
-    ToolAnnotations::with_title(title)
-        .read_only(true)
-        .destructive(false)
-        .idempotent(true)
 }
 
 pub fn tools() -> Vec<Tool> {
@@ -52,67 +46,43 @@ pub fn tools() -> Vec<Tool> {
     ]
 }
 
-/// Runs a workspace tool. `Ok(None)` means the name is not a workspace tool.
-pub async fn call<B: Backend>(
+/// Runs a workspace tool; `None` when `name` is not one.
+pub async fn call<B: Backend + ?Sized>(
     backend: &B,
     name: &str,
-    args: Option<serde_json::Map<String, Value>>,
-) -> Option<Result<Value, ToolFailure>> {
-    let result = match name {
-        GET_SELF => backend
-            .get_self()
-            .await
-            .map(|s| json!(s))
-            .map_err(ToolFailure::Backend),
+    args: Option<Map<String, Value>>,
+) -> Option<ToolResult> {
+    Some(match name {
+        GET_SELF => get_self(backend).await,
         LIST => backend
             .list_workspaces()
             .await
-            .map(|w| json!({ "workspaces": w }))
-            .map_err(ToolFailure::Backend),
-        GET_USERS => match parse::<GetUsersArgs>(args) {
-            Ok(args) => match backend.get_users(args.workspace_id.as_deref()).await {
-                Ok(members) => {
-                    let query = args
-                        .query
-                        .as_deref()
-                        .map(str::to_lowercase)
-                        .filter(|q| !q.is_empty());
-                    let members: Vec<_> = members
-                        .into_iter()
-                        .filter(|m| {
-                            query.as_deref().is_none_or(|q| {
-                                m.user.name.to_lowercase().contains(q)
-                                    || m.user.email.to_lowercase().contains(q)
-                            })
-                        })
-                        .collect();
-                    Ok(json!({ "users": members }))
-                }
-                Err(err) => Err(ToolFailure::Backend(err)),
-            },
-            Err(err) => Err(err),
-        },
+            .map(|w| ToolOutput::json(json!({ "workspaces": w })))
+            .map_err(Into::into),
+        GET_USERS => get_users(backend, args).await,
         _ => return None,
-    };
-    Some(result)
+    })
 }
 
-/// Why a tool call failed.
-#[derive(Debug)]
-pub enum ToolFailure {
-    /// Bad arguments: a protocol error (`invalid_params`).
-    InvalidArgs(String),
-    /// The backend refused or failed: a tool result with `isError: true`, so the model can react.
-    Backend(BackendError),
+async fn get_self<B: Backend + ?Sized>(backend: &B) -> ToolResult {
+    Ok(ToolOutput::json(to_value(&backend.get_self().await?)))
 }
 
-pub fn parse<T: for<'de> Deserialize<'de> + Default>(
-    args: Option<serde_json::Map<String, Value>>,
-) -> Result<T, ToolFailure> {
-    match args {
-        None => Ok(T::default()),
-        Some(map) => {
-            serde_json::from_value(Value::Object(map)).map_err(|e| ToolFailure::InvalidArgs(e.to_string()))
-        }
-    }
+async fn get_users<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
+    let args: GetUsersArgs = parse(args)?;
+    let members = backend.get_users(args.workspace_id.as_deref()).await?;
+    let query = args
+        .query
+        .as_deref()
+        .map(str::to_lowercase)
+        .filter(|q| !q.is_empty());
+    let members: Vec<_> = members
+        .into_iter()
+        .filter(|m| {
+            query.as_deref().is_none_or(|q| {
+                m.user.name.to_lowercase().contains(q) || m.user.email.to_lowercase().contains(q)
+            })
+        })
+        .collect();
+    Ok(ToolOutput::json(json!({ "users": members })))
 }

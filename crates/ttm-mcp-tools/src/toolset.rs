@@ -1,10 +1,12 @@
 //! [`ToolSet`]: the MCP server handler.
 
-use crate::Backend;
-use crate::workspace::{self, ToolFailure};
+use crate::common::{ToolFailure, ToolResult};
+use crate::{Backend, notee, workspace};
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
+    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities, ServerConfig,
+    Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
@@ -114,7 +116,9 @@ impl<B: Backend> ToolSet<B> {
         if self.toolsets.contains(Toolset::Workspace) {
             tools.extend(workspace::tools());
         }
-        // Notee (plans 03/04) and Factory (plan 09) add their tools here.
+        if self.toolsets.contains(Toolset::Notee) {
+            tools.extend(notee::tools());
+        }
         tools
     }
 
@@ -127,12 +131,18 @@ impl<B: Backend> ToolSet<B> {
         if !self.tools().iter().any(|t| t.name == name) {
             return Err(ErrorData::invalid_params(format!("unknown tool `{name}`"), None));
         }
-        let outcome = match workspace::call(self.backend.as_ref(), name, arguments).await {
+        let outcome = match self.dispatch(name, arguments).await {
             Some(outcome) => outcome,
             None => return Err(ErrorData::invalid_params(format!("unknown tool `{name}`"), None)),
         };
         match outcome {
-            Ok(value) => Ok(CallToolResult::structured(value)),
+            Ok(output) => {
+                let mut result = CallToolResult::structured(output.value);
+                if let Some(text) = output.text {
+                    result.content = vec![ContentBlock::text(text)];
+                }
+                Ok(result)
+            }
             Err(ToolFailure::InvalidArgs(message)) => Err(ErrorData::invalid_params(message, None)),
             Err(ToolFailure::Backend(err)) => {
                 tracing::debug!(tool = name, code = %err.code, "tool failed");
@@ -144,14 +154,79 @@ impl<B: Backend> ToolSet<B> {
     }
 }
 
+impl<B: Backend> ToolSet<B> {
+    async fn dispatch(
+        &self,
+        name: &str,
+        args: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Option<ToolResult> {
+        let backend = self.backend.as_ref();
+        if name.starts_with("workspace-") {
+            return workspace::call(backend, name, args).await;
+        }
+        if name.starts_with("notee-") {
+            return notee::call(backend, name, args).await;
+        }
+        None
+    }
+
+    /// MCP resources: the Notee Markdown spec (when Notee is on).
+    pub fn resources(&self) -> Vec<Resource> {
+        if !self.toolsets.contains(Toolset::Notee) {
+            return vec![];
+        }
+        vec![
+            Resource::new(notee::SPEC_URI, "notee-markdown")
+                .with_title("Notee-flavored Markdown")
+                .with_description("How Notee pages are written as Markdown: tags for callouts, toggles, columns, mentions, databases.")
+                .with_mime_type("text/markdown"),
+        ]
+    }
+
+    pub fn read(&self, uri: &str) -> Option<String> {
+        (uri == notee::SPEC_URI && self.toolsets.contains(Toolset::Notee))
+            .then(|| notee::SPEC_MARKDOWN.to_string())
+    }
+}
+
 impl<B: Backend> ServerHandler for ToolSet<B> {
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        Ok(ListResourcesResult::with_all_items(self.resources()))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        match self.read(&request.uri) {
+            Some(text) => Ok(ReadResourceResult::new(vec![
+                ResourceContents::text(text, request.uri.clone()).with_mime_type("text/markdown"),
+            ])
+            .into()),
+            None => Err(ErrorData::resource_not_found(
+                format!("unknown resource {}", request.uri),
+                None,
+            )),
+        }
+    }
+
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                self.server_name.clone(),
-                self.server_version.clone(),
-            ))
-            .with_instructions(INSTRUCTIONS)
+        ServerConfig::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
+        )
+        .with_server_info(Implementation::new(
+            self.server_name.clone(),
+            self.server_version.clone(),
+        ))
+        .with_instructions(INSTRUCTIONS)
     }
 
     async fn list_tools(
@@ -246,7 +321,7 @@ mod tests {
 
     #[test]
     fn lists_workspace_tools_with_schemas() {
-        let set = ToolSet::new(Fake, Toolsets::default());
+        let set = ToolSet::new(Fake, Toolsets::parse("").unwrap());
         let names: Vec<_> = set.tools().iter().map(|t| t.name.to_string()).collect();
         assert_eq!(
             names,

@@ -51,6 +51,9 @@ pub enum Command {
     /// Personal access tokens (managed on the web: opens <host>/me/ket-noi).
     #[command(subcommand)]
     Token(TokenCommand),
+    /// Notee pages and databases: search, read, query, comments.
+    #[command(subcommand)]
+    Notes(NotesCommand),
     /// MCP client setup.
     #[command(subcommand)]
     Mcp(McpCommand),
@@ -107,6 +110,51 @@ pub enum TokenCommand {
     },
     /// Open the web page to revoke a token.
     Revoke { id: Option<String> },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum NotesCommand {
+    /// Find pages by title and content.
+    Search {
+        query: String,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        /// Workspace id (default: the current one).
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    /// Print a page as Notee-flavored Markdown (or a database schema).
+    Get {
+        /// Page or database id, or URL.
+        id: String,
+        /// Read one part of a truncated page.
+        #[arg(long)]
+        block: Option<String>,
+        /// Write the Markdown to a file instead of stdout.
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<std::path::PathBuf>,
+    },
+    /// Query a database with SQL or a JSON filter file.
+    Query {
+        /// Database id or URL.
+        database: String,
+        #[arg(long, conflicts_with = "filter", required_unless_present = "filter")]
+        sql: Option<String>,
+        /// JSON file with `{"filter": …, "sorts": …}` or just the filter (`-` for stdin).
+        #[arg(long, value_name = "FILE")]
+        filter: Option<String>,
+        #[arg(long)]
+        page_size: Option<u32>,
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+    /// Comment threads of a page.
+    Comments {
+        page: String,
+        /// Include resolved threads.
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -180,6 +228,18 @@ mod tests {
             Command::Login(LoginArgs { device: true, .. })
         ));
         assert!(Cli::try_parse_from(["ttm", "login", "--device", "--token", "x"]).is_err());
+    }
+
+    #[test]
+    fn notes_query_needs_sql_or_filter() {
+        assert!(Cli::try_parse_from(["ttm", "notes", "query", "db"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "ttm", "notes", "query", "db", "--sql", "SELECT 1", "--filter", "f.json"
+            ])
+            .is_err()
+        );
+        assert!(Cli::try_parse_from(["ttm", "notes", "query", "db", "--sql", "SELECT * FROM rows"]).is_ok());
     }
 
     #[test]

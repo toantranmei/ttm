@@ -45,7 +45,7 @@ async fn api() -> MockServer {
 async fn tools_over_mcp_session() {
     let server = api().await;
     let client = Client::new(format!("{}/api/v1", server.uri()), Some("ttm_pat_good".into())).unwrap();
-    let toolset = ToolSet::new(HttpBackend::new(client, None), Toolsets::default());
+    let toolset = ToolSet::new(HttpBackend::new(client, None), Toolsets::parse("").unwrap());
 
     let (server_io, client_io) = tokio::io::duplex(64 * 1024);
     let server_task = tokio::spawn(async move {
