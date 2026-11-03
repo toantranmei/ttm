@@ -61,15 +61,17 @@ impl std::fmt::Debug for StoredToken {
     }
 }
 
-/// Keeps the `ttm_xxx_` prefix and four characters: `ttm_pat_AbCd…`.
+/// Keeps the `ttm_xxx_` prefix and at most 4 characters, never more than half of the secret part:
+/// `ttm_pat_AbCd…`. Other strings keep at most 4 characters and half their length.
 pub fn mask(token: &str) -> String {
-    let keep = if token.starts_with("ttm_") && token.len() > 8 {
-        12
+    let (prefix, secret) = if token.starts_with("ttm_") && token.len() > 8 && token.is_char_boundary(8) {
+        token.split_at(8)
     } else {
-        4
+        ("", token)
     };
-    let visible: String = token.chars().take(keep).collect();
-    format!("{visible}…")
+    let keep = (secret.chars().count() / 2).min(4);
+    let visible: String = secret.chars().take(keep).collect();
+    format!("{prefix}{visible}…")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -329,7 +331,12 @@ mod tests {
         let debug = format!("{token:?}");
         assert!(!debug.contains("SECRETSECRET"), "{debug}");
         assert_eq!(mask("ttm_pat_ABCDEFGH"), "ttm_pat_ABCD…");
-        assert_eq!(mask("short"), "shor…");
+        assert_eq!(mask("short"), "sh…");
+        assert_eq!(
+            mask("ttm_pat_good"),
+            "ttm_pat_go…",
+            "a short secret is never shown whole"
+        );
     }
 
     #[test]

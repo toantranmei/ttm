@@ -78,7 +78,7 @@ async fn link_edit_sync_and_check() {
 
     std::fs::write(
         repo.join(".ttm/plan/tasks/AUR-1.md"),
-        "---\nkey: AUR-1\nstate: doing\n---\nLogin\n",
+        "---\nkey: \"AUR-1\"\nstate: \"doing\"\n---\nLogin\n",
     )
     .unwrap();
     let check = ttm_in(root.path(), &repo, &host, &["sync", "--check"], None).await;
