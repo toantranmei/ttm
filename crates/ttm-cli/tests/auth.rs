@@ -129,3 +129,62 @@ async fn doctor_reports_checks_as_json() {
         );
     }
 }
+
+#[tokio::test]
+async fn workspace_switch_and_current() {
+    let server = server().await;
+    let root = tempfile::tempdir().unwrap();
+    let host = server.uri();
+    let out = ttm(root.path(), &host, &["login", "--token", "ttm_pat_good"]).await;
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    let out = ttm(root.path(), &host, &["workspace", "list", "--json"]).await;
+    assert_eq!(json(&out).as_array().unwrap().len(), 2);
+
+    let out = ttm(root.path(), &host, &["workspace", "switch", "aurora", "--json"]).await;
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(json(&out)["id"], "w2");
+
+    let out = ttm(root.path(), &host, &["workspace", "current", "--json"]).await;
+    assert_eq!(json(&out)["workspace_id"], "w2");
+    let out = ttm(root.path(), &host, &["workspace", "list", "--json"]).await;
+    let current: Vec<_> = json(&out)
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|w| w["current"] == true)
+        .cloned()
+        .collect();
+    assert_eq!(current[0]["id"], "w2");
+}
+
+#[tokio::test]
+async fn token_create_prints_the_web_url() {
+    let root = tempfile::tempdir().unwrap();
+    let out = ttm(
+        root.path(),
+        "https://example.com",
+        &[
+            "token",
+            "create",
+            "--scope",
+            "notee:read",
+            "--expires",
+            "30d",
+            "--json",
+        ],
+    )
+    .await;
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let url = json(&out)["url"].as_str().unwrap().to_string();
+    assert!(url.starts_with("https://example.com/me/ket-noi?"), "{url}");
+    assert!(url.contains("expires_days=30"));
+}
+
+#[tokio::test]
+async fn completion_needs_no_config() {
+    let root = tempfile::tempdir().unwrap();
+    let out = ttm(root.path(), "https://example.com", &["completion", "bash"]).await;
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("ttm"));
+}
