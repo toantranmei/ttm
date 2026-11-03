@@ -1,5 +1,6 @@
 //! Command dispatch.
 
+mod agent;
 mod doctor;
 mod hook;
 mod login;
@@ -8,6 +9,7 @@ mod mcp;
 mod notes;
 mod project;
 mod rules;
+mod runner;
 mod self_update;
 mod status;
 mod sync;
@@ -45,6 +47,8 @@ pub async fn run(cli: Cli) -> Result<ExitCode> {
         Command::Task(command) => task::run(app, command).await,
         Command::Rules(command) => rules::run(app, command).await,
         Command::Hook(command) => hook::run(app, command).await,
+        Command::Runner(command) => runner::run(app, command).await,
+        Command::Agent(command) => agent::run(app, command).await,
         Command::Mcp(command) => mcp::run(app, command).await,
     }
 }

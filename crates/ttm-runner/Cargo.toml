@@ -1,6 +1,6 @@
 [package]
 name = "ttm-runner"
-description = "Local agent runner for ttm (worktrees, harness adapters, event stream); filled in a later phase"
+description = "Local agent runner for ttm: takes jobs from the server, runs a coding agent in a git worktree, streams events"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,22 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
+tempfile.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+ttm-api.workspace = true
+ttm-core.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
 
 [lints]
 workspace = true

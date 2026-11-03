@@ -333,6 +333,343 @@ impl Client {
     }
 }
 
+// Runner, runs and jobs (P8).
+
+/// `POST /factory/runners/register` body.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RegisterRunner {
+    pub name: String,
+    pub os: String,
+    pub arch: String,
+    pub version: String,
+    pub harnesses: Vec<String>,
+    pub max_parallel: usize,
+    pub accept_team_jobs: bool,
+}
+
+/// `POST /factory/runners/register` answer: the runner id and a `ttm_job_` token for the runner channel.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunnerRegistration {
+    pub runner_id: String,
+    pub token: String,
+}
+
+impl std::fmt::Debug for RunnerRegistration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunnerRegistration")
+            .field("runner_id", &self.runner_id)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct JobRepo {
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub base_branch: Option<String>,
+}
+
+/// MCP access of the job: a short-lived token (`factory:run notee:read notee:comment` …) and toolsets.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct JobMcp {
+    pub token: String,
+    #[serde(default)]
+    pub toolsets: Vec<String>,
+}
+
+impl std::fmt::Debug for JobMcp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JobMcp")
+            .field("toolsets", &self.toolsets)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct JobLimits {
+    #[serde(default)]
+    pub max_turns: Option<u32>,
+    #[serde(default)]
+    pub budget_tokens: Option<u64>,
+    #[serde(default)]
+    pub timeout_min: Option<u64>,
+}
+
+/// What the server asks a runner to do. The prompt is final; the logic that produced it stays on the server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobSpec {
+    pub run_id: String,
+    pub task_key: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub project_key: Option<String>,
+    #[serde(default)]
+    pub repo: JobRepo,
+    pub branch: String,
+    #[serde(default)]
+    pub worktree_hint: Option<String>,
+    #[serde(default = "claude_code")]
+    pub harness: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    pub prompt: String,
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    #[serde(default)]
+    pub mcp: JobMcp,
+    #[serde(default)]
+    pub limits: JobLimits,
+    #[serde(default)]
+    pub rules_rev: Option<i64>,
+}
+
+fn claude_code() -> String {
+    "claude-code".into()
+}
+
+impl JobSpec {
+    /// Project key: `project_key`, else the prefix of `task_key` (`AUR-12` → `AUR`).
+    pub fn project_key(&self) -> String {
+        self.project_key.clone().unwrap_or_else(|| {
+            self.task_key
+                .rsplit_once('-')
+                .map(|(k, _)| k.to_string())
+                .unwrap_or_default()
+        })
+    }
+}
+
+/// One event of a run's activity stream.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunEvent {
+    /// `thought`, `action`, `plan`, `approval_request`, `response`, `log`, `rule_check`, `usage`, `progress`.
+    pub kind: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    /// RFC 3339.
+    #[serde(default)]
+    pub at: Option<String>,
+}
+
+impl RunEvent {
+    pub fn now(kind: &str, message: impl Into<String>, data: Option<Value>) -> Self {
+        let at = time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .ok();
+        Self {
+            kind: kind.into(),
+            message: message.into(),
+            data,
+            at,
+        }
+    }
+}
+
+/// `POST /factory/runners/{id}/heartbeat` body.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Heartbeat {
+    pub running: Vec<String>,
+    pub capacity: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_until: Option<String>,
+}
+
+/// Heartbeat answer (assumed): runs to stop (kill switch) and whether to shut down (turned off from the web).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HeartbeatReply {
+    #[serde(default)]
+    pub stop_runs: Vec<String>,
+    #[serde(default)]
+    pub shutdown: bool,
+}
+
+/// `POST /factory/runs/{id}/finish` body (assumed).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RunFinish {
+    /// `succeeded`, `failed`, `cancelled`, `paused`.
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
+    #[serde(default)]
+    pub tokens_in: u64,
+    #[serde(default)]
+    pub tokens_out: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused_until: Option<String>,
+}
+
+/// Lease answer (assumed `{granted, expires_at?, held_by?}`; a 409 means held by another run).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Lease {
+    #[serde(default)]
+    pub granted: bool,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub held_by: Option<Value>,
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+
+impl Client {
+    pub async fn register_runner(&self, body: &RegisterRunner) -> Result<RunnerRegistration> {
+        self.post("/factory/runners/register", body).await
+    }
+
+    /// Long-poll `GET /factory/runners/{id}/jobs?wait=<s>`: `None` on 204 / empty.
+    pub async fn poll_job(&self, runner_id: &str, wait_secs: u64) -> Result<Option<JobSpec>> {
+        let path = format!("/factory/runners/{}/jobs", encode(runner_id));
+        let response = self
+            .send(Method::GET, &path, &[("wait", wait_secs.to_string())], None)
+            .await?;
+        let status = response.status().as_u16();
+        let bytes = response.bytes().await?;
+        if status == 204 || bytes.is_empty() {
+            return Ok(None);
+        }
+        let value: Value = serde_json::from_slice(&bytes).map_err(|e| ApiError::Decode {
+            status,
+            message: e.to_string(),
+        })?;
+        let job = match value {
+            Value::Null => return Ok(None),
+            Value::Object(ref map) if map.contains_key("job") => map["job"].clone(),
+            other => other,
+        };
+        if job.is_null() {
+            return Ok(None);
+        }
+        serde_json::from_value(job)
+            .map(Some)
+            .map_err(|e| ApiError::Decode {
+                status,
+                message: e.to_string(),
+            })
+    }
+
+    pub async fn accept_job(&self, run_id: &str) -> Result<()> {
+        self.post::<_, Value>(
+            &format!("/factory/runs/{}/accept", encode(run_id)),
+            &serde_json::json!({}),
+        )
+        .await
+        .map(drop)
+    }
+
+    pub async fn heartbeat(&self, runner_id: &str, beat: &Heartbeat) -> Result<HeartbeatReply> {
+        self.post(&format!("/factory/runners/{}/heartbeat", encode(runner_id)), beat)
+            .await
+    }
+
+    /// `POST /factory/runs/{id}/events` (batch).
+    pub async fn post_run_events(&self, run_id: &str, events: &[RunEvent]) -> Result<()> {
+        self.post::<_, Value>(
+            &format!("/factory/runs/{}/events", encode(run_id)),
+            &serde_json::json!({ "events": events }),
+        )
+        .await
+        .map(drop)
+    }
+
+    pub async fn run_events(&self, run_id: &str, since: Option<usize>) -> Result<Vec<RunEvent>> {
+        let params: Vec<(&str, String)> = since.map(|s| vec![("since", s.to_string())]).unwrap_or_default();
+        self.get_query(&format!("/factory/runs/{}/events", encode(run_id)), &params)
+            .await
+    }
+
+    pub async fn finish_run(&self, run_id: &str, finish: &RunFinish) -> Result<()> {
+        self.post::<_, Value>(&format!("/factory/runs/{}/finish", encode(run_id)), finish)
+            .await
+            .map(drop)
+    }
+
+    pub async fn stop_run(&self, run_id: &str) -> Result<()> {
+        self.post::<_, Value>(
+            &format!("/factory/runs/{}/stop", encode(run_id)),
+            &serde_json::json!({}),
+        )
+        .await
+        .map(drop)
+    }
+
+    /// `POST /factory/runs/{id}/leases {paths}`; a 409 comes back as `granted: false` with `held_by`.
+    pub async fn request_lease(&self, run_id: &str, paths: &[String]) -> Result<Lease> {
+        let path = format!("/factory/runs/{}/leases", encode(run_id));
+        let (status, value) = self
+            .json_raw(Method::POST, &path, &serde_json::json!({ "paths": paths }), None)
+            .await?;
+        match status {
+            200..=299 => {
+                let mut lease: Lease = serde_json::from_value(value).unwrap_or_default();
+                if lease.paths.is_empty() {
+                    lease.paths = paths.to_vec();
+                }
+                if !lease.granted && lease.held_by.is_none() {
+                    lease.granted = true;
+                }
+                Ok(lease)
+            }
+            409 => Ok(Lease {
+                granted: false,
+                held_by: value.get("held_by").cloned().or(Some(value.clone())),
+                paths: paths.to_vec(),
+                expires_at: None,
+            }),
+            _ => Err(ApiError::from_body(
+                status,
+                "application/json",
+                &value.to_string(),
+            )),
+        }
+    }
+
+    /// `POST /factory/tasks/{key}/runs {runner_id}` → job for this machine (assumed; used by `ttm agent run`).
+    pub async fn start_task_run(&self, task: &str, runner_id: &str) -> Result<JobSpec> {
+        self.post(
+            &format!("/factory/tasks/{}/runs", encode(task)),
+            &serde_json::json!({ "runner_id": runner_id }),
+        )
+        .await
+    }
+
+    /// Context packed by the server for a run (`GET /factory/runs/{id}/context` → `{markdown}`, assumed).
+    pub async fn run_context(&self, run_id: &str) -> Result<Value> {
+        self.get(&format!("/factory/runs/{}/context", encode(run_id)))
+            .await
+    }
+
+    /// Context of a task outside a run (`GET /factory/tasks/{id}/context`, assumed).
+    pub async fn task_context(&self, task: &str) -> Result<Value> {
+        self.get(&format!("/factory/tasks/{}/context", encode(task)))
+            .await
+    }
+
+    /// `POST /factory/runs/{id}/approval-requests {reason}` (assumed).
+    pub async fn request_approval(&self, run_id: &str, reason: &str) -> Result<Value> {
+        self.post(
+            &format!("/factory/runs/{}/approval-requests", encode(run_id)),
+            &serde_json::json!({ "reason": reason }),
+        )
+        .await
+    }
+
+    /// `POST /factory/runs/{id}/artifacts {kind, url?, text?, title?}` (assumed).
+    pub async fn attach_artifact(&self, run_id: &str, artifact: &Value) -> Result<Value> {
+        self.post(&format!("/factory/runs/{}/artifacts", encode(run_id)), artifact)
+            .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,5 +700,18 @@ mod tests {
     fn rule_check_defaults_to_enabled() {
         let r: RuleCheck = serde_json::from_value(serde_json::json!({"id": "no_push_main"})).unwrap();
         assert!(r.enabled);
+    }
+
+    #[test]
+    fn job_spec_parses_and_hides_token() {
+        let job: JobSpec = serde_json::from_value(serde_json::json!({
+            "run_id": "r1", "task_key": "AUR-12", "repo": {"url": "git@github.com:a/b.git", "base_branch": "main"},
+            "branch": "aur-12-login", "harness": "claude-code", "model": "sonnet", "prompt": "Do it",
+            "allowed_tools": ["Read", "Edit"], "mcp": {"token": "ttm_job_SECRET", "toolsets": ["factory", "notee"]},
+            "limits": {"max_turns": 40, "timeout_min": 90}
+        }))
+        .unwrap();
+        assert_eq!(job.project_key(), "AUR");
+        assert!(!format!("{job:?}").contains("SECRET"));
     }
 }

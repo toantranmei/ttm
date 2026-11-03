@@ -68,6 +68,12 @@ pub enum Command {
     /// Hook entry points called by coding agents (reads the hook JSON on stdin).
     #[command(subcommand)]
     Hook(HookCommand),
+    /// Run agent jobs from the server on this machine.
+    #[command(subcommand)]
+    Runner(RunnerCommand),
+    /// Agent runs: start one now, follow its log, stop it.
+    #[command(subcommand)]
+    Agent(AgentCommand),
     /// MCP client setup.
     #[command(subcommand)]
     Mcp(McpCommand),
@@ -360,6 +366,57 @@ pub enum HookCommand {
     PreBash,
     /// Stop: require the project's test command before finishing (exit 2).
     Stop,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RunnerCommand {
+    /// Run in the foreground (Ctrl-C to stop).
+    Up,
+    /// Stop the runner started by `up` or the service.
+    Down,
+    /// Registration, capacity, harnesses, process state.
+    Status,
+    /// Change runner settings.
+    Config(RunnerConfigArgs),
+    /// Start the runner at login (launchd, systemd --user, Task Scheduler).
+    InstallService,
+}
+
+#[derive(Debug, Args)]
+pub struct RunnerConfigArgs {
+    /// Agents at once (default: from CPU and free RAM).
+    #[arg(long)]
+    pub max_parallel: Option<usize>,
+    /// Take jobs for teammates' tasks too.
+    #[arg(long)]
+    pub accept_team_jobs: Option<bool>,
+    /// Where worktrees go, e.g. ~/orca/workspaces.
+    #[arg(long)]
+    pub worktree_root: Option<String>,
+    /// Days to keep finished worktrees.
+    #[arg(long)]
+    pub keep_days: Option<u32>,
+    /// Local clone of a project: KEY=PATH (repeatable).
+    #[arg(long = "repo", value_name = "KEY=PATH")]
+    pub repos: Vec<String>,
+    /// Machine name shown on the web.
+    #[arg(long)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentCommand {
+    /// Run a task now on this machine and stream its activity.
+    Run { key: String },
+    /// Events of a run.
+    Logs {
+        run: String,
+        /// Keep printing new events.
+        #[arg(short, long)]
+        follow: bool,
+    },
+    /// Stop a run (kill switch).
+    Stop { run: String },
 }
 
 #[derive(Debug, Subcommand)]
