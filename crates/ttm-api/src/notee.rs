@@ -40,12 +40,17 @@ pub struct PageMarkdown {
     pub unknown_block_ids: Vec<String>,
 }
 
-/// `GET /resources/{id}/summary` (assumed shape: `{id, kind: "page"|"database", title, parent?, url?}`).
+/// `GET /resources/{id}/summary`: `{id, kind, title, icon?, parent?, url?, level?}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResourceSummary {
     pub id: String,
-    /// `page` or `database`.
+    /// `page`, `database` or `row` (a database row, readable as a page).
     pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// The caller's access level (`view`, `comment`, `edit`, `full`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
@@ -150,9 +155,9 @@ pub struct Thread {
     /// `{kind: page}`, `{kind: block, block_id}`, `{kind: text, block_id, quote}`.
     #[serde(default)]
     pub anchor: Value,
-    /// Anchored text (added by the server for agents).
+    /// Anchored text with up to 32 characters of context on each side (added by the server for agents).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub quote: Option<String>,
+    pub quote: Option<TextQuote>,
     #[serde(default)]
     pub resolved_at: Option<String>,
     #[serde(default)]

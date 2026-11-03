@@ -238,7 +238,7 @@ async fn comments<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Val
         text.push_str("No open comments.");
     }
     for thread in &threads {
-        let quote = thread.quote.clone().or_else(|| {
+        let quote = thread.quote.as_ref().map(|q| q.exact.clone()).or_else(|| {
             thread
                 .anchor
                 .get("quote")

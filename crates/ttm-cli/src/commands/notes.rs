@@ -123,8 +123,8 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                 for t in &threads {
                     let quote = t
                         .quote
-                        .as_deref()
-                        .map(|q| format!(" on \"{q}\""))
+                        .as_ref()
+                        .map(|q| format!(" on \"{}\"", q.exact))
                         .unwrap_or_default();
                     println!("Thread {}{quote}", t.id);
                     for c in &t.comments {
