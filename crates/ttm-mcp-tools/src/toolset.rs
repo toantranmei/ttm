@@ -1,7 +1,7 @@
 //! [`ToolSet`]: the MCP server handler.
 
 use crate::common::{CallContext, ToolFailure, ToolResult};
-use crate::{Backend, notee, notee_suggest, notee_write, workspace};
+use crate::{Backend, factory, notee, notee_suggest, notee_write, workspace};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
     ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
@@ -121,6 +121,9 @@ impl<B: Backend> ToolSet<B> {
             tools.extend(notee_write::tools());
             tools.extend(notee_suggest::tools());
         }
+        if self.toolsets.contains(Toolset::Factory) {
+            tools.extend(factory::tools());
+        }
         tools
     }
 
@@ -185,6 +188,9 @@ impl<B: Backend> ToolSet<B> {
                 return Some(result);
             }
             return notee_write::call(backend, name, args, ctx).await;
+        }
+        if name.starts_with("factory-") {
+            return factory::call(backend, name, args).await;
         }
         None
     }

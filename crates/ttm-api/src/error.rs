@@ -34,6 +34,9 @@ impl std::fmt::Display for Problem {
         if let Some(required) = &self.required {
             write!(f, " [requires scope {required}]")?;
         }
+        if let Some(params) = &self.params {
+            write!(f, " {}", serde_json::Value::Object(params.clone()))?;
+        }
         Ok(())
     }
 }

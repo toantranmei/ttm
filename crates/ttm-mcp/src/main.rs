@@ -7,7 +7,7 @@ use rmcp::ServiceExt;
 use time::OffsetDateTime;
 use ttm_api::Client;
 use ttm_core::{Context, Discovery, Overrides, TokenSource};
-use ttm_mcp_tools::{HttpBackend, ToolSet, Toolsets};
+use ttm_mcp_tools::{FactoryScope, HttpBackend, ToolSet, Toolsets};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
     })
     .context("loading the ttm configuration")?;
     let client = connect(&ctx).await?;
-    let backend = HttpBackend::new(client, ctx.workspace());
+    let backend = HttpBackend::new(client, ctx.workspace()).with_factory_scope(FactoryScope::from_env());
     let server = ToolSet::new(backend, toolsets).with_server_info("ttm", ttm_core::VERSION);
     tracing::info!(host = %ctx.host, profile = %ctx.profile_name, "ttm-mcp ready on stdio");
     let running = server

@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::Value;
+use ttm_api::factory::{Lease, RuleSet, RunEvent, Task};
 use ttm_api::notee::{
     CreateDatabase, CreatePages, DatabaseSchema, NewAnchor, PageMarkdown, Parent, QueryRequest, QueryResult,
     ResolveResult, ResourceRef, RowUpsert, SearchHit, Suggestion, Thread, UpdatePage, UpdateResult,
@@ -148,6 +149,51 @@ pub trait Backend: Send + Sync + 'static {
     ) -> BackendResult<ResolveResult> {
         Err(BackendError::unsupported("notee-resolve-suggestion"))
     }
+
+    // Factory (agent inside a run). `None` arguments mean the current task / run / project of the job.
+    async fn factory_get_task(&self, _task: Option<&str>) -> BackendResult<Task> {
+        Err(BackendError::unsupported("factory-get-task"))
+    }
+    async fn factory_get_context(&self, _task: Option<&str>) -> BackendResult<Value> {
+        Err(BackendError::unsupported("factory-get-context"))
+    }
+    async fn factory_report_progress(&self, _message: &str, _percent: Option<u8>) -> BackendResult<()> {
+        Err(BackendError::unsupported("factory-report-progress"))
+    }
+    async fn factory_request_approval(&self, _reason: &str) -> BackendResult<Value> {
+        Err(BackendError::unsupported("factory-request-approval"))
+    }
+    async fn factory_create_subtasks(&self, _parent: Option<&str>, _tasks: &[Value]) -> BackendResult<Value> {
+        Err(BackendError::unsupported("factory-create-subtasks"))
+    }
+    async fn factory_attach_artifact(&self, _artifact: &Value) -> BackendResult<Value> {
+        Err(BackendError::unsupported("factory-attach-artifact"))
+    }
+    async fn factory_get_rules(&self, _project: Option<&str>) -> BackendResult<RuleSet> {
+        Err(BackendError::unsupported("factory-get-rules"))
+    }
+    async fn factory_renew_lease(&self, _paths: &[String]) -> BackendResult<Lease> {
+        Err(BackendError::unsupported("factory-renew-lease"))
+    }
+}
+
+/// The job an agent works in, from `TTM_RUN_ID`, `TTM_TASK`, `TTM_PROJECT` (set by the runner).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FactoryScope {
+    pub run_id: Option<String>,
+    pub task: Option<String>,
+    pub project: Option<String>,
+}
+
+impl FactoryScope {
+    pub fn from_env() -> Self {
+        let var = |n: &str| std::env::var(n).ok().filter(|v| !v.is_empty());
+        Self {
+            run_id: var("TTM_RUN_ID"),
+            task: var("TTM_TASK"),
+            project: var("TTM_PROJECT"),
+        }
+    }
 }
 
 /// [`Backend`] over the public HTTP API.
@@ -156,6 +202,7 @@ pub struct HttpBackend {
     client: Client,
     /// Workspace id chosen with `ttm workspace switch`.
     current_workspace: Option<String>,
+    factory: FactoryScope,
 }
 
 impl HttpBackend {
@@ -163,7 +210,28 @@ impl HttpBackend {
         Self {
             client,
             current_workspace,
+            factory: FactoryScope::default(),
         }
+    }
+
+    /// Current run / task / project for the Factory tools.
+    pub fn with_factory_scope(mut self, scope: FactoryScope) -> Self {
+        self.factory = scope;
+        self
+    }
+
+    fn run_id(&self) -> BackendResult<&str> {
+        self.factory.run_id.as_deref().ok_or_else(|| {
+            BackendError::new(
+                "no_run",
+                "this tool works inside an agent run (TTM_RUN_ID is not set)",
+            )
+        })
+    }
+
+    fn task_or_current<'a>(&'a self, task: Option<&'a str>) -> BackendResult<&'a str> {
+        task.or(self.factory.task.as_deref())
+            .ok_or_else(|| BackendError::new("no_task", "give `task` (no current task: TTM_TASK is not set)"))
     }
 
     pub fn client(&self) -> &Client {
@@ -307,5 +375,55 @@ impl Backend for HttpBackend {
         } else {
             Ok(self.client.reject_suggestion(id).await?)
         }
+    }
+
+    async fn factory_get_task(&self, task: Option<&str>) -> BackendResult<Task> {
+        Ok(self.client.task(self.task_or_current(task)?).await?)
+    }
+
+    async fn factory_get_context(&self, task: Option<&str>) -> BackendResult<Value> {
+        match (task, self.factory.run_id.as_deref()) {
+            (None, Some(run)) => Ok(self.client.run_context(run).await?),
+            _ => Ok(self.client.task_context(self.task_or_current(task)?).await?),
+        }
+    }
+
+    async fn factory_report_progress(&self, message: &str, percent: Option<u8>) -> BackendResult<()> {
+        let data = percent.map(|p| serde_json::json!({ "percent": p }));
+        Ok(self
+            .client
+            .post_run_events(self.run_id()?, &[RunEvent::now("progress", message, data)])
+            .await?)
+    }
+
+    async fn factory_request_approval(&self, reason: &str) -> BackendResult<Value> {
+        Ok(self.client.request_approval(self.run_id()?, reason).await?)
+    }
+
+    async fn factory_create_subtasks(&self, parent: Option<&str>, tasks: &[Value]) -> BackendResult<Value> {
+        let parent = self.task_or_current(parent)?;
+        Ok(self
+            .client
+            .create_subtasks(parent, tasks, self.factory.run_id.as_deref())
+            .await?)
+    }
+
+    async fn factory_attach_artifact(&self, artifact: &Value) -> BackendResult<Value> {
+        Ok(self.client.attach_artifact(self.run_id()?, artifact).await?)
+    }
+
+    async fn factory_get_rules(&self, project: Option<&str>) -> BackendResult<RuleSet> {
+        let project = project
+            .or(self.factory.project.as_deref())
+            .ok_or_else(|| BackendError::new("no_project", "give `project` (TTM_PROJECT is not set)"))?;
+        let id = match self.client.find_project(project).await {
+            Ok(Some(p)) => p.id,
+            _ => project.to_string(),
+        };
+        Ok(self.client.rules(&id).await?)
+    }
+
+    async fn factory_renew_lease(&self, paths: &[String]) -> BackendResult<Lease> {
+        Ok(self.client.request_lease(self.run_id()?, paths).await?)
     }
 }
