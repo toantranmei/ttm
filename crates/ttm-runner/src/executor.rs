@@ -3,7 +3,7 @@
 use crate::SharedClient;
 use crate::config::RunnerConfig;
 use crate::harness::{self, HarnessOutcome};
-use crate::{git, worktree};
+use crate::{git, guard, worktree};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -93,13 +93,7 @@ impl Executor {
                     pr_url: None,
                     paused_until: None,
                 };
-                let finish = RunFinish {
-                    status: "failed".into(),
-                    branch: Some(job.branch.clone()),
-                    summary: Some(format!("{err:#}")),
-                    error: Some(format!("{err:#}")),
-                    ..RunFinish::default()
-                };
+                let finish = failed_finish(&job, &err);
                 (outcome, finish)
             }
         };
@@ -118,15 +112,16 @@ impl Executor {
         cancel: watch::Receiver<bool>,
     ) -> anyhow::Result<(JobOutcome, RunFinish)> {
         let key = job.project_key();
-        let repo = self
-            .config
-            .repo_for(&key, job.project_id.as_deref())
-            .cloned()
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no local clone configured for project {key}; run `ttm runner config --repo {key}=<path>`"
-                )
-            })?;
+        // Only the owner's configured clone, and only when it is the job's repository; never clone a URL.
+        let repo = guard::check(
+            job,
+            self.config.repo_for(&key, job.project_id.as_deref()),
+            |dir| ttm_core::worktree::git(dir, &["remote", "get-url", "origin"]).ok(),
+        )
+        .inspect_err(|refused| {
+            tracing::error!("refusing run {} ({}): {refused}", job.run_id, job.task_key);
+            eprintln!("ttm runner: refused {}: {}", job.task_key, refused.message);
+        })?;
         let base = job
             .repo
             .base_branch
@@ -247,6 +242,22 @@ impl Executor {
     }
 }
 
+/// The finish report of a job that could not run. A refusal reports its code (`repo_not_configured`,
+/// `invalid_branch`) as `error`; an invalid branch name is never sent (the server answers 400).
+pub fn failed_finish(job: &JobSpec, err: &anyhow::Error) -> RunFinish {
+    let (error, summary) = match err.downcast_ref::<guard::Refused>() {
+        Some(refused) => (refused.code.to_string(), refused.message.clone()),
+        None => (format!("{err:#}"), format!("{err:#}")),
+    };
+    RunFinish {
+        status: "failed".into(),
+        branch: guard::valid_branch(&job.branch).then(|| job.branch.clone()),
+        summary: Some(summary),
+        error: Some(error),
+        ..RunFinish::default()
+    }
+}
+
 /// Sends events in batches (every second or every 25 events).
 async fn forward(
     client: SharedClient,
@@ -306,6 +317,26 @@ mod tests {
         assert_eq!(env["TTM_RUN_ID"], "r1");
         assert_eq!(env["TTM_PROJECT"], "p1");
         assert_eq!(c["mcpServers"]["ttm"]["args"][1], "factory,notee");
+    }
+
+    #[test]
+    fn refusals_report_their_code() {
+        let mut j = job();
+        j.branch = "bad branch".into();
+        let err = anyhow::Error::new(guard::Refused {
+            code: guard::REPO_NOT_CONFIGURED,
+            message: "no clone".into(),
+        });
+        let f = failed_finish(&j, &err);
+        assert_eq!(
+            (f.error.as_deref(), f.summary.as_deref(), f.branch),
+            (Some("repo_not_configured"), Some("no clone"), None)
+        );
+        let other = failed_finish(&job(), &anyhow::anyhow!("boom"));
+        assert_eq!(
+            (other.error.as_deref(), other.branch.as_deref()),
+            (Some("boom"), Some("aur-12"))
+        );
     }
 
     #[test]

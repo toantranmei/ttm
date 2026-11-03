@@ -56,8 +56,10 @@ async fn task_context_progress_and_subtasks_use_the_run() {
     Mock::given(method("POST"))
         .and(path("/api/v1/factory/tasks/AUR-12/subtasks"))
         .and(body_partial_json(
-            json!({"run_id": "r1", "tasks": [{"title": "Write tests", "role": "QC"}]}),
+            json!({"tasks": [{"title": "Write tests", "role": "QC"}]}),
         ))
+        // The job token names its run; the client must not send another one.
+        .and(|req: &wiremock::Request| !String::from_utf8_lossy(&req.body).contains("run_id"))
         .respond_with(ResponseTemplate::new(200).set_body_json(
             json!({"tasks": [{"id": "AUR-31", "key": "AUR-31", "title": "Write tests"}], "warnings": []}),
         ))

@@ -404,7 +404,8 @@ impl Backend for HttpBackend {
         let parent = self.task_or_current(parent)?;
         Ok(self
             .client
-            .create_subtasks(parent, tasks, self.factory.run_id.as_deref())
+            // The job token already names its run (the server takes it from there); a different `run_id` is refused.
+            .create_subtasks(parent, tasks, None)
             .await?)
     }
 

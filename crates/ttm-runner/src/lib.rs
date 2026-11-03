@@ -11,6 +11,7 @@ pub mod config;
 pub mod connection;
 pub mod executor;
 pub mod git;
+pub mod guard;
 pub mod harness;
 pub mod merge;
 pub mod service;

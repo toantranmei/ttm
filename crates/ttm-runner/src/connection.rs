@@ -65,6 +65,8 @@ impl Runner {
         let mut beats: u32 = 0;
         let mut paused_until: Option<(String, tokio::time::Instant)> = None;
         let mut backoff = Duration::from_secs(1);
+        let mut rejections = Rejections::default();
+        let mut failure: Option<anyhow::Error> = None;
         tracing::info!(runner = %self.runner_id, capacity = self.capacity, "runner up");
         loop {
             if paused_until
@@ -81,8 +83,10 @@ impl Runner {
                 }
                 _ = heartbeat.tick() => {
                     beats = beats.wrapping_add(1);
-                    if needs_renewal(self.token_expires, OffsetDateTime::now_utc()) {
-                        self.renew_token().await;
+                    if needs_renewal(self.token_expires, OffsetDateTime::now_utc())
+                        && let Err(err) = self.renew_token().await
+                    {
+                        tracing::warn!("could not renew the runner token: {err:#}");
                     }
                     let beat = Heartbeat {
                         running: running.keys().cloned().collect(),
@@ -91,6 +95,7 @@ impl Runner {
                     };
                     match self.client.get().heartbeat(&self.runner_id, &beat).await {
                         Ok(reply) => {
+                            rejections.count = 0;
                             for run in reply.stop_runs {
                                 if let Some(tx) = running.get(&run) {
                                     tracing::info!(run = %run, "stop requested");
@@ -102,7 +107,12 @@ impl Runner {
                                 break;
                             }
                         }
-                        Err(err) if err.is_unauthorized() => self.renew_token().await,
+                        Err(err) if err.is_unauthorized() => {
+                            if let Some(stop) = self.rejected(&mut rejections).await {
+                                failure = Some(stop);
+                                break;
+                            }
+                        }
                         Err(err) => tracing::warn!("heartbeat failed: {err}"),
                     }
                     if beats.is_multiple_of(MERGE_EVERY)
@@ -136,7 +146,12 @@ impl Runner {
                             tasks.spawn(async move { executor.run(job, rx).await });
                         }
                         Ok(None) => backoff = Duration::from_secs(1),
-                        Err(err) if err.is_unauthorized() => self.renew_token().await,
+                        Err(err) if err.is_unauthorized() => {
+                            if let Some(stop) = self.rejected(&mut rejections).await {
+                                failure = Some(stop);
+                                break;
+                            }
+                        }
                         Err(err) => {
                             tracing::warn!("job poll failed: {err}; retrying in {backoff:?}");
                             tokio::time::sleep(backoff).await;
@@ -151,23 +166,64 @@ impl Runner {
             let _ = tx.send(true);
         }
         while tasks.join_next().await.is_some() {}
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 
-    async fn renew_token(&mut self) {
-        let Some(renew) = self.renew.clone() else {
-            tracing::warn!("the runner token expired; restart `ttm runner up`");
-            return;
-        };
-        match renew().await {
-            Ok((client, expires)) => {
-                self.client.set(client);
-                self.token_expires = expires;
-                tracing::info!("runner token renewed");
+    /// The server rejected the runner token (expired, or the runner was turned off or removed on the web, which
+    /// revokes it). Registers again at most once a minute; a turned-off runner then gets `shutdown` on the next
+    /// heartbeat and stops. Returns an error to stop when renewal is refused or rejections keep coming.
+    async fn rejected(&mut self, state: &mut Rejections) -> Option<anyhow::Error> {
+        state.count += 1;
+        if state.count > MAX_REJECTIONS {
+            return Some(anyhow::anyhow!(
+                "the server keeps rejecting this runner's token; it may have been removed on the web. Run `ttm runner up` again"
+            ));
+        }
+        if state.last_renew.is_some_and(|at| at.elapsed() < RENEW_SPACING) {
+            return None;
+        }
+        state.last_renew = Some(tokio::time::Instant::now());
+        match self.renew_token().await {
+            Ok(()) => None,
+            Err(err) if is_auth_error(&err) => {
+                Some(err.context("signing the runner in again was refused; run `ttm login`"))
             }
-            Err(err) => tracing::warn!("could not renew the runner token: {err:#}"),
+            Err(err) => {
+                tracing::warn!("could not renew the runner token: {err:#}");
+                None
+            }
         }
     }
+
+    /// Registers again with the person's sign-in (a runner token cannot register).
+    async fn renew_token(&mut self) -> anyhow::Result<()> {
+        let Some(renew) = self.renew.clone() else {
+            anyhow::bail!("the runner token expired; restart `ttm runner up`");
+        };
+        let (client, expires) = renew().await?;
+        self.client.set(client);
+        self.token_expires = expires;
+        tracing::info!("runner token renewed");
+        Ok(())
+    }
+}
+
+/// 401s in a row before the runner gives up.
+pub const MAX_REJECTIONS: u32 = 3;
+/// Least time between two re-registrations.
+pub const RENEW_SPACING: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Default)]
+struct Rejections {
+    count: u32,
+    last_renew: Option<tokio::time::Instant>,
+}
+
+/// 401/403 from the API anywhere in the error chain.
+pub fn is_auth_error(err: &anyhow::Error) -> bool {
+    err.chain()
+        .filter_map(|e| e.downcast_ref::<ttm_api::ApiError>())
+        .any(|e| matches!(e.status(), Some(401 | 403)))
 }
 
 /// One merge-queue pass over the configured projects: merge each head entry that may merge, report the result.
@@ -251,6 +307,23 @@ mod tests {
             .format(&time::format_description::well_known::Rfc3339)
             .unwrap();
         assert!(until_instant(&in_an_hour) > now + Duration::from_secs(3500));
+    }
+
+    #[test]
+    fn auth_errors_are_found_in_the_chain() {
+        let api = ttm_api::ApiError::Problem(Box::new(ttm_api::Problem {
+            status: 403,
+            code: "forbidden".into(),
+            title: "Forbidden".into(),
+            detail: None,
+            field: None,
+            rule: None,
+            params: None,
+            required: None,
+        }));
+        let err = anyhow::Error::new(api).context("registering this runner");
+        assert!(is_auth_error(&err));
+        assert!(!is_auth_error(&anyhow::anyhow!("network down")));
     }
 
     #[test]
