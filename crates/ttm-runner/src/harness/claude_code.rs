@@ -36,6 +36,39 @@ pub struct Mapped {
     pub paused_until: Option<String>,
 }
 
+/// What survives between lines: test commands waiting for their result, and the last test outcome.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StreamState {
+    pending_tests: std::collections::HashMap<String, String>,
+    pub tests_pass: Option<bool>,
+    pub tests_command: Option<String>,
+}
+
+/// Whether a shell command runs a test suite (`cargo test`, `pnpm test`, `npm run test`, `pytest`, `go test`, …).
+pub fn is_test_command(command: &str) -> bool {
+    let c = command.to_lowercase();
+    [
+        "cargo test",
+        "cargo nextest",
+        "pnpm test",
+        "npm test",
+        "npm run test",
+        "yarn test",
+        "pnpm run test",
+        "pytest",
+        "go test",
+        "vitest",
+        "jest",
+        "playwright test",
+        "test:e2e",
+        "mix test",
+        "bundle exec rspec",
+        "dotnet test",
+    ]
+    .iter()
+    .any(|t| c.contains(t))
+}
+
 /// Arguments of the `claude` command for a job.
 pub fn command_args(job: &JobSpec, mcp_config: &Path) -> Vec<String> {
     let mut args = vec![
@@ -85,8 +118,13 @@ pub fn usage_limit(text: &str) -> Option<String> {
     at.format(&time::format_description::well_known::Rfc3339).ok()
 }
 
-/// Maps one stdout line.
+/// Maps one stdout line (no state kept between lines).
 pub fn map_line(line: &str) -> Mapped {
+    map_line_with(&mut StreamState::default(), line)
+}
+
+/// Maps one stdout line, tracking test commands and their results in `state`.
+pub fn map_line_with(state: &mut StreamState, line: &str) -> Mapped {
     let mut out = Mapped::default();
     let Ok(msg) = serde_json::from_str::<Value>(line) else {
         if !line.trim().is_empty() {
@@ -117,6 +155,12 @@ pub fn map_line(line: &str) -> Mapped {
                     Some("tool_use") => {
                         let name = block["name"].as_str().unwrap_or("tool");
                         let input = &block["input"];
+                        if name == "Bash"
+                            && let (Some(id), Some(cmd)) = (block["id"].as_str(), input["command"].as_str())
+                            && is_test_command(cmd)
+                        {
+                            state.pending_tests.insert(id.to_string(), cmd.to_string());
+                        }
                         let kind = if name == "TodoWrite" { "plan" } else { "action" };
                         let summary = input["command"]
                             .as_str()
@@ -138,6 +182,28 @@ pub fn map_line(line: &str) -> Mapped {
                     + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
                     + usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
                 out.tokens_out += usage["output_tokens"].as_u64().unwrap_or(0);
+            }
+        }
+        Some("user") => {
+            for block in msg["message"]["content"].as_array().into_iter().flatten() {
+                if block["type"].as_str() != Some("tool_result") {
+                    continue;
+                }
+                let Some(command) = block["tool_use_id"]
+                    .as_str()
+                    .and_then(|id| state.pending_tests.remove(id))
+                else {
+                    continue;
+                };
+                let passed = !block["is_error"].as_bool().unwrap_or(false);
+                state.tests_pass = Some(passed);
+                state.tests_command = Some(command.clone());
+                let verdict = if passed { "passed" } else { "failed" };
+                out.events.push(RunEvent::now(
+                    "log",
+                    format!("tests {verdict}: {}", short(&command, 200)),
+                    Some(json!({ "tests_pass": passed, "command": command })),
+                ));
             }
         }
         Some("result") => {
@@ -208,11 +274,12 @@ impl Harness for ClaudeCode {
         let mut outcome = HarnessOutcome::default();
         let mut lines = BufReader::new(stdout).lines();
         let mut result: Option<(bool, String)> = None;
+        let mut state = StreamState::default();
         loop {
             tokio::select! {
                 line = lines.next_line() => match line? {
                     Some(line) => {
-                        let mapped = map_line(&line);
+                        let mapped = map_line_with(&mut state, &line);
                         outcome.tokens_in += mapped.tokens_in;
                         outcome.tokens_out += mapped.tokens_out;
                         if mapped.paused_until.is_some() {
@@ -241,6 +308,8 @@ impl Harness for ClaudeCode {
             outcome.paused_until.get_or_insert(until);
         }
         outcome.summary = result.as_ref().map(|(_, t)| t.clone());
+        outcome.tests_pass = state.tests_pass;
+        outcome.tests_command = state.tests_command;
         outcome.status = if outcome.paused_until.is_some() {
             "paused".into()
         } else if status.success() && result.as_ref().is_none_or(|(ok, _)| *ok) {
@@ -309,6 +378,44 @@ mod tests {
         );
         assert_eq!(done.result, Some((true, "Done: login fixed".into())));
         assert_eq!(done.events[0].kind, "response");
+    }
+
+    #[test]
+    fn tracks_test_results() {
+        let mut st = StreamState::default();
+        map_line_with(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo test --workspace"}}]}}"#,
+        );
+        let m = map_line_with(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"1 failed"}]}}"#,
+        );
+        assert_eq!(st.tests_pass, Some(false));
+        assert!(m.events[0].message.starts_with("tests failed"));
+        map_line_with(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cargo test"}}]}}"#,
+        );
+        map_line_with(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}"#,
+        );
+        assert_eq!(
+            (st.tests_pass, st.tests_command.as_deref()),
+            (Some(true), Some("cargo test"))
+        );
+        map_line_with(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"ls"}}]}}"#,
+        );
+        map_line_with(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","is_error":true}]}}"#,
+        );
+        assert_eq!(st.tests_pass, Some(true), "non-test commands do not count");
+        assert!(is_test_command("pnpm --filter web test:e2e"));
+        assert!(!is_test_command("git status"));
     }
 
     #[test]

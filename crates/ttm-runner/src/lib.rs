@@ -12,9 +12,12 @@ pub mod connection;
 pub mod executor;
 pub mod git;
 pub mod harness;
+pub mod merge;
 pub mod service;
+pub mod shared;
 pub mod worktree;
 
 pub use config::RunnerConfig;
 pub use connection::Runner;
 pub use executor::{Executor, JobOutcome};
+pub use shared::SharedClient;

@@ -24,40 +24,26 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
                 .tasks(&project.file.project_id)
                 .await?
                 .into_iter()
-                .filter(|t| {
-                    state
-                        .as_deref()
-                        .is_none_or(|s| t.state.as_deref() == Some(s) || t.category.as_deref() == Some(s))
-                })
-                .filter(|t| {
-                    me.as_deref()
-                        .is_none_or(|id| assignee_id(t).as_deref() == Some(id))
-                })
+                .filter(|t| state.as_deref().is_none_or(|s| matches_state(t, s)))
+                .filter(|t| me.as_deref().is_none_or(|id| t.assignee_id() == Some(id)))
                 .collect();
             emit(app.json, &tasks, || {
                 for t in &tasks {
-                    println!(
-                        "{:<10} {:<14} {:<9} {:<16} {}",
-                        t.key,
-                        t.state.as_deref().or(t.category.as_deref()).unwrap_or("-"),
-                        t.role.as_deref().unwrap_or("-"),
-                        t.assignee_name().unwrap_or_else(|| "-".into()),
-                        t.title
-                    );
+                    println!("{}", row(t));
                 }
             });
         }
         TaskCommand::Show { key } => {
             let task = client.task(&key).await?;
             emit(app.json, &task, || {
-                println!("{}  {}", task.key, task.title);
+                println!("{}  {}", task.key(), task.title);
                 println!(
                     "state: {}  role: {}  assignee: {}",
                     task.state.as_deref().unwrap_or("-"),
-                    task.role.as_deref().unwrap_or("-"),
+                    task.work_role().unwrap_or("-"),
                     task.assignee_name().unwrap_or_else(|| "-".into())
                 );
-                if let Some(desc) = task.extra.get("description").and_then(Value::as_str) {
+                if let Some(desc) = task.description.as_deref().filter(|d| !d.is_empty()) {
                     println!("\n{desc}");
                 }
             });
@@ -65,36 +51,64 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
         TaskCommand::Claim { key } => {
             let me = client.me().await?.user;
             let task = client.task(&key).await?;
+            // `assignee` as an object sets the member doing the task; as a string it would set the role.
             let updated = client
                 .update_task(&task, &json!({ "assignee": { "kind": "user", "id": me.id } }))
                 .await?;
-            emit(app.json, &updated, || println!("{} is now yours.", updated.key));
+            emit(app.json, &updated, || println!("{} is now yours.", updated.key()));
         }
         TaskCommand::Done { key } => {
-            let task = client.task(&key).await?;
-            let result = client.transition_task(&task.id, "done").await?;
-            emit(app.json, &result, || println!("{} moved to done.", task.key));
+            let task = client.transition_task(&key, "done").await?;
+            emit(app.json, &task, || {
+                println!(
+                    "{} is now {}.",
+                    task.key(),
+                    task.state.as_deref().unwrap_or("done")
+                )
+            });
         }
         TaskCommand::Approve { key, reject } => {
-            let task = client.task(&key).await?;
             let decision = if reject { "reject" } else { "approve" };
-            let result = client.approve_task(&task.id, decision).await?;
-            emit(app.json, &result, || println!("{} {}d.", task.key, decision));
+            let task = client.approve_task(&key, decision).await?;
+            emit(app.json, &task, || {
+                println!(
+                    "{} {}d; state {}.",
+                    task.key(),
+                    decision,
+                    task.state.as_deref().unwrap_or("-")
+                )
+            });
         }
         TaskCommand::Split { key, file } => {
             let tasks = parse_subtasks(&read_input(&file)?)?;
-            let task = client.task(&key).await?;
-            let result = client.create_subtasks(&task.id, &tasks, None).await?;
+            let result = client.create_subtasks(&key, &tasks, None).await?;
             emit(app.json, &result, || {
-                println!("{} subtask(s) created under {}.", tasks.len(), task.key)
+                let created = result["tasks"].as_array().map(Vec::len).unwrap_or(tasks.len());
+                println!("{created} subtask(s) created under {key}.");
+                for w in result["warnings"].as_array().into_iter().flatten() {
+                    eprintln!("warning: {}", w.as_str().unwrap_or_default());
+                }
             });
         }
     }
     Ok(ExitCode::SUCCESS)
 }
 
-fn assignee_id(task: &Task) -> Option<String> {
-    task.assignee.as_ref()?.get("id")?.as_str().map(String::from)
+/// `--state` matches the workflow state or its category.
+fn matches_state(task: &Task, state: &str) -> bool {
+    task.state.as_deref() == Some(state) || task.category.as_deref() == Some(state)
+}
+
+/// `AUR-12     doing          DEV       Dev bot          Login`.
+pub fn row(t: &Task) -> String {
+    format!(
+        "{:<10} {:<14} {:<9} {:<16} {}",
+        t.key(),
+        t.state.as_deref().or(t.category.as_deref()).unwrap_or("-"),
+        t.work_role().unwrap_or("-"),
+        t.assignee_name().unwrap_or_else(|| "-".into()),
+        t.title
+    )
 }
 
 /// `[…]` or `{"tasks": […]}`; each needs a `title`.
@@ -123,6 +137,21 @@ pub fn parse_subtasks(text: &str) -> Result<Vec<Value>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn row_shows_member_and_role() {
+        let t: Task = serde_json::from_value(json!({
+            "id": "AUR-12", "key": "AUR-12", "title": "Login", "state": "doing", "assignee": "DEV",
+            "assigneeMember": {"kind": "agent", "id": "a1", "name": "Dev bot"}
+        }))
+        .unwrap();
+        let r = row(&t);
+        assert!(
+            r.starts_with("AUR-12") && r.contains("DEV") && r.contains("Dev bot"),
+            "{r}"
+        );
+        assert!(matches_state(&t, "doing"));
+    }
 
     #[test]
     fn subtask_files() {

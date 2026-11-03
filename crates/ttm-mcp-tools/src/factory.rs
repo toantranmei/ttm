@@ -54,10 +54,17 @@ pub struct SubtaskArg {
     pub role: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    /// Story points or hours, as the project uses.
+    /// Whole number (story points or hours, as the project uses).
     #[serde(default)]
-    pub estimate: Option<f64>,
-    /// Keys of tasks (or titles of siblings in this call) this one depends on.
+    pub estimate: Option<i32>,
+    /// `feature`, `bug`, `chore`… as the project uses.
+    #[serde(default, rename = "type")]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    /// Keys of existing tasks, or `#<n>` for the n-th (0-based) subtask of this call.
     #[serde(default)]
     pub depends_on: Vec<String>,
     #[serde(default)]
@@ -77,8 +84,12 @@ pub struct SubtasksArgs {
 #[derive(Debug, Clone, Copy, Deserialize, serde::Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
-    PullRequest,
+    /// Pull request (`url`): recorded as the run's PR.
+    Pr,
+    /// Test run: set `passed`.
     TestResult,
+    /// CI result: set `passed`.
+    Ci,
     Screenshot,
     Link,
     Note,
@@ -95,6 +106,9 @@ pub struct ArtifactArgs {
     pub text: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// For `test_result` and `ci`: whether it passed.
+    #[serde(default)]
+    pub passed: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -214,16 +228,7 @@ async fn subtasks<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Val
     if args.tasks.is_empty() {
         return Err(ToolFailure::InvalidArgs("tasks is empty".into()));
     }
-    let tasks: Vec<Value> = args
-        .tasks
-        .into_iter()
-        .map(|t| {
-            json!({
-                "title": t.title, "role": t.role, "description": t.description, "estimate": t.estimate,
-                "depends_on": t.depends_on, "acceptance_criteria": t.acceptance_criteria
-            })
-        })
-        .collect();
+    let tasks: Vec<Value> = args.tasks.into_iter().map(subtask_body).collect();
     Ok(ToolOutput::json(
         backend
             .factory_create_subtasks(args.parent.as_deref(), &tasks)
@@ -233,11 +238,11 @@ async fn subtasks<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Val
 
 async fn artifact<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
     let args: ArtifactArgs = parse_required(args)?;
-    if args.url.is_none() && args.text.is_none() {
-        return Err(ToolFailure::InvalidArgs("give `url` or `text`".into()));
+    if args.url.is_none() && args.text.is_none() && args.passed.is_none() {
+        return Err(ToolFailure::InvalidArgs("give `url`, `text` or `passed`".into()));
     }
     let kind = serde_json::to_value(args.kind).unwrap_or(Value::Null);
-    let body = json!({ "kind": kind, "url": args.url, "text": args.text, "title": args.title });
+    let body = json!({ "kind": kind, "url": args.url, "text": args.text, "title": args.title, "passed": args.passed });
     Ok(ToolOutput::json(backend.factory_attach_artifact(&body).await?))
 }
 
@@ -256,4 +261,50 @@ async fn lease<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>
     Ok(ToolOutput::json(to_value(
         &backend.factory_renew_lease(&args.paths).await?,
     )))
+}
+
+/// The server's subtask input (camelCase; `estimate` is an integer).
+pub fn subtask_body(t: SubtaskArg) -> Value {
+    let mut body = json!({ "title": t.title });
+    let obj = body.as_object_mut().expect("object");
+    let mut put = |k: &str, v: Value| {
+        if !v.is_null() && v != json!([]) {
+            obj.insert(k.to_string(), v);
+        }
+    };
+    put("type", json!(t.kind));
+    put("priority", json!(t.priority));
+    put("estimate", json!(t.estimate));
+    put("role", json!(t.role));
+    put("description", json!(t.description));
+    put("labels", json!(t.labels));
+    put("acceptanceCriteria", json!(t.acceptance_criteria));
+    put("dependencies", json!(t.depends_on));
+    body
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subtask_body_is_camel_case() {
+        let arg: SubtaskArg = serde_json::from_value(json!({
+            "title": "Write tests", "role": "QC", "estimate": 3, "depends_on": ["#0"], "acceptance_criteria": ["covers login"]
+        }))
+        .unwrap();
+        assert_eq!(
+            subtask_body(arg),
+            json!({"title": "Write tests", "role": "QC", "estimate": 3, "dependencies": ["#0"], "acceptanceCriteria": ["covers login"]})
+        );
+    }
+
+    #[test]
+    fn artifact_kinds_match_the_server() {
+        assert_eq!(serde_json::to_value(ArtifactKind::Pr).unwrap(), "pr");
+        assert_eq!(
+            serde_json::to_value(ArtifactKind::TestResult).unwrap(),
+            "test_result"
+        );
+    }
 }

@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::ExitCode;
 use ttm_api::Client;
-use ttm_api::factory::{ChangeRequestOutcome, Conflict};
+use ttm_api::factory::{ChangeRequestOutcome, Conflict, bundle_path};
 use ttm_core::merge3::{self, Changes, Files};
 use ttm_core::project_file::{Linked, read_tree, write_tree};
 use ttm_core::worktree;
@@ -30,8 +30,17 @@ struct SyncOutput {
     local_changes: Vec<String>,
     server_changes: Vec<String>,
     change_request: Option<String>,
+    /// Files the server ignored, with the reason (deletions, `plan/index.md`, unreadable files).
+    skipped: Vec<String>,
+    /// The server found nothing to change in the local edits.
+    nothing_to_send: bool,
     conflicts: Vec<Conflict>,
     in_sync: bool,
+}
+
+/// Local plan changes keyed by their bundle path (`plan/tasks/A.md`), as change requests expect.
+pub fn as_bundle(changes: &Changes) -> Changes {
+    changes.iter().map(|(k, v)| (bundle_path(k), v.clone())).collect()
 }
 
 pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
@@ -80,12 +89,21 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
 
     if send {
         match client
-            .create_change_request(&linked.file.project_id, linked.file.synced_rev, &local_changes)
+            .create_change_request(
+                &linked.file.project_id,
+                linked.file.synced_rev,
+                &as_bundle(&local_changes),
+            )
             .await?
         {
             ChangeRequestOutcome::Created(cr) => {
-                linked.file.pending_change_request = (cr.status == "pending").then(|| cr.id.clone());
-                out.change_request = Some(cr.id);
+                out.skipped = cr.skipped.clone();
+                if cr.is_empty() {
+                    out.nothing_to_send = true;
+                } else {
+                    linked.file.pending_change_request = (cr.status == "pending").then(|| cr.id.clone());
+                    out.change_request = Some(cr.id);
+                }
             }
             ChangeRequestOutcome::Conflicts(conflicts) => {
                 if !args.resolve {
@@ -111,9 +129,21 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
         }
     }
 
-    // Bring server changes in, keeping local edits that are not decided yet.
-    let merged = merge3::merge(&base, &local, &remote);
-    write_tree(&linked.plan_dir(), &merged.files)?;
+    // Bring server changes in, keeping local edits that are not decided yet. When the server found nothing to change
+    // in them, the plan is up to date: take the server version and keep a copy of what is replaced.
+    let next = if out.nothing_to_send {
+        let dropped: Files = local_changes
+            .keys()
+            .filter_map(|k| local.get(k).map(|v| (k.clone(), v.clone())))
+            .collect();
+        if !dropped.is_empty() {
+            write_tree(&linked.cache_dir().join("dropped"), &dropped)?;
+        }
+        remote.clone()
+    } else {
+        merge3::merge(&base, &local, &remote).files
+    };
+    write_tree(&linked.plan_dir(), &next)?;
     write_tree(&linked.base_dir(), &remote)?;
     linked.file.synced_rev = bundle.rev;
     linked.save()?;
@@ -126,6 +156,14 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
         );
         if let Some(cr) = &out.change_request {
             println!("Local edits sent as change request {cr}; they apply once approved on the web.");
+        }
+        if out.nothing_to_send {
+            println!(
+                "Up to date: the server found nothing to change in the local edits (copies in .ttm/cache/dropped)."
+            );
+        }
+        for s in &out.skipped {
+            eprintln!("skipped: {s}");
         }
     });
     Ok(ExitCode::SUCCESS)
@@ -208,11 +246,17 @@ async fn resolve(
                 dir.join("merged").display()
             );
         }
-        let files: Changes = merged.into_iter().map(|(k, v)| (k, Some(v))).collect();
+        let files: Changes = merged
+            .into_iter()
+            .map(|(k, v)| (bundle_path(&k), Some(v)))
+            .collect();
         match client
             .create_change_request(&linked.file.project_id, server_rev, &files)
             .await?
         {
+            ChangeRequestOutcome::Created(cr) if cr.is_empty() => {
+                bail!("the merged plan changes nothing on the server")
+            }
             ChangeRequestOutcome::Created(cr) => Ok(cr.id),
             ChangeRequestOutcome::Conflicts(c) => bail!(
                 "the merged plan still conflicts on {} field(s); run sync again",
@@ -245,4 +289,18 @@ fn run_agent(claude: &Path, cwd: &Path, prompt: &str) -> Result<()> {
         bail!("the resolve agent exited with {status}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn change_request_paths_are_bundle_paths() {
+        let mut c = Changes::new();
+        c.insert("tasks/AUR-1.md".into(), Some("x".into()));
+        c.insert("index.md".into(), None);
+        let b = as_bundle(&c);
+        assert!(b.contains_key("plan/tasks/AUR-1.md") && b.contains_key("plan/index.md"));
+    }
 }

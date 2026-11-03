@@ -87,6 +87,8 @@ pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
                 .find_project(&project)
                 .await?
                 .ok_or_else(|| anyhow!("no project `{project}` in your workspaces"))?;
+            // List items lack the repository settings; the single project has them.
+            let found = client.project(&found.id).await.unwrap_or(found);
             let root = repo_root()?;
             let linked = link(&app, &client, &root, &found).await?;
             emit(app.json, &linked.file, || {

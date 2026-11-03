@@ -14,11 +14,16 @@ pub async fn run(app: App, command: AgentCommand) -> Result<ExitCode> {
     match command {
         AgentCommand::Run { key } => {
             let mut config = RunnerConfig::load(&app.ctx.paths.config_dir)?;
-            let (runner_id, runner_client) = ensure_registered(&app, &mut config).await?;
+            let (runner_id, runner_client, _, _) = ensure_registered(&app, &mut config).await?;
             let (user, _) = app.api().await?;
             let job = user.start_task_run(&key, &runner_id).await?;
             eprintln!("Run {} for {} on branch {}", job.run_id, job.task_key, job.branch);
-            let exec = executor(&app, runner_client, config, !app.json)?;
+            let exec = executor(
+                &app,
+                ttm_runner::SharedClient::new(runner_client),
+                config,
+                !app.json,
+            )?;
             let (tx, rx) = tokio::sync::watch::channel(false);
             tokio::spawn(async move {
                 let _ = tokio::signal::ctrl_c().await;
@@ -43,22 +48,20 @@ pub async fn run(app: App, command: AgentCommand) -> Result<ExitCode> {
         }
         AgentCommand::Logs { run, follow } => {
             let (client, _) = app.api().await?;
-            let mut seen = 0usize;
+            // `since` is the id of the last event printed.
+            let mut last: Option<i64> = None;
             loop {
-                let events = client.run_events(&run, (seen > 0).then_some(seen)).await?;
-                let fresh: Vec<_> = if seen > 0 {
-                    events
-                } else {
-                    events.into_iter().collect()
-                };
-                for e in &fresh {
+                let events = client.run_events(&run, last).await?;
+                for e in &events {
                     if app.json {
                         println!("{}", serde_json::to_string(e)?);
                     } else {
                         println!("{} [{}] {}", e.at.as_deref().unwrap_or(""), e.kind, e.message);
                     }
                 }
-                seen += fresh.len();
+                if let Some(id) = events.iter().filter_map(|e| e.id).max() {
+                    last = Some(id);
+                }
                 if !follow {
                     break;
                 }

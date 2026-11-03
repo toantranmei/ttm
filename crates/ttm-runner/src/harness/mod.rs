@@ -18,6 +18,10 @@ pub struct HarnessOutcome {
     pub summary: Option<String>,
     /// Usage limit reached: retry after this RFC 3339 time.
     pub paused_until: Option<String>,
+    /// The agent ran a test command: whether the last run passed.
+    pub tests_pass: Option<bool>,
+    /// That test command.
+    pub tests_command: Option<String>,
 }
 
 #[async_trait]

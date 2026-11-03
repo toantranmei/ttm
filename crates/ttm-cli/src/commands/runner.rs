@@ -9,10 +9,12 @@ use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use ttm_api::Client;
 use ttm_api::factory::RegisterRunner;
 use ttm_core::{CredentialStore, StoredToken};
-use ttm_runner::{Executor, Runner, RunnerConfig, capacity, harness, service};
+use ttm_runner::connection::MergeSetup;
+use ttm_runner::{Executor, Runner, RunnerConfig, SharedClient, capacity, harness, service};
 
 /// The runner's own token is stored apart from the user's (`<profile>#runner@<host>`), and never read from TTM_TOKEN.
 fn runner_store(app: &App) -> (CredentialStore, String) {
@@ -23,35 +25,100 @@ fn runner_store(app: &App) -> (CredentialStore, String) {
     )
 }
 
-/// Registers this machine when needed; returns the runner id and a client using the runner token.
-pub async fn ensure_registered(app: &App, config: &mut RunnerConfig) -> Result<(String, Client)> {
-    let (store, account) = runner_store(app);
-    let saved = store.load(&account, app.host())?.map(|(t, _)| t.access_token);
-    let (user, discovery) = app.api().await?;
-    let (id, token) = match (config.runner_id.clone(), saved) {
-        (Some(id), Some(token)) => (id, token),
-        _ => {
-            let reg = user
-                .register_runner(&RegisterRunner {
-                    name: config.name.clone(),
-                    os: std::env::consts::OS.into(),
-                    arch: std::env::consts::ARCH.into(),
-                    version: ttm_core::VERSION.into(),
-                    harnesses: harness::installed(),
-                    max_parallel: capacity::effective(config.max_parallel),
-                    accept_team_jobs: config.accept_team_jobs,
-                })
-                .await
-                .context("registering this runner")?;
-            store.save(&account, app.host(), &StoredToken::bare(&reg.token))?;
+/// Everything needed to (re)register this machine, detached from `App` so the runner loop can renew its token.
+#[derive(Clone)]
+pub struct Registrar {
+    user: Client,
+    api_base: String,
+    cache_dir: PathBuf,
+    config_dir: PathBuf,
+    store: CredentialStore,
+    account: String,
+    host: String,
+    body: RegisterRunner,
+}
+
+impl Registrar {
+    /// Registers (the server keeps the id for the same name and revokes the previous token) and saves the token
+    /// with its expiry.
+    pub async fn register(&self) -> Result<(String, Client, Option<OffsetDateTime>)> {
+        let reg = self
+            .user
+            .register_runner(&self.body)
+            .await
+            .context("registering this runner")?;
+        let expires = reg.expires_at.as_deref().and_then(parse_rfc3339);
+        let token = StoredToken {
+            expires_at: expires,
+            ..StoredToken::bare(&reg.token)
+        };
+        self.store.save(&self.account, &self.host, &token)?;
+        let mut config = RunnerConfig::load(&self.config_dir)?;
+        if config.runner_id.as_deref() != Some(reg.runner_id.as_str()) {
             config.runner_id = Some(reg.runner_id.clone());
-            config.save(&app.ctx.paths.config_dir)?;
-            (reg.runner_id, reg.token)
+            config.save(&self.config_dir)?;
+        }
+        Ok((reg.runner_id, self.client(reg.token)?, expires))
+    }
+
+    fn client(&self, token: String) -> Result<Client> {
+        Ok(Client::new(&self.api_base, Some(token))?.with_cache_dir(&self.cache_dir))
+    }
+
+    /// The renew hook of the runner loop.
+    pub fn renew(&self) -> ttm_runner::connection::Renew {
+        let me = self.clone();
+        std::sync::Arc::new(move || {
+            let me = me.clone();
+            Box::pin(async move { me.register().await.map(|(_, client, expires)| (client, expires)) })
+        })
+    }
+}
+
+fn parse_rfc3339(s: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok()
+}
+
+/// Registers this machine when there is no runner token or it is about to expire; returns the runner id, a client
+/// using the runner token, its expiry, and the registrar for later renewals.
+pub async fn ensure_registered(
+    app: &App,
+    config: &mut RunnerConfig,
+) -> Result<(String, Client, Option<OffsetDateTime>, Registrar)> {
+    let (store, account) = runner_store(app);
+    let saved = store.load(&account, app.host())?.map(|(t, _)| t);
+    let (user, discovery) = app.api().await?;
+    let registrar = Registrar {
+        user,
+        api_base: discovery.api_base(app.host()),
+        cache_dir: app.ctx.paths.cache_dir.clone(),
+        config_dir: app.ctx.paths.config_dir.clone(),
+        store,
+        account,
+        host: app.host().to_string(),
+        body: RegisterRunner {
+            name: config.name.clone(),
+            os: std::env::consts::OS.into(),
+            arch: std::env::consts::ARCH.into(),
+            version: ttm_core::VERSION.into(),
+            harnesses: harness::installed(),
+            max_parallel: capacity::effective(config.max_parallel),
+            accept_team_jobs: config.accept_team_jobs,
+        },
+    };
+    let fresh =
+        |t: &StoredToken| !ttm_runner::connection::needs_renewal(t.expires_at, OffsetDateTime::now_utc());
+    let (id, client, expires) = match (config.runner_id.clone(), saved) {
+        (Some(id), Some(token)) if fresh(&token) => {
+            (id, registrar.client(token.access_token)?, token.expires_at)
+        }
+        _ => {
+            let (id, client, expires) = registrar.register().await?;
+            config.runner_id = Some(id.clone());
+            (id, client, expires)
         }
     };
-    let client =
-        Client::new(discovery.api_base(app.host()), Some(token))?.with_cache_dir(&app.ctx.paths.cache_dir);
-    Ok((id, client))
+    Ok((id, client, expires, registrar))
 }
 
 /// `ttm-mcp` next to this `ttm`, else on PATH.
@@ -65,7 +132,7 @@ pub fn ttm_mcp_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(exe))
 }
 
-pub fn executor(app: &App, client: Client, config: RunnerConfig, echo: bool) -> Result<Executor> {
+pub fn executor(app: &App, client: SharedClient, config: RunnerConfig, echo: bool) -> Result<Executor> {
     let worktree_root = config
         .worktree_root(app.ctx.config.worktree_root())
         .ok_or_else(|| anyhow!("no worktree root; set one with `ttm runner config --worktree-root <dir>`"))?;
@@ -93,13 +160,26 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
             if harness::installed().is_empty() {
                 bail!("no agent harness found; install Claude Code (`claude`) first");
             }
-            let (runner_id, client) = ensure_registered(&app, &mut config).await?;
+            let (runner_id, client, token_expires, registrar) = ensure_registered(&app, &mut config).await?;
             let removed = ttm_runner::worktree::prune(&app.ctx.paths.cache_dir, config.keep_days);
             if removed > 0 {
                 tracing::info!("removed {removed} old worktree(s)");
             }
             let capacity = capacity::effective(config.max_parallel);
-            let executor = Arc::new(executor(&app, client.clone(), config, false)?);
+            let merge = if config.auto_merge {
+                let (user, _) = app.api().await?;
+                Some(MergeSetup {
+                    user,
+                    repos: config.repos.clone(),
+                    worktree_root: config
+                        .worktree_root(app.ctx.config.worktree_root())
+                        .ok_or_else(|| anyhow!("no worktree root"))?,
+                })
+            } else {
+                None
+            };
+            let shared = SharedClient::new(client);
+            let executor = Arc::new(executor(&app, shared.clone(), config, false)?);
             std::fs::create_dir_all(&app.ctx.paths.cache_dir)?;
             std::fs::write(pid_file(&app), std::process::id().to_string())?;
             eprintln!("Runner {runner_id} up: {capacity} agent(s) at once. Ctrl-C to stop.");
@@ -109,10 +189,13 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 let _ = tx.send(true);
             });
             let result = Runner {
-                client,
+                client: shared,
                 runner_id,
                 capacity,
                 executor,
+                token_expires,
+                renew: Some(registrar.renew()),
+                merge,
             }
             .run(rx)
             .await;
@@ -203,6 +286,9 @@ pub fn apply_config(config: &mut RunnerConfig, args: RunnerConfigArgs) -> Result
     }
     if let Some(name) = args.name {
         config.name = name;
+    }
+    if let Some(auto) = args.auto_merge {
+        config.auto_merge = auto;
     }
     for pair in args.repos {
         let (key, path) = pair
@@ -325,6 +411,7 @@ mod tests {
             keep_days: Some(7),
             repos: vec!["aur=/tmp".into()],
             name: None,
+            auto_merge: Some(true),
         };
         apply_config(&mut c, args).unwrap();
         assert_eq!(
@@ -339,6 +426,7 @@ mod tests {
             keep_days: None,
             repos: vec!["nope".into()],
             name: None,
+            auto_merge: None,
         };
         assert!(apply_config(&mut c, bad).is_err());
     }

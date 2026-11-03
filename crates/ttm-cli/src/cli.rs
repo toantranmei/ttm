@@ -402,6 +402,9 @@ pub struct RunnerConfigArgs {
     /// Machine name shown on the web.
     #[arg(long)]
     pub name: Option<String>,
+    /// Merge the head of each project's merge queue locally and push it.
+    #[arg(long)]
+    pub auto_merge: Option<bool>,
 }
 
 #[derive(Debug, Subcommand)]

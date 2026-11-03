@@ -7,6 +7,7 @@
 //! worktree_root = "~/orca/workspaces"
 //! keep_days = 3
 //! runner_id = "…"            # set by the first `ttm runner up`
+//! auto_merge = false          # merge the head of the merge queue locally and push
 //!
 //! [repos]                    # project key → local clone
 //! AUR = "/Users/me/code/aurora"
@@ -32,6 +33,9 @@ pub struct RunnerConfig {
     pub keep_days: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runner_id: Option<String>,
+    /// Merge the head of each project's merge queue locally and push it (off by default).
+    #[serde(default)]
+    pub auto_merge: bool,
     #[serde(default)]
     pub repos: BTreeMap<String, PathBuf>,
 }
@@ -65,6 +69,7 @@ impl Default for RunnerConfig {
             worktree_root: None,
             keep_days: 3,
             runner_id: None,
+            auto_merge: false,
             repos: BTreeMap::new(),
         }
     }

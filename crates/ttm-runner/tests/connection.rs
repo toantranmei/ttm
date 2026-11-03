@@ -80,3 +80,56 @@ async fn heartbeat_and_lease_conflict() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn register_returns_expiry_and_merge_result_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/factory/runners/register"))
+        .and(body_partial_json(
+            json!({"name": "mac", "max_parallel": 2, "accept_team_jobs": false}),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "runner_id": "rn1", "token": "ttm_job_abc", "expires_at": "2026-11-05T00:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/factory/projects/p1/merge-queue"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"id": "m1", "run_id": "r1", "task_key": "AUR-3", "branch": "aur-3", "pr_url": null, "status": "ready",
+             "can_merge": true, "detail": null, "enqueued_at": "2026-11-04T00:00:00Z"}
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/factory/merge-queue/m1/result"))
+        .and(body_partial_json(json!({"status": "conflict", "detail": "conflicting files: a.rs"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "m1", "run_id": "r1", "task_key": "AUR-3", "branch": "aur-3", "status": "conflict", "can_merge": false
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let c = client(&server).await;
+    let reg = c
+        .register_runner(&ttm_api::factory::RegisterRunner {
+            name: "mac".into(),
+            os: "macos".into(),
+            arch: "aarch64".into(),
+            version: "0.1.0".into(),
+            harnesses: vec!["claude-code".into()],
+            max_parallel: 2,
+            accept_team_jobs: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(reg.expires_at.as_deref(), Some("2026-11-05T00:00:00Z"));
+    let queue = c.merge_queue("p1").await.unwrap();
+    assert!(queue[0].can_merge);
+    let entry = c
+        .merge_result("m1", false, Some("conflicting files: a.rs"))
+        .await
+        .unwrap();
+    assert_eq!(entry.status, "conflict");
+}

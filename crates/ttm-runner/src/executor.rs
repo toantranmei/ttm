@@ -1,5 +1,6 @@
 //! Runs one job: worktree → rules → MCP config → harness → commit/push/PR → finish.
 
+use crate::SharedClient;
 use crate::config::RunnerConfig;
 use crate::harness::{self, HarnessOutcome};
 use crate::{git, worktree};
@@ -7,7 +8,6 @@ use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
-use ttm_api::Client;
 use ttm_api::factory::{JobSpec, RunEvent, RunFinish};
 
 /// Default job timeout when the spec has none.
@@ -26,8 +26,8 @@ pub struct JobOutcome {
 
 #[derive(Debug, Clone)]
 pub struct Executor {
-    /// Client authenticated as the runner (or the user for `ttm agent run`).
-    pub client: Client,
+    /// Client authenticated as the runner; swapped when the runner token is renewed.
+    pub client: SharedClient,
     /// Server URL given to `ttm-mcp`.
     pub host: String,
     pub config: RunnerConfig,
@@ -97,6 +97,7 @@ impl Executor {
                     status: "failed".into(),
                     branch: Some(job.branch.clone()),
                     summary: Some(format!("{err:#}")),
+                    error: Some(format!("{err:#}")),
                     ..RunFinish::default()
                 };
                 (outcome, finish)
@@ -104,7 +105,7 @@ impl Executor {
         };
         drop(tx);
         let _ = forwarder.await;
-        if let Err(err) = self.client.finish_run(&job.run_id, &finish).await {
+        if let Err(err) = self.client.get().finish_run(&job.run_id, &finish).await {
             tracing::warn!("could not report the end of run {}: {err}", job.run_id);
         }
         outcome
@@ -185,8 +186,21 @@ impl Executor {
             tokens_out: outcome.tokens_out,
             summary: outcome.summary.clone(),
             paused_until: outcome.paused_until.clone(),
+            tests_pass: outcome.tests_pass,
+            error: (outcome.status == "failed")
+                .then(|| outcome.summary.clone().unwrap_or_else(|| "agent failed".into())),
             ..RunFinish::default()
         };
+        if let Some(passed) = outcome.tests_pass {
+            let artifact = serde_json::json!({
+                "kind": "test_result",
+                "title": outcome.tests_command.clone().unwrap_or_else(|| "tests".into()),
+                "passed": passed
+            });
+            if let Err(err) = self.client.get().attach_artifact(&job.run_id, &artifact).await {
+                tracing::debug!("could not attach the test result: {err}");
+            }
+        }
         if outcome.status == "succeeded" {
             if git::is_dirty(&path).unwrap_or(false) {
                 git::commit_all(&path, &leftover_commit_message(job))?;
@@ -234,7 +248,12 @@ impl Executor {
 }
 
 /// Sends events in batches (every second or every 25 events).
-async fn forward(client: Client, run_id: String, mut rx: mpsc::UnboundedReceiver<RunEvent>, echo: bool) {
+async fn forward(
+    client: SharedClient,
+    run_id: String,
+    mut rx: mpsc::UnboundedReceiver<RunEvent>,
+    echo: bool,
+) {
     let mut buf: Vec<RunEvent> = Vec::new();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     loop {
@@ -257,11 +276,11 @@ async fn forward(client: Client, run_id: String, mut rx: mpsc::UnboundedReceiver
     flush(&client, &run_id, &mut buf).await;
 }
 
-async fn flush(client: &Client, run_id: &str, buf: &mut Vec<RunEvent>) {
+async fn flush(client: &SharedClient, run_id: &str, buf: &mut Vec<RunEvent>) {
     if buf.is_empty() {
         return;
     }
-    if let Err(err) = client.post_run_events(run_id, buf).await {
+    if let Err(err) = client.get().post_run_events(run_id, buf).await {
         tracing::debug!("could not send {} event(s): {err}", buf.len());
     }
     buf.clear();

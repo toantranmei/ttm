@@ -32,7 +32,8 @@ async fn task_context_progress_and_subtasks_use_the_run() {
         .and(path("/api/v1/factory/tasks/AUR-12"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!({"id": "t12", "key": "AUR-12", "title": "Login", "state": "doing"})),
+                .set_body_json(json!({"id": "AUR-12", "key": "AUR-12", "uuid": "0b7c", "title": "Login", "state": "doing", "assignee": "DEV",
+            "assigneeMember": {"kind": "agent", "id": "a1", "name": "Dev bot"}, "rev": 3})),
         )
         .mount(&server)
         .await;
@@ -57,12 +58,16 @@ async fn task_context_progress_and_subtasks_use_the_run() {
         .and(body_partial_json(
             json!({"run_id": "r1", "tasks": [{"title": "Write tests", "role": "QC"}]}),
         ))
-        .respond_with(ResponseTemplate::new(201).set_body_json(json!({"created": [{"key": "AUR-31"}]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"tasks": [{"id": "AUR-31", "key": "AUR-31", "title": "Write tests"}], "warnings": []}),
+        ))
         .mount(&server)
         .await;
 
     let task = set.call("factory-get-task", None).await.unwrap();
-    assert_eq!(task.structured_content.unwrap()["key"], "AUR-12");
+    let task = task.structured_content.unwrap();
+    assert_eq!(task["key"], "AUR-12");
+    assert_eq!(task["assigneeMember"]["name"], "Dev bot");
     let ctx = set.call("factory-get-context", None).await.unwrap();
     assert!(ctx.content[0].as_text().unwrap().text.starts_with("# AUR-12"));
     set.call(
@@ -86,7 +91,7 @@ async fn task_context_progress_and_subtasks_use_the_run() {
         )
         .await
         .unwrap();
-    assert_eq!(sub.structured_content.unwrap()["created"][0]["key"], "AUR-31");
+    assert_eq!(sub.structured_content.unwrap()["tasks"][0]["key"], "AUR-31");
 }
 
 #[tokio::test]

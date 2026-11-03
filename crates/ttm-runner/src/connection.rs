@@ -1,10 +1,18 @@
 //! The runner loop: heartbeat every 20 s, long-poll for jobs while there is a free slot, run jobs concurrently,
-//! stop runs the server asks to stop (kill switch), pause while the agent's usage limit is reached.
+//! stop runs the server asks to stop (kill switch), pause while the agent's usage limit is reached, renew the
+//! 12-hour runner token before it expires (or on a 401), and, with `auto_merge`, merge the head of each project's
+//! merge queue.
 
+use crate::SharedClient;
 use crate::executor::{Executor, JobOutcome};
-use std::collections::HashMap;
+use crate::merge::{self, Merged};
+use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use time::OffsetDateTime;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use ttm_api::Client;
@@ -12,20 +20,49 @@ use ttm_api::factory::Heartbeat;
 
 pub const HEARTBEAT: Duration = Duration::from_secs(20);
 pub const POLL_WAIT_SECS: u64 = 15;
+/// Renew the runner token this long before it expires.
+pub const RENEW_BEFORE: time::Duration = time::Duration::minutes(30);
+/// Merge-queue pass every this many heartbeats (one minute).
+const MERGE_EVERY: u32 = 3;
+
+/// Registers again and returns the new runner client and token expiry.
+pub type Renew = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = anyhow::Result<(Client, Option<OffsetDateTime>)>> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// What `auto_merge` needs: the user's client (reporting a merge needs `factory:write`, which the runner token lacks),
+/// local clones by project key, and the worktree root.
+#[derive(Clone)]
+pub struct MergeSetup {
+    pub user: Client,
+    pub repos: BTreeMap<String, PathBuf>,
+    pub worktree_root: PathBuf,
+}
 
 pub struct Runner {
-    pub client: Client,
+    pub client: SharedClient,
     pub runner_id: String,
     pub capacity: usize,
     pub executor: Arc<Executor>,
+    pub token_expires: Option<OffsetDateTime>,
+    pub renew: Option<Renew>,
+    pub merge: Option<MergeSetup>,
+}
+
+/// Whether the token should be renewed now.
+pub fn needs_renewal(expires: Option<OffsetDateTime>, now: OffsetDateTime) -> bool {
+    expires.is_some_and(|at| at - now <= RENEW_BEFORE)
 }
 
 impl Runner {
     /// Runs until `shutdown` turns true or the server says to shut down.
-    pub async fn run(self, mut shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {
+    pub async fn run(mut self, mut shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {
         let mut running: HashMap<String, watch::Sender<bool>> = HashMap::new();
         let mut tasks: JoinSet<JobOutcome> = JoinSet::new();
         let mut heartbeat = tokio::time::interval(HEARTBEAT);
+        let mut beats: u32 = 0;
         let mut paused_until: Option<(String, tokio::time::Instant)> = None;
         let mut backoff = Duration::from_secs(1);
         tracing::info!(runner = %self.runner_id, capacity = self.capacity, "runner up");
@@ -37,17 +74,22 @@ impl Runner {
                 paused_until = None;
             }
             let can_take = running.len() < self.capacity && paused_until.is_none();
+            let client = self.client.get();
             tokio::select! {
                 _ = shutdown.changed() => {
                     if *shutdown.borrow() { break; }
                 }
                 _ = heartbeat.tick() => {
+                    beats = beats.wrapping_add(1);
+                    if needs_renewal(self.token_expires, OffsetDateTime::now_utc()) {
+                        self.renew_token().await;
+                    }
                     let beat = Heartbeat {
                         running: running.keys().cloned().collect(),
                         capacity: self.capacity,
                         paused_until: paused_until.as_ref().map(|(s, _)| s.clone()),
                     };
-                    match self.client.heartbeat(&self.runner_id, &beat).await {
+                    match self.client.get().heartbeat(&self.runner_id, &beat).await {
                         Ok(reply) => {
                             for run in reply.stop_runs {
                                 if let Some(tx) = running.get(&run) {
@@ -60,7 +102,13 @@ impl Runner {
                                 break;
                             }
                         }
+                        Err(err) if err.is_unauthorized() => self.renew_token().await,
                         Err(err) => tracing::warn!("heartbeat failed: {err}"),
+                    }
+                    if beats.is_multiple_of(MERGE_EVERY)
+                        && let Some(setup) = self.merge.clone()
+                    {
+                        merge_pass(&setup).await;
                     }
                 }
                 Some(done) = tasks.join_next(), if !tasks.is_empty() => {
@@ -74,11 +122,11 @@ impl Runner {
                         }
                     }
                 }
-                polled = self.client.poll_job(&self.runner_id, POLL_WAIT_SECS), if can_take => {
+                polled = client.poll_job(&self.runner_id, POLL_WAIT_SECS), if can_take => {
                     match polled {
                         Ok(Some(job)) => {
                             backoff = Duration::from_secs(1);
-                            if let Err(err) = self.client.accept_job(&job.run_id).await {
+                            if let Err(err) = client.accept_job(&job.run_id).await {
                                 tracing::warn!("could not accept run {}: {err}", job.run_id);
                                 continue;
                             }
@@ -88,6 +136,7 @@ impl Runner {
                             tasks.spawn(async move { executor.run(job, rx).await });
                         }
                         Ok(None) => backoff = Duration::from_secs(1),
+                        Err(err) if err.is_unauthorized() => self.renew_token().await,
                         Err(err) => {
                             tracing::warn!("job poll failed: {err}; retrying in {backoff:?}");
                             tokio::time::sleep(backoff).await;
@@ -104,14 +153,87 @@ impl Runner {
         while tasks.join_next().await.is_some() {}
         Ok(())
     }
+
+    async fn renew_token(&mut self) {
+        let Some(renew) = self.renew.clone() else {
+            tracing::warn!("the runner token expired; restart `ttm runner up`");
+            return;
+        };
+        match renew().await {
+            Ok((client, expires)) => {
+                self.client.set(client);
+                self.token_expires = expires;
+                tracing::info!("runner token renewed");
+            }
+            Err(err) => tracing::warn!("could not renew the runner token: {err:#}"),
+        }
+    }
+}
+
+/// One merge-queue pass over the configured projects: merge each head entry that may merge, report the result.
+pub async fn merge_pass(setup: &MergeSetup) {
+    for (key, repo) in &setup.repos {
+        let project = match setup.user.find_project(key).await {
+            Ok(Some(p)) => setup.user.project(&p.id).await.unwrap_or(p),
+            Ok(None) => continue,
+            Err(err) => {
+                tracing::debug!("merge queue: cannot read project {key}: {err}");
+                continue;
+            }
+        };
+        let queue = match setup.user.merge_queue(&project.id).await {
+            Ok(q) => q,
+            Err(err) => {
+                tracing::debug!("merge queue of {key}: {err}");
+                continue;
+            }
+        };
+        let Some(entry) = queue.into_iter().find(|e| e.can_merge && e.status == "ready") else {
+            continue;
+        };
+        let base = project
+            .default_branch
+            .clone()
+            .unwrap_or_else(|| ttm_core::worktree::default_branch(repo));
+        let (repo, root, key2, entry2) = (
+            repo.clone(),
+            setup.worktree_root.clone(),
+            key.clone(),
+            entry.clone(),
+        );
+        let outcome =
+            tokio::task::spawn_blocking(move || merge::merge_entry(&repo, &root, &key2, &base, &entry2))
+                .await;
+        let (merged, detail) = match outcome {
+            Ok(Ok(Merged::Merged { commit })) => (true, Some(format!("merged as {commit}"))),
+            Ok(Ok(Merged::Conflict { detail })) => (false, Some(detail)),
+            Ok(Err(err)) => {
+                // Push or fetch failed: not a conflict; try again next pass.
+                tracing::warn!("merge of {} failed: {err:#}", entry.task_key);
+                continue;
+            }
+            Err(err) => {
+                tracing::warn!("merge task panicked: {err}");
+                continue;
+            }
+        };
+        match setup
+            .user
+            .merge_result(&entry.id, merged, detail.as_deref())
+            .await
+        {
+            Ok(_) => tracing::info!(task = %entry.task_key, merged, "merge reported"),
+            Err(err) => tracing::warn!("could not report the merge of {}: {err}", entry.task_key),
+        }
+    }
 }
 
 /// RFC 3339 → an instant (now when unparsable or past).
 fn until_instant(rfc3339: &str) -> tokio::time::Instant {
     let now = tokio::time::Instant::now();
-    time::OffsetDateTime::parse(rfc3339, &time::format_description::well_known::Rfc3339)
+    OffsetDateTime::parse(rfc3339, &time::format_description::well_known::Rfc3339)
         .ok()
-        .map(|at| at - time::OffsetDateTime::now_utc())
+        .map(|at| at - OffsetDateTime::now_utc())
         .and_then(|d| u64::try_from(d.whole_seconds()).ok())
         .map(|secs| now + Duration::from_secs(secs))
         .unwrap_or(now)
@@ -125,9 +247,18 @@ mod tests {
     fn pause_instant() {
         let now = tokio::time::Instant::now();
         assert!(until_instant("garbage") <= now + Duration::from_millis(5));
-        let in_an_hour = (time::OffsetDateTime::now_utc() + time::Duration::hours(1))
+        let in_an_hour = (OffsetDateTime::now_utc() + time::Duration::hours(1))
             .format(&time::format_description::well_known::Rfc3339)
             .unwrap();
         assert!(until_instant(&in_an_hour) > now + Duration::from_secs(3500));
+    }
+
+    #[test]
+    fn renewal_window() {
+        let now = OffsetDateTime::now_utc();
+        assert!(!needs_renewal(None, now));
+        assert!(!needs_renewal(Some(now + time::Duration::hours(2)), now));
+        assert!(needs_renewal(Some(now + time::Duration::minutes(10)), now));
+        assert!(needs_renewal(Some(now - time::Duration::minutes(1)), now));
     }
 }
