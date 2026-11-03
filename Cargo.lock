@@ -2708,6 +2708,7 @@ dependencies = [
  "directories",
  "keyring",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",
