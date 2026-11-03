@@ -137,6 +137,67 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
         NotesCommand::Edit(args) => edit(&app, &client, args).await?,
         NotesCommand::Comment(args) => comment(&app, &client, args).await?,
         NotesCommand::Rows(command) => rows(&app, &client, command).await?,
+        NotesCommand::Suggestions { page, all } => {
+            let list: Vec<_> = client
+                .suggestions(&resource_id(&page))
+                .await?
+                .into_iter()
+                .filter(|s| all || s.status == "pending")
+                .collect();
+            emit(app.json, &list, || {
+                if list.is_empty() {
+                    println!("No pending suggestions.");
+                }
+                for s in &list {
+                    let who = s.author.as_ref().map(|a| a.name.as_str()).unwrap_or("?");
+                    let via = s
+                        .via_agent
+                        .as_deref()
+                        .map(|a| format!(" (via {a})"))
+                        .unwrap_or_default();
+                    println!(
+                        "{}  {}  {who}{via}  {} change(s)",
+                        s.id,
+                        s.status,
+                        s.changes.len()
+                    );
+                    for c in &s.changes {
+                        println!("    [{}] {}", c.id.as_deref().unwrap_or("-"), c.kind);
+                        if let Some(before) = &c.before_nfm {
+                            println!("      - {}", before.replace('\n', "\n      - "));
+                        }
+                        if let Some(after) = &c.after_nfm {
+                            println!("      + {}", after.replace('\n', "\n      + "));
+                        }
+                    }
+                }
+            });
+        }
+        NotesCommand::Resolve {
+            suggestion,
+            accept,
+            reject: _,
+            changes,
+        } => {
+            let result = if accept {
+                let ids = (!changes.is_empty()).then_some(changes.as_slice());
+                client.accept_suggestion(&suggestion, ids).await?
+            } else {
+                client.reject_suggestion(&suggestion).await?
+            };
+            emit(app.json, &result, || {
+                println!(
+                    "Suggestion {suggestion}: {}",
+                    result
+                        .status
+                        .as_deref()
+                        .unwrap_or(if accept { "accepted" } else { "rejected" })
+                );
+                if !result.stale_change_ids.is_empty() {
+                    println!("Stale (anchor text gone): {}", result.stale_change_ids.join(", "));
+                }
+            });
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

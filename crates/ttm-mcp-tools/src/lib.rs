@@ -9,6 +9,7 @@
 pub mod backend;
 pub mod common;
 pub mod notee;
+pub mod notee_suggest;
 pub mod notee_write;
 pub mod toolset;
 pub mod workspace;

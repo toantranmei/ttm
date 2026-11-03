@@ -164,6 +164,23 @@ pub enum NotesCommand {
     /// Database rows.
     #[command(subcommand)]
     Rows(RowsCommand),
+    /// Suggested edits on a page (pending only unless --all).
+    Suggestions {
+        page: String,
+        #[arg(long)]
+        all: bool,
+    },
+    /// Accept or reject a suggestion.
+    Resolve {
+        suggestion: String,
+        #[arg(long, conflicts_with = "reject", required_unless_present = "reject")]
+        accept: bool,
+        #[arg(long)]
+        reject: bool,
+        /// Accept only these change ids (repeatable).
+        #[arg(long = "change", requires = "accept")]
+        changes: Vec<String>,
+    },
 }
 
 #[derive(Debug, Args)]

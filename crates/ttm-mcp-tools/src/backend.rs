@@ -8,7 +8,8 @@ use serde::Serialize;
 use serde_json::Value;
 use ttm_api::notee::{
     CreateDatabase, CreatePages, DatabaseSchema, NewAnchor, PageMarkdown, Parent, QueryRequest, QueryResult,
-    ResourceRef, RowUpsert, SearchHit, Thread, UpdatePage, UpdateResult, UpsertResult,
+    ResolveResult, ResourceRef, RowUpsert, SearchHit, Suggestion, Thread, UpdatePage, UpdateResult,
+    UpsertResult,
 };
 use ttm_api::{ApiError, Client, MeUser, Member, WorkspaceSummary};
 
@@ -132,6 +133,20 @@ pub trait Backend: Send + Sync + 'static {
     }
     async fn notee_reply_comment(&self, _thread_id: &str, _text: &str) -> BackendResult<Value> {
         Err(BackendError::unsupported("notee-create-comment"))
+    }
+
+    // Notee, suggestions.
+    async fn notee_get_suggestions(&self, _page_id: &str) -> BackendResult<Vec<Suggestion>> {
+        Err(BackendError::unsupported("notee-get-suggestions"))
+    }
+    /// `accept`: all changes, or only `change_ids`; otherwise reject.
+    async fn notee_resolve_suggestion(
+        &self,
+        _id: &str,
+        _accept: bool,
+        _change_ids: Option<&[String]>,
+    ) -> BackendResult<ResolveResult> {
+        Err(BackendError::unsupported("notee-resolve-suggestion"))
     }
 }
 
@@ -275,5 +290,22 @@ impl Backend for HttpBackend {
 
     async fn notee_reply_comment(&self, thread_id: &str, text: &str) -> BackendResult<Value> {
         Ok(self.client.reply_comment(thread_id, text).await?)
+    }
+
+    async fn notee_get_suggestions(&self, page_id: &str) -> BackendResult<Vec<Suggestion>> {
+        Ok(self.client.suggestions(page_id).await?)
+    }
+
+    async fn notee_resolve_suggestion(
+        &self,
+        id: &str,
+        accept: bool,
+        change_ids: Option<&[String]>,
+    ) -> BackendResult<ResolveResult> {
+        if accept {
+            Ok(self.client.accept_suggestion(id, change_ids).await?)
+        } else {
+            Ok(self.client.reject_suggestion(id).await?)
+        }
     }
 }

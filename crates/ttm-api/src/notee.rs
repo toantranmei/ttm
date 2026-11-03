@@ -528,6 +528,83 @@ impl Client {
     }
 }
 
+// Suggestions (P4).
+
+/// One change of a suggestion.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SuggestionChange {
+    /// Change id, for accepting part of a suggestion (assumed field).
+    #[serde(default)]
+    pub id: Option<String>,
+    /// `insert`, `delete` or `replace`.
+    pub kind: String,
+    /// `{quote: {exact, prefix, suffix}}` or `{after_quote: …}`.
+    #[serde(default)]
+    pub anchor: Value,
+    #[serde(default)]
+    pub before_nfm: Option<String>,
+    #[serde(default)]
+    pub after_nfm: Option<String>,
+    /// `pending`, `accepted`, `rejected`, `stale` (assumed per-change field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+/// `GET /pages/{id}/suggestions[]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Suggestion {
+    pub id: String,
+    #[serde(default)]
+    pub page_id: Option<String>,
+    #[serde(default)]
+    pub author: Option<CommentAuthor>,
+    #[serde(default)]
+    pub via_agent: Option<String>,
+    /// `pending`, `accepted`, `rejected`, `stale`.
+    pub status: String,
+    #[serde(default)]
+    pub base_seq: Option<i64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub changes: Vec<SuggestionChange>,
+}
+
+/// Answer of accept/reject (assumed `{id, status, stale_change_ids[]}`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResolveResult {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub stale_change_ids: Vec<String>,
+}
+
+impl Client {
+    pub async fn suggestions(&self, page_id: &str) -> Result<Vec<Suggestion>> {
+        self.get(&format!("/pages/{}/suggestions", encode(page_id))).await
+    }
+
+    /// `POST /suggestions/{id}/accept {change_ids?}`; `None` accepts every change.
+    pub async fn accept_suggestion(&self, id: &str, change_ids: Option<&[String]>) -> Result<ResolveResult> {
+        let body = match change_ids {
+            Some(ids) => serde_json::json!({ "change_ids": ids }),
+            None => serde_json::json!({}),
+        };
+        self.post(&format!("/suggestions/{}/accept", encode(id)), &body)
+            .await
+    }
+
+    pub async fn reject_suggestion(&self, id: &str) -> Result<ResolveResult> {
+        self.post(
+            &format!("/suggestions/{}/reject", encode(id)),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
