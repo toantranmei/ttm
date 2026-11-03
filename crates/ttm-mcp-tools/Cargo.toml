@@ -20,6 +20,7 @@ tracing.workspace = true
 ttm-api.workspace = true
 
 [dev-dependencies]
+rmcp = { workspace = true, features = ["client", "server"] }
 tokio.workspace = true
 wiremock.workspace = true
 

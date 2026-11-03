@@ -23,6 +23,7 @@ tracing-subscriber.workspace = true
 ttm-api.workspace = true
 ttm-core.workspace = true
 ttm-mcp-tools.workspace = true
+time.workspace = true
 
 [lints]
 workspace = true

@@ -188,3 +188,55 @@ async fn completion_needs_no_config() {
     assert!(out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("ttm"));
 }
+
+#[tokio::test]
+async fn mcp_install_cursor_merges_and_backs_up() {
+    let root = tempfile::tempdir().unwrap();
+    let cursor = root.path().join(".cursor");
+    std::fs::create_dir_all(&cursor).unwrap();
+    std::fs::write(
+        cursor.join("mcp.json"),
+        r#"{"mcpServers":{"other":{"command":"x","args":[]}}}"#,
+    )
+    .unwrap();
+    let out = ttm(
+        root.path(),
+        "https://example.com",
+        &[
+            "mcp",
+            "install",
+            "--client",
+            "cursor",
+            "--command",
+            "ttm-mcp",
+            "--json",
+        ],
+    )
+    .await;
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let v = json(&out);
+    assert_eq!(v["changed"], true);
+    assert!(v["backup"].as_str().unwrap().contains("mcp.json.bak-"));
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(cursor.join("mcp.json")).unwrap()).unwrap();
+    assert_eq!(config["mcpServers"]["other"]["command"], "x");
+    assert_eq!(config["mcpServers"]["ttm"]["command"], "ttm-mcp");
+    // --host was given, so it is pinned in the args.
+    assert_eq!(config["mcpServers"]["ttm"]["args"][1], "https://example.com");
+
+    let again = ttm(
+        root.path(),
+        "https://example.com",
+        &[
+            "mcp",
+            "install",
+            "--client",
+            "cursor",
+            "--command",
+            "ttm-mcp",
+            "--json",
+        ],
+    )
+    .await;
+    assert_eq!(json(&again)["changed"], false);
+}

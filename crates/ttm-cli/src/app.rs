@@ -10,6 +10,8 @@ pub struct App {
     pub json: bool,
     /// `--host` was given explicitly (login then remembers it in the profile).
     pub host_flag: bool,
+    /// `--profile` was given explicitly.
+    pub profile_flag: bool,
 }
 
 impl App {
@@ -23,6 +25,7 @@ impl App {
             ctx,
             json: global.json,
             host_flag: global.host.is_some() || std::env::var_os("TTM_HOST").is_some(),
+            profile_flag: global.profile.is_some(),
         })
     }
 

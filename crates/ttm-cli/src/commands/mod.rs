@@ -3,6 +3,7 @@
 mod doctor;
 mod login;
 mod logout;
+mod mcp;
 mod self_update;
 mod status;
 mod token;
@@ -32,6 +33,6 @@ pub async fn run(cli: Cli) -> Result<ExitCode> {
         Command::Token(command) => token::run(app, command).await,
         Command::SelfUpdate(args) => self_update::run(app, args).await,
         Command::Completion { .. } => Ok(ExitCode::SUCCESS),
-        Command::Mcp(_) => anyhow::bail!("`ttm mcp` is not implemented yet"),
+        Command::Mcp(command) => mcp::run(app, command).await,
     }
 }

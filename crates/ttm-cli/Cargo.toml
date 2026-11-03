@@ -18,17 +18,19 @@ anyhow.workspace = true
 base64.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
+directories.workspace = true
 open.workspace = true
 rand.workspace = true
 reqwest = { workspace = true, features = ["json", "rustls", "form", "stream"] }
 semver.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
 sha2.workspace = true
 tempfile.workspace = true
 time.workspace = true
 tokio.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ttm-api.workspace = true
