@@ -1,0 +1,28 @@
+[package]
+name = "ttm-mcp"
+description = "ttm MCP server over stdio: workspace, Notee and Factory tools for Claude, Cursor, Codex and other MCP clients"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "ttm-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+rmcp = { workspace = true, features = ["server", "transport-io"] }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ttm-api.workspace = true
+ttm-core.workspace = true
+ttm-mcp-tools.workspace = true
+
+[lints]
+workspace = true

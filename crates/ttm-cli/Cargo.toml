@@ -1,0 +1,42 @@
+[package]
+name = "ttm-cli"
+description = "ttm: command line for toantranmei.com (sign in, workspaces, Notee, Factory sync and local agent runner)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "ttm"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+open.workspace = true
+rand.workspace = true
+reqwest = { workspace = true, features = ["json", "rustls", "form", "stream"] }
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+time.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ttm-api.workspace = true
+ttm-core.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
+
+[lints]
+workspace = true

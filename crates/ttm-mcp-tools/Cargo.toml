@@ -1,0 +1,27 @@
+[package]
+name = "ttm-mcp-tools"
+description = "MCP tool definitions for ttm (workspace, Notee, Factory) over a Backend trait, shared by ttm-mcp and the server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+rmcp = { workspace = true, features = ["server", "macros"] }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ttm-api.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+wiremock.workspace = true
+
+[lints]
+workspace = true

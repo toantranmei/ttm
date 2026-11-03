@@ -1,0 +1,61 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+authors = ["Toan Tran <toantran.mei@gmail.com>"]
+repository = "https://github.com/toantranmei/ttm"
+homepage = "https://toantranmei.com/help/ttm"
+keywords = ["cli", "mcp", "notee", "factory", "ttm"]
+categories = ["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+ttm-api = { path = "crates/ttm-api", version = "0.1.0" }
+ttm-core = { path = "crates/ttm-core", version = "0.1.0" }
+ttm-mcp-tools = { path = "crates/ttm-mcp-tools", version = "0.1.0" }
+ttm-runner = { path = "crates/ttm-runner", version = "0.1.0" }
+
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+base64 = "0.23.1"
+clap = { version = "4.6.7", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4.6.11"
+directories = "6.0.0"
+keyring = "4.2.0"
+open = "5.4.5"
+rand = "0.10.3"
+reqwest = { version = "0.13.5", default-features = false }
+rmcp = { version = "3.8.0" }
+schemars = "1.2.3"
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["formatting", "parsing", "serde"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "io-util", "io-std", "time", "sync", "signal", "fs", "process"] }
+toml = "1.1.8"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+url = "2.5.8"
+wiremock = "0.6.5"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
