@@ -155,6 +155,96 @@ pub enum NotesCommand {
         #[arg(long)]
         all: bool,
     },
+    /// Create a page from a Markdown file.
+    Create(NotesCreateArgs),
+    /// Edit a page: find/replace (--old/--new, repeatable) or replace the body (--replace -f file.md).
+    Edit(NotesEditArgs),
+    /// Comment on a page, anchored to a quote or on the whole page.
+    Comment(NotesCommentArgs),
+    /// Database rows.
+    #[command(subcommand)]
+    Rows(RowsCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct NotesCreateArgs {
+    /// Parent page id or URL.
+    #[arg(long, value_name = "PAGE", required_unless_present_any = ["database", "workspace"])]
+    pub parent: Option<String>,
+    /// Create the page as a row of this database.
+    #[arg(long, value_name = "DATABASE", conflicts_with_all = ["parent", "workspace"])]
+    pub database: Option<String>,
+    /// Create at the top of this workspace.
+    #[arg(long, value_name = "WORKSPACE", conflicts_with = "parent")]
+    pub workspace: Option<String>,
+    /// Markdown file (`-` for stdin).
+    #[arg(short = 'f', long = "file", value_name = "FILE")]
+    pub file: String,
+    /// Title (default: the first `# ` heading, else the file name).
+    #[arg(long)]
+    pub title: Option<String>,
+    #[arg(long)]
+    pub icon: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct NotesEditArgs {
+    /// Page id or URL.
+    pub page: String,
+    /// Text to find (exactly once unless --replace-all); pair with --new.
+    #[arg(long = "old", value_name = "TEXT")]
+    pub old: Vec<String>,
+    /// Replacement for the --old at the same position.
+    #[arg(long = "new", value_name = "TEXT")]
+    pub new: Vec<String>,
+    #[arg(long)]
+    pub replace_all: bool,
+    /// Replace the whole body with the file given by -f.
+    #[arg(long, requires = "file", conflicts_with_all = ["old", "new"])]
+    pub replace: bool,
+    #[arg(short = 'f', long = "file", value_name = "FILE")]
+    pub file: Option<String>,
+    /// Propose the change instead of applying it.
+    #[arg(long)]
+    pub suggest: bool,
+    /// Allow removing child pages or databases.
+    #[arg(long)]
+    pub allow_deleting_content: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct NotesCommentArgs {
+    /// Page id or URL.
+    pub page: String,
+    /// Exact text of the page to anchor to (omit for a page comment).
+    #[arg(long)]
+    pub quote: Option<String>,
+    #[arg(long, requires = "quote")]
+    pub prefix: Option<String>,
+    #[arg(long, requires = "quote")]
+    pub suffix: Option<String>,
+    /// Comment text.
+    #[arg(short = 'm', long = "message")]
+    pub message: String,
+    /// Reply in this thread.
+    #[arg(long, conflicts_with = "quote")]
+    pub thread: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RowsCommand {
+    /// Create or update rows from a JSON file: `[{"id"?: …, "values": {…}}]` (`-` for stdin).
+    Upsert {
+        database: String,
+        #[arg(short = 'f', long = "file")]
+        file: String,
+    },
+    /// Delete rows.
+    Delete {
+        database: String,
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -240,6 +330,34 @@ mod tests {
             .is_err()
         );
         assert!(Cli::try_parse_from(["ttm", "notes", "query", "db", "--sql", "SELECT * FROM rows"]).is_ok());
+    }
+
+    #[test]
+    fn notes_edit_forms() {
+        let cli = Cli::try_parse_from([
+            "ttm",
+            "notes",
+            "edit",
+            "p",
+            "--old",
+            "a",
+            "--new",
+            "b",
+            "--suggest",
+        ])
+        .unwrap();
+        let Command::Notes(NotesCommand::Edit(args)) = cli.command else {
+            panic!()
+        };
+        assert_eq!((args.old.len(), args.new.len(), args.suggest), (1, 1, true));
+        assert!(
+            Cli::try_parse_from(["ttm", "notes", "edit", "p", "--replace"]).is_err(),
+            "--replace needs -f"
+        );
+        assert!(
+            Cli::try_parse_from(["ttm", "notes", "create", "-f", "a.md"]).is_err(),
+            "needs a parent"
+        );
     }
 
     #[test]

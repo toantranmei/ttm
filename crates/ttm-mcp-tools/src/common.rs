@@ -82,3 +82,9 @@ pub fn writes(title: &str, destructive: bool) -> ToolAnnotations {
 pub fn to_value<T: serde::Serialize>(value: &T) -> Value {
     serde_json::to_value(value).unwrap_or(Value::Null)
 }
+
+/// Who is calling: the MCP client name becomes the `agent` recorded in page history.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CallContext {
+    pub agent: Option<String>,
+}

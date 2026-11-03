@@ -271,6 +271,263 @@ impl Client {
     }
 }
 
+// Writing (P3).
+
+/// Where a page or database goes: under a page, as a row of a database, or at the top of a workspace.
+/// Serialized as `{"page_id": …}`, `{"database_id": …}` or `{"workspace_id": …}`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Parent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+}
+
+impl Parent {
+    pub fn page(id: impl Into<String>) -> Self {
+        Self {
+            page_id: Some(id.into()),
+            ..Self::default()
+        }
+    }
+
+    pub fn database(id: impl Into<String>) -> Self {
+        Self {
+            database_id: Some(id.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Exactly one of the three must be set.
+    pub fn is_valid(&self) -> bool {
+        [&self.page_id, &self.database_id, &self.workspace_id]
+            .iter()
+            .filter(|v| v.is_some())
+            .count()
+            == 1
+    }
+}
+
+/// One page to create.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct NewPage {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Notee-flavored Markdown body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markdown: Option<String>,
+    /// Row values when the parent is a database: `{"Status": "Done"}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub properties: Option<Value>,
+}
+
+/// `POST /pages` body.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CreatePage<'a> {
+    pub parent: &'a Parent,
+    #[serde(flatten)]
+    pub page: &'a NewPage,
+}
+
+/// `POST /pages/batch` body (≤ 20 pages, ≤ 1,000 blocks in total).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreatePages {
+    pub parent: Parent,
+    pub pages: Vec<NewPage>,
+}
+
+/// A created / moved / duplicated page or database (assumed `{id, title?, url?}`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResourceRef {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct CreatedPages {
+    pages: Vec<ResourceRef>,
+}
+
+/// One find/replace of `update_content`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentEdit {
+    pub old_str: String,
+    pub new_str: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replace_all: bool,
+}
+
+/// `apply` writes now; `suggest` stores a suggestion for people to accept.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WriteMode {
+    #[default]
+    Apply,
+    Suggest,
+}
+
+/// `PATCH /pages/{id}/markdown` body.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UpdatePage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_content: Option<Vec<ContentEdit>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replace_content: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_deleting_content: bool,
+    /// New title (assumed field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Row properties to change (assumed field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub properties: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<WriteMode>,
+    /// Name of the agent writing for the user ("User (via agent X)" in history).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
+/// `PATCH /pages/{id}/markdown` answer.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UpdateResult {
+    #[serde(default)]
+    pub applied: bool,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_seq: Option<i64>,
+    /// Set in `suggest` mode (assumed field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion_id: Option<String>,
+}
+
+/// `POST /databases` body.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateDatabase {
+    pub parent: Parent,
+    pub title: String,
+    /// `[{"name": "Status", "type": "select", "options": [...]}]`.
+    #[serde(default)]
+    pub properties: Vec<Value>,
+}
+
+/// One row of `rows/upsert`: no `id` creates a row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RowUpsert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub values: Map<String, Value>,
+}
+
+/// `rows/upsert` answer (assumed `{ids: [...]}`, in input order).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UpsertResult {
+    #[serde(default)]
+    pub ids: Vec<String>,
+}
+
+/// W3C TextQuoteSelector.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextQuote {
+    pub exact: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suffix: Option<String>,
+}
+
+/// Anchor of a new comment thread.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum NewAnchor {
+    Page,
+    Quote { quote: TextQuote },
+}
+
+impl Client {
+    /// `POST /pages` (one page with a Markdown body).
+    pub async fn create_page(&self, parent: &Parent, page: &NewPage) -> Result<ResourceRef> {
+        self.post("/pages", &CreatePage { parent, page }).await
+    }
+
+    /// `POST /pages/batch`.
+    pub async fn create_pages(&self, request: &CreatePages) -> Result<Vec<ResourceRef>> {
+        Ok(self.post::<_, CreatedPages>("/pages/batch", request).await?.pages)
+    }
+
+    pub async fn update_page(&self, page_id: &str, update: &UpdatePage) -> Result<UpdateResult> {
+        self.patch(&format!("/pages/{}/markdown", encode(page_id)), update)
+            .await
+    }
+
+    pub async fn move_page(&self, page_id: &str, parent: &Parent) -> Result<ResourceRef> {
+        self.post(
+            &format!("/pages/{}/move", encode(page_id)),
+            &serde_json::json!({ "parent": parent }),
+        )
+        .await
+    }
+
+    pub async fn duplicate_page(&self, page_id: &str) -> Result<ResourceRef> {
+        self.post(
+            &format!("/pages/{}/duplicate", encode(page_id)),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    pub async fn create_database(&self, request: &CreateDatabase) -> Result<ResourceRef> {
+        self.post("/databases", request).await
+    }
+
+    /// `PATCH /databases/{id}`: add/change/remove properties and views (`changes` passed through).
+    pub async fn update_database(&self, database_id: &str, changes: &Value) -> Result<Value> {
+        self.patch(&format!("/databases/{}", encode(database_id)), changes)
+            .await
+    }
+
+    pub async fn upsert_rows(&self, database_id: &str, rows: &[RowUpsert]) -> Result<UpsertResult> {
+        self.post(
+            &format!("/databases/{}/rows/upsert", encode(database_id)),
+            &serde_json::json!({ "rows": rows }),
+        )
+        .await
+    }
+
+    pub async fn delete_rows(&self, database_id: &str, ids: &[String]) -> Result<Value> {
+        self.post(
+            &format!("/databases/{}/rows/delete", encode(database_id)),
+            &serde_json::json!({ "ids": ids }),
+        )
+        .await
+    }
+
+    /// `POST /resources/{id}/comments` with a plain-text body.
+    pub async fn create_comment(&self, resource_id: &str, anchor: &NewAnchor, text: &str) -> Result<Thread> {
+        let body = serde_json::json!({ "anchor": anchor, "body": text_doc(text) });
+        self.post(&format!("/resources/{}/comments", encode(resource_id)), &body)
+            .await
+    }
+
+    /// `POST /comments/{thread}/replies`.
+    pub async fn reply_comment(&self, thread_id: &str, text: &str) -> Result<Value> {
+        self.post(
+            &format!("/comments/{}/replies", encode(thread_id)),
+            &serde_json::json!({ "body": text_doc(text) }),
+        )
+        .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,5 +576,49 @@ mod tests {
         .unwrap();
         assert!(page.truncated);
         assert_eq!(page.unknown_block_ids, ["b1"]);
+    }
+
+    #[test]
+    fn write_bodies() {
+        let parent = Parent::page("p0");
+        assert!(parent.is_valid());
+        assert!(!Parent::default().is_valid());
+        let page = NewPage {
+            title: "T".into(),
+            markdown: Some("# T".into()),
+            ..NewPage::default()
+        };
+        assert_eq!(
+            serde_json::to_value(CreatePage {
+                parent: &parent,
+                page: &page
+            })
+            .unwrap(),
+            serde_json::json!({"parent": {"page_id": "p0"}, "title": "T", "markdown": "# T"})
+        );
+        let update = UpdatePage {
+            update_content: Some(vec![ContentEdit {
+                old_str: "a".into(),
+                new_str: "b".into(),
+                replace_all: false,
+            }]),
+            mode: Some(WriteMode::Suggest),
+            ..UpdatePage::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&update).unwrap(),
+            serde_json::json!({"update_content": [{"old_str": "a", "new_str": "b"}], "mode": "suggest"})
+        );
+        let anchor = NewAnchor::Quote {
+            quote: TextQuote {
+                exact: "x".into(),
+                prefix: None,
+                suffix: None,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(anchor).unwrap(),
+            serde_json::json!({"kind": "quote", "quote": {"exact": "x"}})
+        );
     }
 }

@@ -1,7 +1,7 @@
 //! [`ToolSet`]: the MCP server handler.
 
-use crate::common::{ToolFailure, ToolResult};
-use crate::{Backend, notee, workspace};
+use crate::common::{CallContext, ToolFailure, ToolResult};
+use crate::{Backend, notee, notee_write, workspace};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
     ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
@@ -118,6 +118,7 @@ impl<B: Backend> ToolSet<B> {
         }
         if self.toolsets.contains(Toolset::Notee) {
             tools.extend(notee::tools());
+            tools.extend(notee_write::tools());
         }
         tools
     }
@@ -128,10 +129,20 @@ impl<B: Backend> ToolSet<B> {
         name: &str,
         arguments: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> Result<CallToolResult, ErrorData> {
+        self.call_with(name, arguments, &CallContext::default()).await
+    }
+
+    /// [`ToolSet::call`] with caller information (the MCP client name is recorded as the writing agent).
+    pub async fn call_with(
+        &self,
+        name: &str,
+        arguments: Option<serde_json::Map<String, serde_json::Value>>,
+        ctx: &CallContext,
+    ) -> Result<CallToolResult, ErrorData> {
         if !self.tools().iter().any(|t| t.name == name) {
             return Err(ErrorData::invalid_params(format!("unknown tool `{name}`"), None));
         }
-        let outcome = match self.dispatch(name, arguments).await {
+        let outcome = match self.dispatch(name, arguments, ctx).await {
             Some(outcome) => outcome,
             None => return Err(ErrorData::invalid_params(format!("unknown tool `{name}`"), None)),
         };
@@ -159,13 +170,17 @@ impl<B: Backend> ToolSet<B> {
         &self,
         name: &str,
         args: Option<serde_json::Map<String, serde_json::Value>>,
+        ctx: &CallContext,
     ) -> Option<ToolResult> {
         let backend = self.backend.as_ref();
         if name.starts_with("workspace-") {
             return workspace::call(backend, name, args).await;
         }
         if name.starts_with("notee-") {
-            return notee::call(backend, name, args).await;
+            if let Some(result) = notee::call(backend, name, args.clone()).await {
+                return Some(result);
+            }
+            return notee_write::call(backend, name, args, ctx).await;
         }
         None
     }
@@ -240,9 +255,13 @@ impl<B: Backend> ServerHandler for ToolSet<B> {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        self.call(&request.name, request.arguments).await.map(Into::into)
+        let agent = context.peer.peer_info().map(|info| info.client_info.name.clone());
+        let ctx = CallContext { agent };
+        self.call_with(&request.name, request.arguments, &ctx)
+            .await
+            .map(Into::into)
     }
 }
 

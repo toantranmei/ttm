@@ -5,7 +5,11 @@
 
 use async_trait::async_trait;
 use serde::Serialize;
-use ttm_api::notee::{DatabaseSchema, PageMarkdown, QueryRequest, QueryResult, SearchHit, Thread};
+use serde_json::Value;
+use ttm_api::notee::{
+    CreateDatabase, CreatePages, DatabaseSchema, NewAnchor, PageMarkdown, Parent, QueryRequest, QueryResult,
+    ResourceRef, RowUpsert, SearchHit, Thread, UpdatePage, UpdateResult, UpsertResult,
+};
 use ttm_api::{ApiError, Client, MeUser, Member, WorkspaceSummary};
 
 /// An error a tool reports back to the model (as a tool error, not a protocol error).
@@ -87,6 +91,47 @@ pub trait Backend: Send + Sync + 'static {
     }
     async fn notee_get_comments(&self, _resource_id: &str) -> BackendResult<Vec<Thread>> {
         Err(BackendError::unsupported("notee-get-comments"))
+    }
+
+    // Notee, write.
+    async fn notee_create_pages(&self, _request: &CreatePages) -> BackendResult<Vec<ResourceRef>> {
+        Err(BackendError::unsupported("notee-create-pages"))
+    }
+    async fn notee_update_page(&self, _page_id: &str, _update: &UpdatePage) -> BackendResult<UpdateResult> {
+        Err(BackendError::unsupported("notee-update-page"))
+    }
+    async fn notee_move_page(&self, _page_id: &str, _parent: &Parent) -> BackendResult<ResourceRef> {
+        Err(BackendError::unsupported("notee-move-pages"))
+    }
+    async fn notee_duplicate_page(&self, _page_id: &str) -> BackendResult<ResourceRef> {
+        Err(BackendError::unsupported("notee-duplicate-page"))
+    }
+    async fn notee_create_database(&self, _request: &CreateDatabase) -> BackendResult<ResourceRef> {
+        Err(BackendError::unsupported("notee-create-database"))
+    }
+    async fn notee_update_database(&self, _database_id: &str, _changes: &Value) -> BackendResult<Value> {
+        Err(BackendError::unsupported("notee-update-database"))
+    }
+    async fn notee_upsert_rows(
+        &self,
+        _database_id: &str,
+        _rows: &[RowUpsert],
+    ) -> BackendResult<UpsertResult> {
+        Err(BackendError::unsupported("notee-upsert-rows"))
+    }
+    async fn notee_delete_rows(&self, _database_id: &str, _ids: &[String]) -> BackendResult<Value> {
+        Err(BackendError::unsupported("notee-delete-rows"))
+    }
+    async fn notee_create_comment(
+        &self,
+        _resource_id: &str,
+        _anchor: &NewAnchor,
+        _text: &str,
+    ) -> BackendResult<Thread> {
+        Err(BackendError::unsupported("notee-create-comment"))
+    }
+    async fn notee_reply_comment(&self, _thread_id: &str, _text: &str) -> BackendResult<Value> {
+        Err(BackendError::unsupported("notee-create-comment"))
     }
 }
 
@@ -185,5 +230,50 @@ impl Backend for HttpBackend {
 
     async fn notee_get_comments(&self, resource_id: &str) -> BackendResult<Vec<Thread>> {
         Ok(self.client.comments(resource_id).await?)
+    }
+
+    async fn notee_create_pages(&self, request: &CreatePages) -> BackendResult<Vec<ResourceRef>> {
+        Ok(self.client.create_pages(request).await?)
+    }
+
+    async fn notee_update_page(&self, page_id: &str, update: &UpdatePage) -> BackendResult<UpdateResult> {
+        Ok(self.client.update_page(page_id, update).await?)
+    }
+
+    async fn notee_move_page(&self, page_id: &str, parent: &Parent) -> BackendResult<ResourceRef> {
+        Ok(self.client.move_page(page_id, parent).await?)
+    }
+
+    async fn notee_duplicate_page(&self, page_id: &str) -> BackendResult<ResourceRef> {
+        Ok(self.client.duplicate_page(page_id).await?)
+    }
+
+    async fn notee_create_database(&self, request: &CreateDatabase) -> BackendResult<ResourceRef> {
+        Ok(self.client.create_database(request).await?)
+    }
+
+    async fn notee_update_database(&self, database_id: &str, changes: &Value) -> BackendResult<Value> {
+        Ok(self.client.update_database(database_id, changes).await?)
+    }
+
+    async fn notee_upsert_rows(&self, database_id: &str, rows: &[RowUpsert]) -> BackendResult<UpsertResult> {
+        Ok(self.client.upsert_rows(database_id, rows).await?)
+    }
+
+    async fn notee_delete_rows(&self, database_id: &str, ids: &[String]) -> BackendResult<Value> {
+        Ok(self.client.delete_rows(database_id, ids).await?)
+    }
+
+    async fn notee_create_comment(
+        &self,
+        resource_id: &str,
+        anchor: &NewAnchor,
+        text: &str,
+    ) -> BackendResult<Thread> {
+        Ok(self.client.create_comment(resource_id, anchor, text).await?)
+    }
+
+    async fn notee_reply_comment(&self, thread_id: &str, text: &str) -> BackendResult<Value> {
+        Ok(self.client.reply_comment(thread_id, text).await?)
     }
 }

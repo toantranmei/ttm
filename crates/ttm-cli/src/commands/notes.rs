@@ -1,12 +1,16 @@
 //! `ttm notes …`: Notee from the terminal. Output is Markdown for people, JSON with `--json`.
 
 use crate::app::App;
-use crate::cli::NotesCommand;
+use crate::cli::{NotesCommand, NotesCommentArgs, NotesCreateArgs, NotesEditArgs, RowsCommand};
 use crate::output::emit;
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use serde_json::{Value, json};
 use std::process::ExitCode;
-use ttm_api::notee::{QueryRequest, resource_id};
+use ttm_api::Client;
+use ttm_api::notee::{
+    ContentEdit, NewAnchor, NewPage, Parent, QueryRequest, RowUpsert, TextQuote, UpdatePage, WriteMode,
+    resource_id,
+};
 
 pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
     let (client, _) = app.api().await?;
@@ -129,8 +133,154 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                 }
             });
         }
+        NotesCommand::Create(args) => create(&app, &client, args).await?,
+        NotesCommand::Edit(args) => edit(&app, &client, args).await?,
+        NotesCommand::Comment(args) => comment(&app, &client, args).await?,
+        NotesCommand::Rows(command) => rows(&app, &client, command).await?,
     }
     Ok(ExitCode::SUCCESS)
+}
+
+async fn create(app: &App, client: &Client, args: NotesCreateArgs) -> Result<()> {
+    let markdown = read_input(&args.file)?;
+    let title = args
+        .title
+        .clone()
+        .unwrap_or_else(|| title_from(&markdown, &args.file));
+    let parent = match (&args.parent, &args.database, &args.workspace) {
+        (Some(p), _, _) => Parent::page(resource_id(p)),
+        (_, Some(d), _) => Parent::database(resource_id(d)),
+        (_, _, Some(w)) => Parent {
+            workspace_id: Some(w.clone()),
+            ..Parent::default()
+        },
+        _ => bail!("give --parent, --database or --workspace"),
+    };
+    let page = NewPage {
+        title,
+        icon: args.icon,
+        markdown: Some(markdown),
+        properties: None,
+    };
+    let created = client.create_page(&parent, &page).await?;
+    emit(app.json, &created, || {
+        println!(
+            "Created {} ({})",
+            created.title.as_deref().unwrap_or(&page.title),
+            created.url.as_deref().unwrap_or(&created.id)
+        )
+    });
+    Ok(())
+}
+
+/// First `# ` heading, else the file stem.
+pub fn title_from(markdown: &str, file: &str) -> String {
+    markdown
+        .lines()
+        .find_map(|l| l.strip_prefix("# ").map(|t| t.trim().to_string()))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| {
+            std::path::Path::new(file)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Untitled")
+                .to_string()
+        })
+}
+
+/// Pairs `--old` with `--new`.
+pub fn edits(old: &[String], new: &[String], replace_all: bool) -> Result<Vec<ContentEdit>> {
+    if old.len() != new.len() {
+        bail!(
+            "give one --new for every --old ({} --old, {} --new)",
+            old.len(),
+            new.len()
+        );
+    }
+    Ok(old
+        .iter()
+        .zip(new)
+        .map(|(o, n)| ContentEdit {
+            old_str: o.clone(),
+            new_str: n.clone(),
+            replace_all,
+        })
+        .collect())
+}
+
+async fn edit(app: &App, client: &Client, args: NotesEditArgs) -> Result<()> {
+    let mut update = UpdatePage {
+        allow_deleting_content: args.allow_deleting_content,
+        mode: args.suggest.then_some(WriteMode::Suggest),
+        agent: Some("ttm-cli".into()),
+        ..UpdatePage::default()
+    };
+    if args.replace {
+        update.replace_content = Some(read_input(args.file.as_deref().unwrap_or("-"))?);
+    } else {
+        if args.old.is_empty() {
+            bail!("nothing to change: give --old/--new pairs or --replace -f file.md");
+        }
+        update.update_content = Some(edits(&args.old, &args.new, args.replace_all)?);
+    }
+    let result = client.update_page(&resource_id(&args.page), &update).await?;
+    emit(app.json, &result, || {
+        match (&result.suggestion_id, result.applied) {
+            (Some(id), _) => println!("Suggestion {id} created."),
+            (None, true) => println!("Page updated."),
+            (None, false) => println!("No change applied."),
+        }
+        for w in &result.warnings {
+            eprintln!("warning: {w}");
+        }
+    });
+    Ok(())
+}
+
+async fn comment(app: &App, client: &Client, args: NotesCommentArgs) -> Result<()> {
+    if let Some(thread) = &args.thread {
+        let reply = client.reply_comment(thread, &args.message).await?;
+        emit(app.json, &reply, || println!("Replied in thread {thread}."));
+        return Ok(());
+    }
+    let anchor = match args.quote {
+        Some(exact) => NewAnchor::Quote {
+            quote: TextQuote {
+                exact,
+                prefix: args.prefix,
+                suffix: args.suffix,
+            },
+        },
+        None => NewAnchor::Page,
+    };
+    let thread = client
+        .create_comment(&resource_id(&args.page), &anchor, &args.message)
+        .await?;
+    emit(app.json, &thread, || {
+        println!("Comment thread {} created.", thread.id)
+    });
+    Ok(())
+}
+
+async fn rows(app: &App, client: &Client, command: RowsCommand) -> Result<()> {
+    match command {
+        RowsCommand::Upsert { database, file } => {
+            let rows: Vec<RowUpsert> = serde_json::from_str(&read_input(&file)?)
+                .context("rows file must be [{\"id\"?: …, \"values\": {…}}]")?;
+            if rows.is_empty() || rows.len() > 100 {
+                bail!("give 1 to 100 rows per call");
+            }
+            let result = client.upsert_rows(&resource_id(&database), &rows).await?;
+            emit(app.json, &result, || {
+                println!("{} row(s) saved: {}", result.ids.len(), result.ids.join(", "))
+            });
+        }
+        RowsCommand::Delete { database, ids } => {
+            let result = client.delete_rows(&resource_id(&database), &ids).await?;
+            emit(app.json, &result, || println!("{} row(s) deleted.", ids.len()));
+        }
+    }
+    Ok(())
 }
 
 /// A file holding `{"filter": …, "sorts": …}` or the bare filter; `-` reads stdin.
@@ -164,6 +314,17 @@ pub fn read_input(file: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn title_and_edits() {
+        assert_eq!(title_from("intro\n# Kế hoạch\n", "x.md"), "Kế hoạch");
+        assert_eq!(title_from("no heading", "dir/plan-q4.md"), "plan-q4");
+        assert_eq!(
+            edits(&["a".into()], &["b".into()], false).unwrap()[0].new_str,
+            "b"
+        );
+        assert!(edits(&["a".into()], &[], false).is_err());
+    }
 
     #[test]
     fn filter_file_forms() {
