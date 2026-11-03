@@ -1,12 +1,17 @@
 //! Command dispatch.
 
 mod doctor;
+mod hook;
 mod login;
 mod logout;
 mod mcp;
 mod notes;
+mod project;
+mod rules;
 mod self_update;
 mod status;
+mod sync;
+mod task;
 mod token;
 mod whoami;
 mod workspace;
@@ -35,6 +40,11 @@ pub async fn run(cli: Cli) -> Result<ExitCode> {
         Command::SelfUpdate(args) => self_update::run(app, args).await,
         Command::Completion { .. } => Ok(ExitCode::SUCCESS),
         Command::Notes(command) => notes::run(app, command).await,
+        Command::Project(command) => project::run(app, command).await,
+        Command::Sync(args) => sync::run(app, args).await,
+        Command::Task(command) => task::run(app, command).await,
+        Command::Rules(command) => rules::run(app, command).await,
+        Command::Hook(command) => hook::run(app, command).await,
         Command::Mcp(command) => mcp::run(app, command).await,
     }
 }

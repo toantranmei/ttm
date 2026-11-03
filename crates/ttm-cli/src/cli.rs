@@ -54,6 +54,20 @@ pub enum Command {
     /// Notee pages and databases: search, read, query, comments.
     #[command(subcommand)]
     Notes(NotesCommand),
+    /// Link this repository to a Factory project.
+    #[command(subcommand)]
+    Project(ProjectCommand),
+    /// Pull the plan into .ttm/plan and send local edits as a change request.
+    Sync(SyncArgs),
+    /// Factory tasks.
+    #[command(subcommand)]
+    Task(TaskCommand),
+    /// Project rules for local agents (AGENTS.md / CLAUDE.md block, agent hooks).
+    #[command(subcommand)]
+    Rules(RulesCommand),
+    /// Hook entry points called by coding agents (reads the hook JSON on stdin).
+    #[command(subcommand)]
+    Hook(HookCommand),
     /// MCP client setup.
     #[command(subcommand)]
     Mcp(McpCommand),
@@ -262,6 +276,90 @@ pub enum RowsCommand {
         #[arg(required = true)]
         ids: Vec<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProjectCommand {
+    /// Create a project on the server for this repository and link it.
+    Init {
+        /// Task key prefix, e.g. AUR.
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        name: Option<String>,
+        /// Repository URL (default: git remote origin).
+        #[arg(long)]
+        repo_url: Option<String>,
+        /// Workspace id (default: the current one).
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    /// Link this repository to an existing project (key or id) and pull its plan.
+    Link { project: String },
+    /// Open the project on the web.
+    Open,
+    /// Show the link and sync state.
+    Status,
+}
+
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    /// Only report whether local and server differ (exit 1 when they do).
+    #[arg(long, conflicts_with = "resolve")]
+    pub check: bool,
+    /// On conflicts, let a local agent merge the versions in a separate worktree.
+    #[arg(long)]
+    pub resolve: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TaskCommand {
+    /// Tasks of the linked project.
+    List {
+        /// Only this state (or category).
+        #[arg(long)]
+        state: Option<String>,
+        /// Only tasks assigned to me.
+        #[arg(long)]
+        mine: bool,
+    },
+    Show {
+        key: String,
+    },
+    /// Assign the task to yourself.
+    Claim {
+        key: String,
+    },
+    /// Move the task to done (approval gates still apply).
+    Done {
+        key: String,
+    },
+    /// Approve (or --reject) the pending transition of a task.
+    Approve {
+        key: String,
+        #[arg(long)]
+        reject: bool,
+    },
+    /// Create subtasks from a JSON file (`[{"title": …, "role": …, "estimate": …}]`).
+    Split {
+        key: String,
+        #[arg(short = 'f', long = "file")]
+        file: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RulesCommand {
+    /// Write the managed block in AGENTS.md and CLAUDE.md and install the agent hooks.
+    Apply,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HookCommand {
+    /// PreToolUse(Bash): block pushes to main, --no-verify and non-conventional commits (exit 2).
+    PreBash,
+    /// Stop: require the project's test command before finishing (exit 2).
+    Stop,
 }
 
 #[derive(Debug, Subcommand)]

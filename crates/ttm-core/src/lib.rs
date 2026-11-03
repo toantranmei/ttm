@@ -8,8 +8,11 @@ pub mod config;
 pub mod context;
 pub mod credentials;
 pub mod discovery;
+pub mod merge3;
 pub mod paths;
 pub mod profile;
+pub mod project_file;
+pub mod worktree;
 
 pub use config::Config;
 pub use context::{Context, Overrides};

@@ -22,6 +22,9 @@ use std::path::Path;
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_profile: Option<String>,
+    /// Where task and resolve worktrees go (default `~/.ttm/worktrees`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_root: Option<String>,
     #[serde(default)]
     pub profiles: BTreeMap<String, Profile>,
 }
@@ -52,6 +55,14 @@ impl Config {
             message: err.to_string(),
         })?;
         write_atomic(path, text.as_bytes(), Some(0o644))
+    }
+
+    /// Root directory of worktrees.
+    pub fn worktree_root(&self) -> Option<std::path::PathBuf> {
+        match &self.worktree_root {
+            Some(root) => Some(crate::worktree::expand_home(root)),
+            None => crate::worktree::default_root(),
+        }
     }
 
     pub fn profile(&self, name: &str) -> Option<&Profile> {

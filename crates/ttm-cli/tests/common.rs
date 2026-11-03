@@ -60,8 +60,14 @@ pub async fn ttm(root: &Path, host: &str, args: &[&str]) -> Output {
 }
 
 pub async fn ttm_with_stdin(root: &Path, host: &str, args: &[&str], stdin: Option<&str>) -> Output {
+    ttm_in(root, root, host, args, stdin).await
+}
+
+/// Runs `ttm` with `cwd` as the working directory.
+pub async fn ttm_in(root: &Path, cwd: &Path, host: &str, args: &[&str], stdin: Option<&str>) -> Output {
     use tokio::io::AsyncWriteExt;
     let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_ttm"));
+    cmd.current_dir(cwd);
     cmd.args(["--host", host])
         .args(args)
         .env("TTM_CONFIG_DIR", root.join("config"))

@@ -131,6 +131,39 @@ impl Client {
         decode(self.send(method, path, query, body).await?).await
     }
 
+    /// Sends and returns `(status, JSON body)` without turning error statuses into [`ApiError`] (for endpoints whose
+    /// error bodies carry data, like a 409 with conflicts). Transport errors and 426 are still errors.
+    pub async fn json_raw<B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        body: &B,
+        if_match: Option<&str>,
+    ) -> Result<(u16, serde_json::Value)> {
+        let mut request = self
+            .http
+            .request(method, self.url(path))
+            .header(header::ACCEPT, "application/json");
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        if let Some(rev) = if_match {
+            request = request.header(header::IF_MATCH, rev);
+        }
+        let response = request.json(&to_value(body)?).send().await?;
+        let status = response.status().as_u16();
+        if status == 426 {
+            return Err(error_from(response).await);
+        }
+        let bytes = response.bytes().await?;
+        let value = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+        };
+        Ok((status, value))
+    }
+
     /// Sends with retries; non-success statuses become [`ApiError`].
     pub async fn send(
         &self,
