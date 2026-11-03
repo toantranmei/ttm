@@ -20,6 +20,15 @@ order: 3
 | `ttm workspace switch <id|slug|名称>` | 为配置档选择工作区 |
 | `ttm workspace current` | 当前工作区 |
 | `ttm token list` / `create` / `revoke [id]` | 打开 `/me/ket-noi` 页面(见下文) |
+| `ttm notes search|get|query|comments` | 搜索、读取页面(Markdown)、查询数据库(SQL 或 JSON 过滤)、读取评论 |
+| `ttm notes create|edit|comment|rows` | 从文件创建页面、编辑(`--old/--new`、`--replace`、`--suggest`)、引文评论、数据库行 |
+| `ttm notes suggestions|resolve` | 查看并接受/拒绝修改建议 |
+| `ttm project init|link|open|status` | 将仓库关联到 Factory 项目 |
+| `ttm sync [--check] [--resolve]` | 同步 `.ttm/plan` 中的计划,提交变更请求 |
+| `ttm task list|show|claim|done|approve|split` | 项目任务 |
+| `ttm rules apply` | 将规则写入 AGENTS.md/CLAUDE.md 和智能体钩子 |
+| `ttm runner up|down|status|config|install-service` | 在本机运行服务器分派的智能体任务 |
+| `ttm agent run|logs|stop` | 立即运行任务、查看日志、停止 |
 | `ttm mcp install --client <客户端>` | 配置 MCP 客户端使用 `ttm-mcp` |
 | `ttm self-update [--check]` | 更新 ttm |
 | `ttm completion <bash|zsh|fish|powershell|elvish>` | Shell 自动补全脚本 |

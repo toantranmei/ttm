@@ -57,7 +57,13 @@ args = []
 | `workspace-list` | 工作区列表 |
 | `workspace-get-users` | 工作区成员(可按姓名/邮箱过滤) |
 
-Notee 和 Factory 工具将在后续版本中加入。
+`notee` 组:`notee-search`、`notee-fetch`、`notee-query-database`、`notee-get-comments`、`notee-create-pages`、
+`notee-update-page`(`mode: suggest` 提交修改建议)、`notee-move-pages`、`notee-duplicate-page`、`notee-create-database`、
+`notee-update-database`、`notee-upsert-rows`、`notee-delete-rows`、`notee-create-comment`、`notee-get-suggestions`、
+`notee-resolve-suggestion`;资源 `notee://spec/markdown`。
+
+`factory` 组(运行中的智能体使用):`factory-get-task`、`factory-get-context`、`factory-report-progress`、
+`factory-request-approval`、`factory-create-subtasks`、`factory-attach-artifact`、`factory-get-rules`、`factory-renew-lease`。
 
 ## 无需终端的 Claude Desktop
 

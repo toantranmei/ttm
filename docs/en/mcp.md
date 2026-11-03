@@ -57,7 +57,13 @@ args = []
 | `workspace-list` | Workspaces |
 | `workspace-get-users` | Workspace members (filter by name/e-mail) |
 
-Notee and Factory tools arrive in later releases.
+`notee` group: `notee-search`, `notee-fetch`, `notee-query-database`, `notee-get-comments`, `notee-create-pages`,
+`notee-update-page` (`mode: suggest` proposes the edit), `notee-move-pages`, `notee-duplicate-page`, `notee-create-database`,
+`notee-update-database`, `notee-upsert-rows`, `notee-delete-rows`, `notee-create-comment`, `notee-get-suggestions`,
+`notee-resolve-suggestion`; resource `notee://spec/markdown`.
+
+`factory` group (agents inside a run): `factory-get-task`, `factory-get-context`, `factory-report-progress`,
+`factory-request-approval`, `factory-create-subtasks`, `factory-attach-artifact`, `factory-get-rules`, `factory-renew-lease`.
 
 ## Claude Desktop without a terminal
 

@@ -20,6 +20,15 @@ Flags for every command: `--host <URL>`, `--profile <name>`, `--json` (JSON outp
 | `ttm workspace switch <id|slug|name>` | Choose the workspace for the profile |
 | `ttm workspace current` | The current workspace |
 | `ttm token list` / `create` / `revoke [id]` | Open `/me/ket-noi` (see below) |
+| `ttm notes search|get|query|comments` | Search, read pages (Markdown), query databases (SQL or JSON filter), read comments |
+| `ttm notes create|edit|comment|rows` | Create a page from a file, edit (`--old/--new`, `--replace`, `--suggest`), quoted comments, database rows |
+| `ttm notes suggestions|resolve` | List and accept/reject suggested edits |
+| `ttm project init|link|open|status` | Link the repository to a Factory project |
+| `ttm sync [--check] [--resolve]` | Sync the plan in `.ttm/plan`, send change requests |
+| `ttm task list|show|claim|done|approve|split` | Project tasks |
+| `ttm rules apply` | Write the rules into AGENTS.md/CLAUDE.md and the agent hooks |
+| `ttm runner up|down|status|config|install-service` | Run agent jobs from the server on this machine |
+| `ttm agent run|logs|stop` | Run a task now, follow its log, stop it |
 | `ttm mcp install --client <client>` | Configure an MCP client to use `ttm-mcp` |
 | `ttm self-update [--check]` | Update ttm |
 | `ttm completion <bash|zsh|fish|powershell|elvish>` | Shell completion script |

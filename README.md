@@ -7,7 +7,7 @@ Two binaries ship from this repository, with the same version:
 
 | Binary | What it is |
 | --- | --- |
-| `ttm` | The CLI: sign in, workspaces, tokens, diagnostics, MCP client setup, and later Notee, Factory sync and the local agent runner |
+| `ttm` | The CLI: sign in, workspaces, tokens, diagnostics, MCP client setup, Notee, Factory plan sync and rules, and the local agent runner |
 | `ttm-mcp` | An [MCP](https://modelcontextprotocol.io) server over stdio that exposes your workspace to AI agents |
 
 Full documentation (Vietnamese, English, Chinese): <https://toantranmei.com/help/ttm>. The sources live in [`docs/`](docs).
@@ -50,6 +50,11 @@ ttm workspace switch "Team Aurora"
 ttm status --json
 ttm token create        # opens <host>/me/ket-noi in the browser
 ttm completion zsh > ~/.zfunc/_ttm
+
+ttm notes search "kế hoạch"
+ttm notes edit <page> --old "Q3" --new "Q4" --suggest
+ttm project link AUR && ttm sync && ttm rules apply
+ttm runner config --repo AUR=~/code/aurora && ttm runner up
 ```
 
 Every command accepts `--json`.
@@ -79,7 +84,7 @@ workspace,notee,factory`. No terminal? Add the remote MCP URL shown in the help 
 | `ttm-api` | HTTP client for `/api/v1`: retries, User-Agent, `Deprecation` warnings, 426 upgrade errors, problem+json |
 | `ttm-core` | Config, profiles, host selection, discovery cache, credential storage |
 | `ttm-mcp-tools` | MCP tools over a `Backend` trait (shared with the hosted MCP server) |
-| `ttm-runner` | Local agent runner (worktrees, harness adapters); coming later |
+| `ttm-runner` | Local agent runner: job polling, worktrees, harness adapters (Claude Code first), event stream |
 | `ttm-cli` | The `ttm` binary |
 | `ttm-mcp` | The `ttm-mcp` binary (stdio) |
 

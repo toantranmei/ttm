@@ -57,7 +57,13 @@ args = []
 | `workspace-list` | Các workspace |
 | `workspace-get-users` | Thành viên workspace (lọc theo tên/email) |
 
-Tool Notee và Factory được thêm ở các bản sau.
+Nhóm `notee`: `notee-search`, `notee-fetch`, `notee-query-database`, `notee-get-comments`, `notee-create-pages`,
+`notee-update-page` (`mode: suggest` để đề xuất sửa), `notee-move-pages`, `notee-duplicate-page`, `notee-create-database`,
+`notee-update-database`, `notee-upsert-rows`, `notee-delete-rows`, `notee-create-comment`, `notee-get-suggestions`,
+`notee-resolve-suggestion`; resource `notee://spec/markdown`.
+
+Nhóm `factory` (agent trong một lần chạy): `factory-get-task`, `factory-get-context`, `factory-report-progress`,
+`factory-request-approval`, `factory-create-subtasks`, `factory-attach-artifact`, `factory-get-rules`, `factory-renew-lease`.
 
 ## Claude Desktop không cần terminal
 
