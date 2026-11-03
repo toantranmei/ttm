@@ -14,13 +14,13 @@ pub enum GitError {
 
 /// Default root: `~/.ttm/worktrees`.
 pub fn default_root() -> Option<PathBuf> {
-    directories::BaseDirs::new().map(|b| b.home_dir().join(".ttm").join("worktrees"))
+    crate::paths::home_dir().map(|home| home.join(".ttm").join("worktrees"))
 }
 
 /// `~/x` → home-relative; anything else as is.
 pub fn expand_home(path: &str) -> PathBuf {
-    match (path.strip_prefix("~/"), directories::BaseDirs::new()) {
-        (Some(rest), Some(base)) => base.home_dir().join(rest),
+    match (path.strip_prefix("~/"), crate::paths::home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest),
         _ => PathBuf::from(path),
     }
 }

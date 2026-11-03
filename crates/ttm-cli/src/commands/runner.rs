@@ -344,10 +344,7 @@ fn kill(pid: u32) -> bool {
 fn install_service(app: &App) -> Result<String> {
     let ttm = std::env::current_exe()?;
     let profile = app.profile_flag.then_some(app.ctx.profile_name.as_str());
-    let home = directories::BaseDirs::new()
-        .context("no home directory")?
-        .home_dir()
-        .to_path_buf();
+    let home = ttm_core::paths::home_dir().context("no home directory")?;
     if cfg!(target_os = "macos") {
         let path = service::launchd_path(&home);
         write(

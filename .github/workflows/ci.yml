@@ -55,8 +55,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: aarch64-apple-darwin, os: macos-latest }
-          - { target: x86_64-apple-darwin, os: macos-latest }
+          # Both macOS targets on one runner (macOS runners are scarce; arm64 cross-builds x86_64 natively).
+          - { target: aarch64-apple-darwin x86_64-apple-darwin, toolchain_targets: 'aarch64-apple-darwin,x86_64-apple-darwin', os: macos-latest }
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm }
           - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, musl: true }
@@ -68,13 +68,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.toolchain_targets || matrix.target }}
       - if: matrix.musl
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
-      - run: cargo build --release --locked --target ${{ matrix.target }} -p ttm-cli -p ttm-mcp
+          key: ${{ matrix.os }}-${{ matrix.toolchain_targets || matrix.target }}
+      - shell: bash
+        run: |
+          for target in ${{ matrix.target }}; do
+            cargo build --release --locked --target "$target" -p ttm-cli -p ttm-mcp
+          done
 
   spec-in-sync:
     name: Notee Markdown spec copy in sync

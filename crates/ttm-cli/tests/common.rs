@@ -75,6 +75,7 @@ pub async fn ttm_in(root: &Path, cwd: &Path, host: &str, args: &[&str], stdin: O
         .env("TTM_NO_KEYRING", "1")
         .env("TTM_NO_BROWSER", "1")
         .env("HOME", root)
+        .env("TTM_HOME", root)
         .env_remove("TTM_TOKEN")
         .env_remove("TTM_HOST")
         .env_remove("TTM_PROFILE")

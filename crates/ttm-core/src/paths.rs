@@ -74,6 +74,15 @@ fn default_cache_dir(base: Option<&directories::BaseDirs>, xdg: Option<PathBuf>)
 
 /// Writes `contents` to `path` atomically (temp file + rename), creating parent directories. On Unix the file gets
 /// `mode` before it is moved into place, so a secret is never readable by others even briefly.
+/// The user's home directory: `TTM_HOME` when set (tests, portable installs), else the platform's (on Windows the
+/// profile folder from the Known Folder API, which ignores `HOME`).
+pub fn home_dir() -> Option<PathBuf> {
+    match std::env::var_os("TTM_HOME").filter(|value| !value.is_empty()) {
+        Some(home) => Some(PathBuf::from(home)),
+        None => directories::BaseDirs::new().map(|base| base.home_dir().to_path_buf()),
+    }
+}
+
 pub fn write_atomic(path: &Path, contents: &[u8], mode: Option<u32>) -> Result<()> {
     let write_err = |source| Error::Write {
         path: path.to_path_buf(),

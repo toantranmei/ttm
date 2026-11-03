@@ -40,10 +40,7 @@ struct InstallOutput {
 pub async fn run(app: App, command: McpCommand) -> Result<ExitCode> {
     let McpCommand::Install(args) = command;
     let entry = entry_for(&app, &args);
-    let home = directories::BaseDirs::new()
-        .context("no home directory")?
-        .home_dir()
-        .to_path_buf();
+    let home = ttm_core::paths::home_dir().context("no home directory")?;
     let mut out = InstallOutput {
         client: client_name(args.client),
         file: None,
