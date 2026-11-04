@@ -284,3 +284,160 @@ async fn notes_search_get_query_comments_suggestions() {
     assert!(text.contains("-Ra mắt\n+Ra mắt 0.2.0"), "{text}");
     insta::assert_snapshot!("notes_suggestions", text);
 }
+
+/// A repository linked to project `p1` (key `AUR`) at rev 5, with an in-sync plan.
+fn linked_repo(root: &Path, host: &str) -> std::path::PathBuf {
+    let repo = root.join("repo");
+    std::fs::create_dir_all(repo.join(".ttm/plan")).unwrap();
+    std::fs::create_dir_all(repo.join(".ttm/base")).unwrap();
+    std::fs::write(
+        repo.join(".ttm/project.toml"),
+        format!("host = \"{host}\"\nproject_id = \"p1\"\nkey = \"AUR\"\nsynced_rev = 5\n"),
+    )
+    .unwrap();
+    std::fs::write(repo.join(".ttm/base/index.md"), "# A\n").unwrap();
+    std::fs::write(repo.join(".ttm/plan/index.md"), "# A\n").unwrap();
+    repo
+}
+
+async fn factory(server: &MockServer) {
+    use serde_json::json;
+    let ok = |body: serde_json::Value| ResponseTemplate::new(200).set_body_json(body);
+    Mock::given(method("GET"))
+        .and(path("/api/v1/factory/projects/p1/view"))
+        .respond_with(ok(json!({"tasks": [
+            {"id": "AUR-12", "key": "AUR-12", "title": "Đăng nhập bằng Google cho người dùng mới, kèm xác minh email",
+             "state": "Doing", "category": "in-progress", "role": "DEV", "estimate": 3,
+             "assigneeMember": {"kind": "agent", "id": "a1", "name": "Mei", "ownerMembership": {"tier": "mei-er"}}},
+            {"id": "AUR-13", "key": "AUR-13", "title": "登录页面", "state": "QC", "category": "qc", "role": "QA",
+             "assigneeMember": {"kind": "user", "id": "u1", "name": "An"}},
+            {"id": "AUR-14", "key": "AUR-14", "title": "Release 🚀", "state": "Approval", "category": "approval"}
+        ]})))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/factory/tasks/AUR-12"))
+        .respond_with(ok(json!({
+            "id": "AUR-12", "key": "AUR-12", "title": "Login with Google", "state": "Doing", "category": "in-progress",
+            "role": "DEV", "estimate": 3, "description": "Use the Google button.",
+            "assigneeMember": {"kind": "agent", "id": "a1", "name": "Mei"},
+            "createdBy": {"kind": "user", "id": "u1", "name": "An", "membership": {"tier": "sponsor"}},
+            "sprint": {"name": "Sprint 4"}, "labels": ["auth", "web"],
+            "acceptanceCriteria": [{"text": "Button shows", "done": true}, "Email is verified"],
+            "comments": [{"author": {"kind": "user", "id": "u1", "name": "An"}, "body": "Ngày nào xong?"}]
+        })))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/factory/projects/p1/export"))
+        .respond_with(ok(json!({"rev": 6, "project_id": "p1", "key": "AUR", "files": {"plan/index.md": "# A\n", "plan/tasks/AUR-12.md": "x\n"}})))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/factory/runs/r1/events"))
+        .respond_with(ok(json!([
+            {"id": 1, "kind": "thought", "message": "Reading the login page", "at": "2026-11-05T10:00:01Z"},
+            {"id": 2, "kind": "action", "message": "edited src/login.rs", "at": "2026-11-05T10:00:02Z"},
+            {"id": 3, "kind": "progress", "message": "tests", "data": {"percent": 50}, "at": "2026-11-05T10:00:03Z"},
+            {"id": 4, "kind": "error", "message": "cargo test failed", "at": "2026-11-05T10:00:04Z"}
+        ])))
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn factory_tasks_sync_project_and_logs() {
+    let (server, root) = signed_in().await;
+    factory(&server).await;
+    let host = server.uri();
+    let repo = linked_repo(root.path(), &host);
+    let run_in = |args: &'static [&'static str], envs: &'static [(&'static str, &'static str)]| {
+        let (root, repo, host) = (root.path().to_path_buf(), repo.clone(), host.clone());
+        async move {
+            let out = ttm_env(&root, &repo, &host, args, None, envs).await;
+            (
+                human(&out, &root, &host),
+                human_err(&out, &root, &host),
+                out.status.code(),
+            )
+        }
+    };
+
+    let (text, _, _) = run_in(&["task", "list"], &[]).await;
+    assert!(text.starts_with("AUR · 3 task(s)"), "{text}");
+    assert!(
+        text.contains("●  AUR-12") && text.contains("🤖 Mei ✦ Mei-er"),
+        "{text}"
+    );
+    assert!(text.contains("◐  AUR-14"), "{text}");
+    insta::assert_snapshot!("task_list", text);
+    let (text, _, _) = run_in(&["task", "list"], PLAIN).await;
+    assert!(
+        text.contains("doing   AUR-12") && text.contains("[agent] Mei [Mei-er]"),
+        "{text}"
+    );
+    insta::assert_snapshot!("task_list_plain", text);
+
+    let (text, _, _) = run_in(&["task", "show", "AUR-12"], &[]).await;
+    assert!(text.starts_with("╭─ AUR-12 · Login with Google"), "{text}");
+    assert!(text.contains("delegator  👤 An ✦✦ Sponsor"), "{text}");
+    assert!(
+        text.contains("✓ Button shows") && text.contains("○ Email is verified"),
+        "{text}"
+    );
+    assert!(text.trim_end().ends_with("Next: ttm agent run AUR-12"), "{text}");
+    insta::assert_snapshot!("task_show", text);
+
+    let (text, _, code) = run_in(&["sync", "--check"], &[]).await;
+    assert_eq!(code, Some(1));
+    assert!(
+        text.starts_with("! Plan out of sync: local rev 5, server rev 6"),
+        "{text}"
+    );
+    assert!(text.contains("server  tasks/AUR-12.md"), "{text}");
+    insta::assert_snapshot!("sync_check", text);
+
+    let (text, _, _) = run_in(&["project", "status"], &[]).await;
+    assert!(text.starts_with("AUR · linked at [ROOT]/repo"), "{text}");
+    insta::assert_snapshot!("project_status", text);
+
+    let (text, _, _) = run_in(&["agent", "logs", "r1"], &[]).await;
+    assert_eq!(
+        text,
+        "10:00:01 · Reading the login page\n10:00:02 › edited src/login.rs\n10:00:03  50% tests\n10:00:04 ✕ cargo test failed\n"
+    );
+    let (text, _, _) = run_in(&["agent", "logs", "r1", "--json"], &[]).await;
+    assert_eq!(text.lines().count(), 4, "NDJSON: {text}");
+    assert!(
+        text.lines()
+            .all(|l| serde_json::from_str::<serde_json::Value>(l).is_ok()),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn hooks_always_print_plain() {
+    let (server, root) = signed_in().await;
+    let host = server.uri();
+    let repo = linked_repo(root.path(), &host);
+    let input = format!(
+        r#"{{"tool_input":{{"command":"git push --no-verify"}},"cwd":"{}"}}"#,
+        repo.display()
+    );
+    let out = ttm_env(
+        root.path(),
+        &repo,
+        &host,
+        &["hook", "pre-bash"],
+        Some(&input),
+        &[("CLICOLOR_FORCE", "1")],
+    )
+    .await;
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.starts_with("Blocked by project rule `") && err.contains("no_verify"),
+        "{err}"
+    );
+    assert!(!err.contains('\u{1b}'), "never coloured: {err}");
+}

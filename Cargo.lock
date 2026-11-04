@@ -3067,6 +3067,7 @@ dependencies = [
  "tracing",
  "ttm-api",
  "ttm-core",
+ "ttm-ui",
  "wiremock",
 ]
 

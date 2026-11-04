@@ -23,6 +23,7 @@ toml.workspace = true
 tracing.workspace = true
 ttm-api.workspace = true
 ttm-core.workspace = true
+ttm-ui.workspace = true
 
 [dev-dependencies]
 wiremock.workspace = true

@@ -30,12 +30,15 @@ pub async fn run(app: App, command: RulesCommand) -> Result<ExitCode> {
     emit(
         &app,
         &json!({ "changed": changed, "checks": rules.checks }),
-        |_ui| {
-            for f in &changed {
-                println!("updated {f}");
-            }
+        |ui| {
             if changed.is_empty() {
-                println!("Rules already up to date.");
+                ui.print(&ttm_ui::Callout::success("Rules already up to date"));
+            } else {
+                ui.print(
+                    &ttm_ui::Callout::success(format!("Rules written to {} file(s)", changed.len()))
+                        .details(changed.iter().map(|f| format!("updated {f}")))
+                        .next("git add AGENTS.md CLAUDE.md .claude/settings.json"),
+                );
             }
         },
     );

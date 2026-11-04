@@ -40,6 +40,8 @@ pub struct Executor {
     pub ttm_mcp_exe: PathBuf,
     /// Also print events to stdout (`ttm agent run`).
     pub echo: bool,
+    /// Where run lines (start, end, refusals) and echoed events are printed.
+    pub ui: ttm_ui::Ui,
 }
 
 /// MCP config handed to the harness: `ttm-mcp` with the job token and run context in its environment.
@@ -79,7 +81,8 @@ pub fn leftover_commit_message(job: &JobSpec) -> String {
 impl Executor {
     pub async fn run(&self, job: JobSpec, cancel: watch::Receiver<bool>) -> JobOutcome {
         let (tx, rx) = mpsc::unbounded_channel();
-        let forwarder = tokio::spawn(forward(self.client.clone(), job.run_id.clone(), rx, self.echo));
+        let echo = self.echo.then(|| self.ui.clone());
+        let forwarder = tokio::spawn(forward(self.client.clone(), job.run_id.clone(), rx, echo));
         let result = self.execute(&job, &tx, cancel).await;
         let (outcome, finish) = match result {
             Ok(done) => done,
@@ -99,6 +102,10 @@ impl Executor {
         };
         drop(tx);
         let _ = forwarder.await;
+        if !outcome.status.is_empty() && finish.error.as_deref().is_none_or(|e| !is_refusal(e)) {
+            self.ui
+                .eline(&crate::say::finished(&self.ui, &job.task_key, &outcome));
+        }
         if let Err(err) = self.client.get().finish_run(&job.run_id, &finish).await {
             tracing::warn!("could not report the end of run {}: {err}", job.run_id);
         }
@@ -120,7 +127,12 @@ impl Executor {
         )
         .inspect_err(|refused| {
             tracing::error!("refusing run {} ({}): {refused}", job.run_id, job.task_key);
-            eprintln!("ttm runner: refused {}: {}", job.task_key, refused.message);
+            self.ui.eline(&crate::say::refused(
+                &self.ui,
+                &job.task_key,
+                refused.code,
+                &refused.message,
+            ));
         })?;
         let base = job
             .repo
@@ -130,7 +142,12 @@ impl Executor {
         // Never a path from the server outside the configured root.
         let path = guard::worktree_for(job, &self.worktree_root).inspect_err(|refused| {
             tracing::error!("refusing run {} ({}): {refused}", job.run_id, job.task_key);
-            eprintln!("ttm runner: refused {}: {}", job.task_key, refused.message);
+            self.ui.eline(&crate::say::refused(
+                &self.ui,
+                &job.task_key,
+                refused.code,
+                &refused.message,
+            ));
         })?;
         let _ = events.send(RunEvent::now(
             "log",
@@ -138,6 +155,7 @@ impl Executor {
             None,
         ));
         worktree::add(&repo, &path, &job.branch, &base)?;
+        self.ui.eline(&crate::say::started(&self.ui, job, &path));
 
         // Project rules (AGENTS.md / CLAUDE.md block, hooks) inside the worktree; best effort.
         let rules = tokio::process::Command::new(&self.ttm_exe)
@@ -222,6 +240,10 @@ impl Executor {
                         finish.pr_url = git::open_pull_request(&path, &job.branch, &base, &title, &body);
                     }
                     Err(err) => {
+                        self.ui.eprint(
+                            &ttm_ui::Callout::warning(format!("{}: push failed", job.task_key))
+                                .detail(err.to_string()),
+                        );
                         let _ = events.send(RunEvent::now("log", format!("push failed: {err}"), None));
                     }
                 }
@@ -241,6 +263,14 @@ impl Executor {
         };
         Ok((outcome, finish))
     }
+}
+
+/// Whether a finish `error` is a refusal code (already announced by the refusal line).
+fn is_refusal(error: &str) -> bool {
+    matches!(
+        error,
+        guard::REPO_NOT_CONFIGURED | guard::INVALID_BRANCH | guard::INVALID_WORKTREE
+    )
 }
 
 /// The finish report of a job that could not run. A refusal reports its code (`repo_not_configured`,
@@ -264,7 +294,7 @@ async fn forward(
     client: SharedClient,
     run_id: String,
     mut rx: mpsc::UnboundedReceiver<RunEvent>,
-    echo: bool,
+    echo: Option<ttm_ui::Ui>,
 ) {
     let mut buf: Vec<RunEvent> = Vec::new();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
@@ -272,8 +302,8 @@ async fn forward(
         tokio::select! {
             event = rx.recv() => match event {
                 Some(e) => {
-                    if echo {
-                        println!("[{}] {}", e.kind, e.message);
+                    if let Some(ui) = &echo {
+                        ui.line(&crate::say::event_line(ui, &e));
                     }
                     buf.push(e);
                     if buf.len() >= BATCH {

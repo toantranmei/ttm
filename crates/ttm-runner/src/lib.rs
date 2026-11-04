@@ -14,6 +14,7 @@ pub mod git;
 pub mod guard;
 pub mod harness;
 pub mod merge;
+pub mod say;
 pub mod service;
 pub mod shared;
 pub mod worktree;

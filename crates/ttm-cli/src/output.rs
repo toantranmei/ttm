@@ -32,7 +32,6 @@ pub fn waiting(ui: &Ui, message: &str) -> ttm_ui::Spinner {
     spinner
 }
 
-#[allow(dead_code)] // `agent logs -f`, `inbox --watch`
 /// One JSON value per line (`--json` streams: `agent logs -f`, `inbox --watch`).
 pub fn emit_line<T: Serialize>(ui: &Ui, value: &T) {
     match serde_json::to_string(value) {

@@ -173,6 +173,28 @@ pub struct MemberRef {
     pub id: String,
     #[serde(default)]
     pub name: String,
+    /// Mei-er membership of a person (`{tier}`), when the server sends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership: Option<MembershipRef>,
+    /// Mei-er membership of the owner of an agent's workspace.
+    #[serde(default, alias = "ownerMembership", skip_serializing_if = "Option::is_none")]
+    pub owner_membership: Option<MembershipRef>,
+}
+
+/// `membership: {tier}` on people and `owner_membership: {tier}` on agents (`supporter`, `mei-er`, `sponsor`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MembershipRef {
+    pub tier: String,
+}
+
+impl MemberRef {
+    /// The tier to show next to this member: its own, else its owner's.
+    pub fn tier(&self) -> Option<&str> {
+        self.membership
+            .as_ref()
+            .or(self.owner_membership.as_ref())
+            .map(|m| m.tier.as_str())
+    }
 }
 
 /// A task as the server shows it (camelCase). `id` is the task KEY (`AUR-12`); the database id is `uuid`. `assignee`

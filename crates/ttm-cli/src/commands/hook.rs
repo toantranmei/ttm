@@ -56,7 +56,12 @@ pub async fn run(app: App, command: HookCommand) -> Result<ExitCode> {
     report(&app, &linked, &verdicts).await;
     match verdicts.iter().find(|v| !v.passed) {
         Some(blocked) => {
-            eprintln!("Blocked by project rule `{}`: {}", blocked.rule, blocked.message);
+            // Always plain, whatever the terminal: the coding agent reads this text back.
+            let ui = ttm_ui::Ui::stdio(ttm_ui::Mode::fixed(ttm_ui::ColorLevel::None, true, 120));
+            ui.eline(&format!(
+                "Blocked by project rule `{}`: {}",
+                blocked.rule, blocked.message
+            ));
             Ok(ExitCode::from(2))
         }
         None => Ok(ExitCode::SUCCESS),

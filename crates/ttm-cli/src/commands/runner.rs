@@ -15,6 +15,8 @@ use ttm_api::factory::RegisterRunner;
 use ttm_core::{CredentialStore, StoredToken};
 use ttm_runner::connection::MergeSetup;
 use ttm_runner::{Executor, Runner, RunnerConfig, SharedClient, capacity, harness, service};
+use ttm_ui::vocab::Phase;
+use ttm_ui::{Callout, Cell, Col, KeyValue, Status, Table, Token, next_line};
 
 /// The runner's own token is stored apart from the user's (`<profile>#runner@<host>`), and never read from TTM_TOKEN.
 fn runner_store(app: &App) -> (CredentialStore, String) {
@@ -145,6 +147,7 @@ pub fn executor(app: &App, client: SharedClient, config: RunnerConfig, echo: boo
         ttm_exe: std::env::current_exe()?,
         ttm_mcp_exe: ttm_mcp_path(),
         echo,
+        ui: app.ui.clone(),
     })
 }
 
@@ -182,7 +185,10 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
             let executor = Arc::new(executor(&app, shared.clone(), config, false)?);
             std::fs::create_dir_all(&app.ctx.paths.cache_dir)?;
             std::fs::write(pid_file(&app), std::process::id().to_string())?;
-            eprintln!("Runner {runner_id} up: {capacity} agent(s) at once. Ctrl-C to stop.");
+            app.ui.eprint(
+                &Callout::success(format!("Runner {runner_id} up: {capacity} agent(s) at once"))
+                    .detail("Ctrl-C to stop. Each run prints one line when it starts and when it ends."),
+            );
             let (tx, rx) = tokio::sync::watch::channel(false);
             tokio::spawn(async move {
                 wait_for_signal().await;
@@ -210,12 +216,14 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 Some(pid) => kill(pid),
                 None => false,
             };
-            emit(&app, &json!({ "stopped": stopped, "pid": pid }), |_ui| {
+            emit(&app, &json!({ "stopped": stopped, "pid": pid }), |ui| {
                 if stopped {
-                    println!("Runner stopped.");
+                    ui.print(&Callout::success("Runner stopped"));
                 } else {
-                    println!(
-                        "No running runner found (a service restarts it; `ttm runner uninstall-service` keeps it off)."
+                    ui.print(
+                        &Callout::info("No running runner found")
+                            .detail("A service restarts it; uninstalling the service keeps it off.")
+                            .next("ttm runner uninstall-service"),
                     );
                 }
             });
@@ -236,17 +244,58 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 "repos": config.repos,
                 "worktree_root": config.worktree_root(app.ctx.config.worktree_root()),
             });
-            emit(&app, &out, |_ui| {
-                println!(
-                    "runner:    {} ({})",
-                    config.name,
-                    config.runner_id.as_deref().unwrap_or("not registered")
-                );
-                println!("running:   {}", if pid.is_some_and(alive) { "yes" } else { "no" });
-                println!("capacity:  {}", capacity::effective(config.max_parallel));
-                println!("harnesses: {}", harness::installed().join(", "));
+            emit(&app, &out, |ui| {
+                let running = pid.is_some_and(alive);
+                ui.line(&format!(
+                    "{} {} {}",
+                    ui.render(&if running {
+                        Status::phase(Phase::Doing)
+                    } else {
+                        Status::phase(Phase::Paused)
+                    }),
+                    ui.paint(Token::Ink, &config.name),
+                    if running { "running" } else { "not running" }
+                ));
+                let harnesses = harness::installed();
+                let kv = KeyValue::new()
+                    .row("runner", config.runner_id.as_deref().unwrap_or("not registered"))
+                    .opt("pid", pid.filter(|_| running).map(|p| p.to_string()))
+                    .row("capacity", capacity::effective(config.max_parallel).to_string())
+                    .row("team jobs", if config.accept_team_jobs { "yes" } else { "no" })
+                    .row(
+                        "harnesses",
+                        if harnesses.is_empty() {
+                            "none".to_string()
+                        } else {
+                            harnesses.join(", ")
+                        },
+                    )
+                    .opt(
+                        "worktrees",
+                        config
+                            .worktree_root(app.ctx.config.worktree_root())
+                            .map(|p| p.display().to_string()),
+                    );
+                ui.print(&kv);
+                let mut repos = Table::new(&[Col::new("PROJECT"), Col::new("CLONE").flex(1).min(10)])
+                    .empty_text("No local clones configured.");
                 for (k, v) in &config.repos {
-                    println!("repo:      {k} = {}", v.display());
+                    repos.push(vec![
+                        Cell::token(k.as_str(), Token::Ink),
+                        Cell::new(v.display().to_string()),
+                    ]);
+                }
+                ui.blank();
+                ui.print(&repos);
+                let next = if config.repos.is_empty() {
+                    Some("ttm runner config --repo <KEY>=<path>")
+                } else if !running {
+                    Some("ttm runner up")
+                } else {
+                    None
+                };
+                if let Some(next) = next {
+                    ui.line(&next_line(ui.mode(), next));
                 }
             });
         }
@@ -254,24 +303,45 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
             let mut config = RunnerConfig::load(&config_dir)?;
             apply_config(&mut config, args)?;
             config.save(&config_dir)?;
-            emit(&app, &config, |_ui| {
-                println!("Saved {}", RunnerConfig::path(&config_dir).display())
+            emit(&app, &config, |ui| {
+                ui.print(&Callout::success(format!(
+                    "Saved {}",
+                    RunnerConfig::path(&config_dir).display()
+                )));
+                let kv = KeyValue::new()
+                    .row("name", config.name.as_str())
+                    .row(
+                        "max parallel",
+                        config
+                            .max_parallel
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| "auto".into()),
+                    )
+                    .row("team jobs", if config.accept_team_jobs { "yes" } else { "no" })
+                    .row("auto merge", if config.auto_merge { "yes" } else { "no" })
+                    .row("keep days", config.keep_days.to_string())
+                    .row("repos", config.repos.len().to_string());
+                ui.print(&kv);
             });
         }
         RunnerCommand::InstallService => {
             let (file, path) = install_service(&app)?;
-            emit(&app, &json!({ "installed": file, "path": path }), |_ui| {
-                println!("Runner service installed: {file}");
-                if let Some(path) = &path {
-                    println!("PATH of the service: {path}");
-                }
+            emit(&app, &json!({ "installed": file, "path": path }), |ui| {
+                ui.print(
+                    &Callout::success("Runner service installed: it starts at login")
+                        .detail(format!("file {file}"))
+                        .details(path.iter().map(|p| format!("PATH of the service: {p}")))
+                        .next("ttm runner status"),
+                );
             });
         }
         RunnerCommand::UninstallService => {
             let removed = uninstall_service()?;
-            emit(&app, &json!({ "removed": removed }), |_ui| match &removed {
-                Some(what) => println!("Runner service stopped and removed: {what}"),
-                None => println!("No runner service installed."),
+            emit(&app, &json!({ "removed": removed }), |ui| match &removed {
+                Some(what) => {
+                    ui.print(&Callout::success("Runner service stopped and removed").detail(what.as_str()))
+                }
+                None => ui.print(&Callout::info("No runner service installed")),
             });
         }
     }

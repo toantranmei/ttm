@@ -11,6 +11,7 @@ use ttm_api::Client;
 use ttm_api::factory::{NewProject, Project};
 use ttm_core::project_file::{Linked, ProjectFile, write_tree};
 use ttm_core::worktree;
+use ttm_ui::{Callout, KeyValue, Status, Token, next_line};
 
 /// The linked repository around the current directory.
 pub fn linked() -> Result<Linked> {
@@ -72,12 +73,15 @@ pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
                 })
                 .await?;
             let linked = link(&app, &client, &root, &project).await?;
-            emit(&app, &linked.file, |_ui| {
-                println!(
-                    "Created project {} ({}) and linked {}.",
-                    project.key,
-                    project.name,
-                    root.display()
+            emit(&app, &linked.file, |ui| {
+                ui.print(
+                    &Callout::success(format!("Created project {} ({})", project.key, project.name))
+                        .detail(format!(
+                            "linked {} · plan rev {}",
+                            root.display(),
+                            linked.file.synced_rev
+                        ))
+                        .next("ttm rules apply"),
                 )
             });
         }
@@ -91,34 +95,61 @@ pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
             let found = client.project(&found.id).await.unwrap_or(found);
             let root = repo_root()?;
             let linked = link(&app, &client, &root, &found).await?;
-            emit(&app, &linked.file, |_ui| {
-                println!(
-                    "Linked {} to {} ({}), plan rev {}.",
-                    root.display(),
-                    found.key,
-                    found.name,
-                    linked.file.synced_rev
-                );
-                println!(
-                    "Commit .ttm/project.toml and .ttm/plan; run `ttm rules apply` to install the project rules."
+            emit(&app, &linked.file, |ui| {
+                ui.print(
+                    &Callout::success(format!(
+                        "Linked {} to {} ({})",
+                        root.display(),
+                        found.key,
+                        found.name
+                    ))
+                    .detail(format!("plan rev {}", linked.file.synced_rev))
+                    .detail("Commit .ttm/project.toml and .ttm/plan.")
+                    .next("ttm rules apply"),
                 );
             });
         }
         ProjectCommand::Open => {
             let linked = linked()?;
             let url = format!("{}/factory?project={}", linked.file.host, linked.file.project_id);
-            open_browser(&app.ui, &url, false);
-            emit(&app, &serde_json::json!({ "url": url }), |_ui| {});
+            if !app.json {
+                open_browser(&app.ui, &url, false);
+            }
+            emit(&app, &serde_json::json!({ "url": url }), |ui| {
+                ui.print(&Callout::success(format!(
+                    "Opened {} on the web",
+                    linked.file.key
+                )));
+            });
         }
         ProjectCommand::Status => {
             let linked = linked()?;
-            emit(&app, &linked.file, |_ui| {
-                println!("project: {} ({})", linked.file.key, linked.file.project_id);
-                println!("host:    {}", linked.file.host);
-                println!("rev:     {}", linked.file.synced_rev);
-                if let Some(cr) = &linked.file.pending_change_request {
-                    println!("pending change request: {cr}");
-                }
+            emit(&app, &linked.file, |ui| {
+                ui.line(&format!(
+                    "{} · linked at {}",
+                    ui.paint(Token::Ink, &linked.file.key),
+                    linked.root.display()
+                ));
+                let kv = KeyValue::new()
+                    .row(
+                        "project",
+                        format!("{} ({})", linked.file.key, linked.file.project_id),
+                    )
+                    .row("host", linked.file.host.as_str())
+                    .row("rev", linked.file.synced_rev.to_string())
+                    .opt("branch", linked.file.default_branch.as_deref())
+                    .row(
+                        "sync",
+                        match &linked.file.pending_change_request {
+                            Some(cr) => format!(
+                                "{} change request {cr} waits for approval",
+                                ui.render(&Status::of_category("approval"))
+                            ),
+                            None => format!("{} no pending change request", ui.render(&Status::ok())),
+                        },
+                    );
+                ui.print(&kv);
+                ui.line(&next_line(ui.mode(), "ttm sync --check"));
             });
         }
     }

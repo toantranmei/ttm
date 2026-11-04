@@ -22,6 +22,7 @@ use ttm_api::factory::{ChangeRequestOutcome, Conflict, bundle_path};
 use ttm_core::merge3::{self, Changes, Files};
 use ttm_core::project_file::{Linked, read_tree, write_tree};
 use ttm_core::worktree;
+use ttm_ui::{Callout, Cell, Col, Header, Table, Token, Ui, next_line};
 
 #[derive(Debug, Serialize, Default)]
 struct SyncOutput {
@@ -67,7 +68,7 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
         local_changes.is_empty() && server_changes.is_empty() && bundle.rev == linked.file.synced_rev;
 
     if args.check {
-        emit(&app, &out, |_ui| print_check(&out));
+        emit(&app, &out, |ui| print_check(ui, &linked.file.key, &out));
         return Ok(if out.in_sync {
             ExitCode::SUCCESS
         } else {
@@ -108,17 +109,33 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
             ChangeRequestOutcome::Conflicts(conflicts) => {
                 if !args.resolve {
                     out.conflicts = conflicts;
-                    emit(&app, &out, |_ui| {
-                        eprintln!("Conflicts with the server (both sides changed the same fields):");
-                        for c in &out.conflicts {
-                            eprintln!(
-                                "  {} {}: local {} / server {}",
-                                c.task, c.field, c.local, c.server
-                            );
-                        }
-                        eprintln!(
-                            "Run `ttm sync --resolve` to merge them with a local agent, or edit .ttm/plan and retry."
+                    emit(&app, &out, |ui| {
+                        ui.print(&header(&linked.file.key, &out));
+                        ui.print(
+                            &Callout::warning(format!(
+                                "{} conflict(s) with the server: both sides changed the same fields",
+                                out.conflicts.len()
+                            ))
+                            .detail(
+                                "Nothing was sent. Merge with a local agent, or edit .ttm/plan and retry.",
+                            )
+                            .next("ttm sync --resolve"),
                         );
+                        let mut table = Table::new(&[
+                            Col::new("TASK"),
+                            Col::new("FIELD"),
+                            Col::new("LOCAL").flex(1).min(6),
+                            Col::new("SERVER").flex(1).min(6),
+                        ]);
+                        for c in &out.conflicts {
+                            table.push(vec![
+                                Cell::token(c.task.as_str(), Token::Ink),
+                                Cell::new(c.field.as_str()),
+                                Cell::token(value_text(&c.local), Token::Teal),
+                                Cell::token(value_text(&c.server), Token::Coral),
+                            ]);
+                        }
+                        ui.print(&table);
                     });
                     return Ok(ExitCode::FAILURE);
                 }
@@ -148,42 +165,93 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
     linked.file.synced_rev = bundle.rev;
     linked.save()?;
 
-    emit(&app, &out, |_ui| {
-        println!(
-            "Plan at rev {} ({} file(s) updated from the server).",
+    let project_url = format!("{}/factory?project={}", linked.file.host, linked.file.project_id);
+    emit(&app, &out, |ui| {
+        ui.print(&header(&linked.file.key, &out));
+        let mut callout = Callout::success(format!(
+            "Plan at rev {} ({} file(s) updated from the server)",
             bundle.rev,
             out.server_changes.len()
-        );
-        if let Some(cr) = &out.change_request {
-            println!("Local edits sent as change request {cr}; they apply once approved on the web.");
-        }
+        ));
         if out.nothing_to_send {
-            println!(
-                "Up to date: the server found nothing to change in the local edits (copies in .ttm/cache/dropped)."
+            callout = callout.detail(
+                "The server found nothing to change in the local edits (copies in .ttm/cache/dropped).",
+            );
+        }
+        ui.print(&callout);
+        if !out.local_changes.is_empty() || !out.server_changes.is_empty() {
+            ui.print(&changes_table(&out));
+        }
+        if let Some(cr) = &out.change_request {
+            ui.print(
+                &Callout::success(format!("Local edits sent as change request {cr}"))
+                    .detail("They apply once approved on the web:")
+                    .detail(ui.paint(Token::Blue, &project_url)),
             );
         }
         for s in &out.skipped {
-            eprintln!("skipped: {s}");
+            ui.eprint(&Callout::warning(format!("skipped: {s}")));
         }
     });
     Ok(ExitCode::SUCCESS)
 }
 
-fn print_check(out: &SyncOutput) {
-    if out.in_sync {
-        println!("Plan in sync (rev {}).", out.server_rev);
-        return;
-    }
-    println!(
-        "Plan out of sync: local rev {}, server rev {}.",
-        out.local_rev, out.server_rev
+/// `AUR · rev 7 local / 9 server`.
+fn header(key: &str, out: &SyncOutput) -> Header {
+    let summary = format!(
+        "{} local change(s) · {} server change(s)",
+        out.local_changes.len(),
+        out.server_changes.len()
     );
+    Header::new(format!(
+        "{key} · rev {} local / {} server",
+        out.local_rev, out.server_rev
+    ))
+    .summary(summary)
+}
+
+/// One row per changed file: `local` or `server`.
+fn changes_table(out: &SyncOutput) -> Table {
+    let mut table = Table::new(&[Col::new("SIDE"), Col::new("FILE").flex(1).min(10)]);
     for f in &out.local_changes {
-        println!("  local:  {f}");
+        table.push(vec![Cell::token("local", Token::Teal), Cell::new(f.as_str())]);
     }
     for f in &out.server_changes {
-        println!("  server: {f}");
+        table.push(vec![Cell::token("server", Token::Blue), Cell::new(f.as_str())]);
     }
+    table
+}
+
+/// A conflicting value as one line.
+fn value_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.replace('\n', " "),
+        serde_json::Value::Null => "-".into(),
+        other => other.to_string(),
+    }
+}
+
+fn print_check(ui: &Ui, key: &str, out: &SyncOutput) {
+    if out.in_sync {
+        ui.print(&Callout::success(format!(
+            "Plan in sync (rev {})",
+            out.server_rev
+        )));
+        return;
+    }
+    ui.print(
+        &Callout::warning(format!(
+            "Plan out of sync: local rev {}, server rev {}",
+            out.local_rev, out.server_rev
+        ))
+        .detail(format!(
+            "{key}: {} local, {} server change(s)",
+            out.local_changes.len(),
+            out.server_changes.len()
+        )),
+    );
+    ui.print(&changes_table(out));
+    ui.line(&next_line(ui.mode(), "ttm sync"));
 }
 
 /// Instruction appended to the server's prompt.
