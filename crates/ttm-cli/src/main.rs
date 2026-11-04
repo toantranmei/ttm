@@ -1,6 +1,7 @@
 //! `ttm`: the command line of toantranmei.com.
 
 mod app;
+mod ascode;
 mod cli;
 mod cli_v2;
 mod membership;

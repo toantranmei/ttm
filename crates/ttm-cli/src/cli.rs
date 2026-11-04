@@ -71,7 +71,8 @@ pub enum Command {
     /// Factory tasks.
     #[command(subcommand)]
     Task(TaskCommand),
-    /// Project rules for local agents (AGENTS.md / CLAUDE.md block, agent hooks).
+    /// Project rules for local agents (AGENTS.md / CLAUDE.md block, agent hooks); automation rules are
+    /// `ttm automation` and `.ttm/rules/` (synced by `ttm sync`).
     #[command(subcommand)]
     Rules(RulesCommand),
     /// Hook entry points called by coding agents (reads the hook JSON on stdin).
