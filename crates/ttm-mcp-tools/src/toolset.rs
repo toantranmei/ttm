@@ -1,7 +1,9 @@
 //! [`ToolSet`]: the MCP server handler.
 
 use crate::common::{CallContext, ToolFailure, ToolResult};
-use crate::{Backend, factory, notee, notee_suggest, notee_write, workspace};
+use crate::{
+    Backend, confirm, factory, factory_admin, factory_read, notee, notee_suggest, notee_write, workspace,
+};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
     ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
@@ -19,6 +21,8 @@ pub enum Toolset {
     Workspace,
     Notee,
     Factory,
+    /// Configuration changes with two-step confirmation (`factory:admin`). Never for an agent running a job.
+    Admin,
 }
 
 impl std::str::FromStr for Toolset {
@@ -28,8 +32,9 @@ impl std::str::FromStr for Toolset {
             "workspace" => Ok(Toolset::Workspace),
             "notee" | "notes" => Ok(Toolset::Notee),
             "factory" => Ok(Toolset::Factory),
+            "admin" => Ok(Toolset::Admin),
             other => Err(format!(
-                "unknown toolset `{other}` (expected workspace, notee, factory)"
+                "unknown toolset `{other}` (expected workspace, notee, factory, admin)"
             )),
         }
     }
@@ -41,7 +46,20 @@ pub struct Toolsets(Vec<Toolset>);
 
 impl Toolsets {
     pub fn all() -> Self {
-        Self(vec![Toolset::Workspace, Toolset::Notee, Toolset::Factory])
+        Self(vec![
+            Toolset::Workspace,
+            Toolset::Notee,
+            Toolset::Factory,
+            Toolset::Admin,
+        ])
+    }
+
+    /// The same without `set` (`workspace` stays).
+    pub fn without(mut self, set: Toolset) -> Self {
+        if set != Toolset::Workspace {
+            self.0.retain(|s| *s != set);
+        }
+        self
     }
 
     /// `notee,factory` → workspace + notee + factory.
@@ -68,7 +86,49 @@ impl Default for Toolsets {
 }
 
 pub const INSTRUCTIONS: &str = "Tools for toantranmei.com (Notee notes, Factory projects) acting as the signed-in user. \
-Start with workspace-get-self to learn who the user is and which workspace is current.";
+Start with workspace-get-self to learn who the user is and which workspace is current. \
+Configuration changes always return a preview and a confirm_id; call factory-confirm only after the user agrees.";
+
+/// Asks the person at the client a yes/no question (MCP elicitation). `None`: cannot ask (no capability, error).
+#[async_trait::async_trait]
+pub trait Asker: Send + Sync {
+    async fn confirm(&self, message: &str) -> Option<bool>;
+}
+
+/// The answer of the elicitation form.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ConfirmAnswer {
+    /// Apply the change?
+    pub confirm: bool,
+}
+rmcp::elicit_safe!(ConfirmAnswer);
+
+struct PeerAsker(rmcp::Peer<RoleServer>);
+
+#[async_trait::async_trait]
+impl Asker for PeerAsker {
+    async fn confirm(&self, message: &str) -> Option<bool> {
+        if !self
+            .0
+            .supported_elicitation_modes()
+            .contains(&rmcp::service::ElicitationMode::Form)
+        {
+            return None;
+        }
+        match self.0.elicit::<ConfirmAnswer>(message.to_string()).await {
+            Ok(Some(answer)) => Some(answer.confirm),
+            Ok(None) => None,
+            Err(
+                rmcp::service::ElicitationError::UserDeclined
+                | rmcp::service::ElicitationError::UserCancelled,
+            ) => Some(false),
+            Err(err) => {
+                tracing::debug!("elicitation failed: {err}");
+                None
+            }
+        }
+    }
+}
 
 /// MCP server over a [`Backend`].
 pub struct ToolSet<B: Backend> {
@@ -76,6 +136,10 @@ pub struct ToolSet<B: Backend> {
     toolsets: Toolsets,
     server_name: String,
     server_version: String,
+    /// Serving an agent running a job: no `admin` toolset, and only the job's Factory read tools.
+    job: bool,
+    /// Ask the client to confirm staged changes right away (stdio `ttm-mcp` only; the hosted server is stateless).
+    elicit: bool,
 }
 
 impl<B: Backend> Clone for ToolSet<B> {
@@ -85,6 +149,8 @@ impl<B: Backend> Clone for ToolSet<B> {
             toolsets: self.toolsets.clone(),
             server_name: self.server_name.clone(),
             server_version: self.server_version.clone(),
+            job: self.job,
+            elicit: self.elicit,
         }
     }
 }
@@ -95,12 +161,37 @@ impl<B: Backend> ToolSet<B> {
     }
 
     pub fn from_arc(backend: Arc<B>, toolsets: Toolsets) -> Self {
+        let job = backend.factory_scope().run_id.is_some();
         Self {
             backend,
             toolsets,
             server_name: "ttm".into(),
             server_version: env!("CARGO_PKG_VERSION").into(),
+            job,
+            elicit: false,
         }
+    }
+
+    /// Marks the caller as an agent running a job (the hosted server knows it from the job token). A backend with a
+    /// `run_id` is always a job; this can only add the restriction, never lift it.
+    pub fn for_job(mut self, job: bool) -> Self {
+        self.job = self.job || job;
+        self
+    }
+
+    /// Asks the MCP client (elicitation) to confirm staged changes right away.
+    pub fn with_elicitation(mut self, on: bool) -> Self {
+        self.elicit = on;
+        self
+    }
+
+    pub fn is_job(&self) -> bool {
+        self.job
+    }
+
+    /// The backend (tests, and the hosted server's own checks).
+    pub fn backend(&self) -> &B {
+        self.backend.as_ref()
     }
 
     /// Name and version reported in `initialize` (the hosted server sets its own).
@@ -123,6 +214,15 @@ impl<B: Backend> ToolSet<B> {
         }
         if self.toolsets.contains(Toolset::Factory) {
             tools.extend(factory::tools());
+            tools.extend(
+                factory_read::tools()
+                    .into_iter()
+                    .filter(|t| !self.job || factory_read::JOB_TOOLS.contains(&t.name.as_ref())),
+            );
+        }
+        if self.toolsets.contains(Toolset::Admin) && !self.job {
+            tools.extend(factory_admin::tools());
+            tools.extend(confirm::tools());
         }
         tools
     }
@@ -134,6 +234,65 @@ impl<B: Backend> ToolSet<B> {
         arguments: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> Result<CallToolResult, ErrorData> {
         self.call_with(name, arguments, &CallContext::default()).await
+    }
+
+    /// [`ToolSet::call_with`], then, for an admin tool that staged a change, asks `asker` to confirm: yes applies it
+    /// right away, no cancels it; either answer is reported in the admin tool's own output shape. Without an
+    /// answer the staged `confirm_id` is returned as usual.
+    pub async fn call_confirming(
+        &self,
+        name: &str,
+        arguments: Option<serde_json::Map<String, serde_json::Value>>,
+        ctx: &CallContext,
+        asker: &dyn Asker,
+    ) -> Result<CallToolResult, ErrorData> {
+        let result = self.call_with(name, arguments, ctx).await?;
+        let staged = factory_admin::tools().iter().any(|t| t.name == name)
+            && result.is_error != Some(true)
+            && result
+                .structured_content
+                .as_ref()
+                .is_some_and(|v| v.get("status").and_then(|s| s.as_str()) == Some("pending"));
+        if !staged {
+            return Ok(result);
+        }
+        let mut value = result.structured_content.clone().unwrap_or_default();
+        let id = value["confirm_id"].as_str().unwrap_or_default().to_string();
+        let preview_text = result
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .map(|t| t.text.clone())
+            .unwrap_or_default();
+        let message = crate::md::cell(&preview_text);
+        let Some(yes) = asker.confirm(&format!("{message}\n\nApply this change?")).await else {
+            return Ok(result);
+        };
+        let backend = self.backend.as_ref();
+        let (status, outcome) = if yes {
+            ("applied", confirm::apply(backend, &id).await)
+        } else {
+            ("cancelled", confirm::cancel(backend, &id).await)
+        };
+        match outcome {
+            Ok(done) => {
+                value["status"] = status.into();
+                if yes {
+                    value["result"] = done.value.get("result").cloned().unwrap_or_default();
+                }
+                let mut out = CallToolResult::structured(value);
+                out.content = vec![ContentBlock::text(done.text.unwrap_or_default())];
+                Ok(out)
+            }
+            Err(ToolFailure::Backend(err)) => {
+                let mut out = CallToolResult::error(vec![ContentBlock::text(
+                    crate::md::Md::title("✕", err.to_string()).build(),
+                )]);
+                out.structured_content = Some(serde_json::json!({ "error": err }));
+                Ok(out)
+            }
+            Err(ToolFailure::InvalidArgs(message)) => Err(ErrorData::invalid_params(message, None)),
+        }
     }
 
     /// [`ToolSet::call`] with caller information (the MCP client name is recorded as the writing agent).
@@ -152,16 +311,36 @@ impl<B: Backend> ToolSet<B> {
         };
         match outcome {
             Ok(output) => {
-                let mut result = CallToolResult::structured(output.value);
-                if let Some(text) = output.text {
-                    result.content = vec![ContentBlock::text(text)];
-                }
+                // `structuredContent` is always an object (MCP requires it when a tool has an `outputSchema`).
+                let value = crate::out::object(output.value);
+                let text = output.text.unwrap_or_else(|| {
+                    crate::md::Md::title("✓", name)
+                        .text(format!(
+                            "```json\n{}\n```",
+                            serde_json::to_string_pretty(&value).unwrap_or_default()
+                        ))
+                        .build()
+                });
+                let mut result = CallToolResult::structured(value);
+                result.content = vec![ContentBlock::text(text)];
                 Ok(result)
             }
             Err(ToolFailure::InvalidArgs(message)) => Err(ErrorData::invalid_params(message, None)),
             Err(ToolFailure::Backend(err)) => {
                 tracing::debug!(tool = name, code = %err.code, "tool failed");
-                let mut result = CallToolResult::error(vec![ContentBlock::text(err.to_string())]);
+                let mut md = crate::md::Md::title("✕", err.to_string()).kv(&[
+                    ("code", err.code.clone()),
+                    ("rule", err.rule().unwrap_or("").to_string()),
+                ]);
+                if crate::confirm::RETRY_CODES.contains(&err.rule().unwrap_or(&err.code))
+                    || crate::confirm::RETRY_CODES.contains(&err.code.as_str())
+                {
+                    md = md.next(&[(
+                        "the same admin tool",
+                        "run the tool again to stage a fresh confirmation, then ask the user again",
+                    )]);
+                }
+                let mut result = CallToolResult::error(vec![ContentBlock::text(md.build())]);
                 result.structured_content = Some(serde_json::json!({ "error": err }));
                 Ok(result)
             }
@@ -190,7 +369,19 @@ impl<B: Backend> ToolSet<B> {
             return notee_write::call(backend, name, args, ctx).await;
         }
         if name.starts_with("factory-") {
-            return factory::call(backend, name, args).await;
+            if let Some(result) = factory::call(backend, name, args.clone()).await {
+                return Some(result);
+            }
+            if let Some(result) = factory_read::call(backend, name, args.clone()).await {
+                return Some(result);
+            }
+            if self.job {
+                return None;
+            }
+            if let Some(result) = factory_admin::call(backend, name, args.clone()).await {
+                return Some(result);
+            }
+            return confirm::call(backend, name, args).await;
         }
         None
     }
@@ -269,6 +460,13 @@ impl<B: Backend> ServerHandler for ToolSet<B> {
     ) -> Result<CallToolResponse, ErrorData> {
         let agent = context.peer.peer_info().map(|info| info.client_info.name.clone());
         let ctx = CallContext { agent };
+        if self.elicit {
+            let asker = PeerAsker(context.peer.clone());
+            return self
+                .call_confirming(&request.name, request.arguments, &ctx, &asker)
+                .await
+                .map(Into::into);
+        }
         self.call_with(&request.name, request.arguments, &ctx)
             .await
             .map(Into::into)

@@ -11,7 +11,8 @@ homepage.workspace = true
 
 [dependencies]
 async-trait.workspace = true
-rmcp = { workspace = true, features = ["server", "macros"] }
+reqwest = { workspace = true }
+rmcp = { workspace = true, features = ["server", "macros", "elicitation"] }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,6 +21,8 @@ tracing.workspace = true
 ttm-api.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
+jsonschema = { version = "0.33", default-features = false }
 rmcp = { workspace = true, features = ["client", "server"] }
 tokio.workspace = true
 wiremock.workspace = true

@@ -3,6 +3,8 @@
 
 use crate::Backend;
 use crate::common::{CallContext, ToolFailure, ToolOutput, ToolResult, parse_required, to_value, writes};
+use crate::md::Md;
+use crate::out::{ObjectOut, PagesOut};
 use rmcp::handler::server::common::schema_for_type;
 use rmcp::model::Tool;
 use schemars::JsonSchema;
@@ -227,7 +229,8 @@ pub fn tools() -> Vec<Tool> {
              Notee-flavored Markdown (notee://spec/markdown); at most 1,000 blocks per call.",
             schema_for_type::<CreatePagesArgs>(),
         )
-        .annotate(writes("Create pages", false)),
+        .with_output_schema::<PagesOut>()
+            .annotate(writes("Create pages", false)),
         Tool::new(
             UPDATE_PAGE,
             "Edit a Notee page: `update_content` find/replace edits (each old_str must match exactly once) or \
@@ -235,26 +238,33 @@ pub fn tools() -> Vec<Tool> {
              mode=suggest proposes the change instead of applying it.",
             schema_for_type::<UpdatePageArgs>(),
         )
-        .annotate(writes("Update page", true)),
+        .with_output_schema::<ObjectOut>()
+            .annotate(writes("Update page", true)),
         Tool::new(MOVE_PAGES, "Move Notee pages under another page, database or workspace.", schema_for_type::<MovePagesArgs>())
+            .with_output_schema::<PagesOut>()
             .annotate(writes("Move pages", false)),
         Tool::new(DUPLICATE_PAGE, "Duplicate a Notee page with its content.", schema_for_type::<PageArg>())
+            .with_output_schema::<ObjectOut>()
             .annotate(writes("Duplicate page", false)),
         Tool::new(CREATE_DATABASE, "Create a Notee database with properties.", schema_for_type::<CreateDatabaseArgs>())
+            .with_output_schema::<ObjectOut>()
             .annotate(writes("Create database", false)),
         Tool::new(
             UPDATE_DATABASE,
             "Change a Notee database: add, update or remove properties and views, rename it.",
             schema_for_type::<UpdateDatabaseArgs>(),
         )
-        .annotate(writes("Update database", true)),
+        .with_output_schema::<ObjectOut>()
+            .annotate(writes("Update database", true)),
         Tool::new(
             UPSERT_ROWS,
             "Create or update up to 100 rows of a Notee database (values by property name).",
             schema_for_type::<UpsertRowsArgs>(),
         )
-        .annotate(writes("Upsert rows", false)),
+        .with_output_schema::<ObjectOut>()
+            .annotate(writes("Upsert rows", false)),
         Tool::new(DELETE_ROWS, "Delete rows of a Notee database (moved to trash).", schema_for_type::<DeleteRowsArgs>())
+            .with_output_schema::<ObjectOut>()
             .annotate(writes("Delete rows", true)),
         Tool::new(
             CREATE_COMMENT,
@@ -262,7 +272,8 @@ pub fn tools() -> Vec<Tool> {
              reply in a thread.",
             schema_for_type::<CreateCommentArgs>(),
         )
-        .annotate(writes("Comment", false)),
+        .with_output_schema::<ObjectOut>()
+            .annotate(writes("Comment", false)),
     ]
 }
 
@@ -305,7 +316,8 @@ async fn create_pages<B: Backend + ?Sized>(backend: &B, args: Option<Map<String,
             .collect(),
     };
     let created = backend.notee_create_pages(&request).await?;
-    Ok(ToolOutput::json(json!({ "pages": created })))
+    let text = pages_md(&format!("Created {} page(s)", created.len()), &created);
+    Ok(ToolOutput::with_text(json!({ "pages": created }), text))
 }
 
 /// Builds the PATCH body; at least one change is required.
@@ -353,15 +365,17 @@ async fn update_page<B: Backend + ?Sized>(
 ) -> ToolResult {
     let (page, update) = build_update(parse_required(args)?, ctx.agent.clone())?;
     let result = backend.notee_update_page(&page, &update).await?;
-    let mut text = match (&result.suggestion_id, result.applied) {
-        (Some(id), _) => format!("Suggestion {id} created; people with edit access can accept or reject it."),
-        (None, true) => "Page updated.".to_string(),
-        (None, false) => "No change applied.".to_string(),
+    let md = match (&result.suggestion_id, result.applied) {
+        (Some(id), _) => Md::title("◐", format!("Suggestion {id} created"))
+            .text("People with edit access can accept or reject it.")
+            .next(&[("notee-get-suggestions", "see it")]),
+        (None, true) => {
+            Md::title("✓", format!("Page {page} updated")).next(&[("notee-fetch", "read the result")])
+        }
+        (None, false) => Md::title("!", "No change applied"),
     };
-    for w in &result.warnings {
-        text.push_str(&format!("\nWarning: {w}"));
-    }
-    Ok(ToolOutput::with_text(to_value(&result), text))
+    let warnings: Vec<(&str, String)> = result.warnings.iter().map(|w| ("warning", w.clone())).collect();
+    Ok(ToolOutput::with_text(to_value(&result), md.kv(&warnings).build()))
 }
 
 async fn move_pages<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
@@ -371,14 +385,15 @@ async fn move_pages<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, V
     for page in &args.pages {
         moved.push(backend.notee_move_page(&resource_id(page), &parent).await?);
     }
-    Ok(ToolOutput::json(json!({ "pages": moved })))
+    let text = pages_md(&format!("Moved {} page(s)", moved.len()), &moved);
+    Ok(ToolOutput::with_text(json!({ "pages": moved }), text))
 }
 
 async fn duplicate<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
     let args: PageArg = parse_required(args)?;
-    Ok(ToolOutput::json(to_value(
-        &backend.notee_duplicate_page(&resource_id(&args.page)).await?,
-    )))
+    let copy = backend.notee_duplicate_page(&resource_id(&args.page)).await?;
+    let text = pages_md("Page duplicated", std::slice::from_ref(&copy));
+    Ok(ToolOutput::with_text(to_value(&copy), text))
 }
 
 async fn create_database<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
@@ -388,9 +403,9 @@ async fn create_database<B: Backend + ?Sized>(backend: &B, args: Option<Map<Stri
         title: args.title,
         properties: args.properties,
     };
-    Ok(ToolOutput::json(to_value(
-        &backend.notee_create_database(&request).await?,
-    )))
+    let db = backend.notee_create_database(&request).await?;
+    let text = pages_md("Database created", std::slice::from_ref(&db));
+    Ok(ToolOutput::with_text(to_value(&db), text))
 }
 
 async fn update_database<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
@@ -398,7 +413,10 @@ async fn update_database<B: Backend + ?Sized>(backend: &B, args: Option<Map<Stri
     let result = backend
         .notee_update_database(&resource_id(&args.database), &Value::Object(args.changes))
         .await?;
-    Ok(ToolOutput::json(result))
+    let text = Md::title("✓", format!("Database {} updated", resource_id(&args.database)))
+        .next(&[("notee-fetch", "see its properties")])
+        .build();
+    Ok(ToolOutput::with_text(result, text))
 }
 
 async fn upsert_rows<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
@@ -414,11 +432,15 @@ async fn upsert_rows<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, 
             values: r.values,
         })
         .collect();
-    Ok(ToolOutput::json(to_value(
-        &backend
-            .notee_upsert_rows(&resource_id(&args.database), &rows)
-            .await?,
-    )))
+    let result = backend
+        .notee_upsert_rows(&resource_id(&args.database), &rows)
+        .await?;
+    let ids: Vec<Vec<String>> = result.ids.iter().map(|id| vec![id.clone()]).collect();
+    let text = Md::title("✓", format!("{} row(s) saved", result.ids.len()))
+        .table(&["Row id"], &ids)
+        .next(&[("notee-query-database", "read the rows")])
+        .build();
+    Ok(ToolOutput::with_text(to_value(&result), text))
 }
 
 async fn delete_rows<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
@@ -426,11 +448,11 @@ async fn delete_rows<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, 
     if args.ids.is_empty() {
         return Err(ToolFailure::InvalidArgs("ids is empty".into()));
     }
-    Ok(ToolOutput::json(
-        backend
-            .notee_delete_rows(&resource_id(&args.database), &args.ids)
-            .await?,
-    ))
+    let result = backend
+        .notee_delete_rows(&resource_id(&args.database), &args.ids)
+        .await?;
+    let text = Md::title("✓", format!("{} row(s) deleted", args.ids.len())).build();
+    Ok(ToolOutput::with_text(result, text))
 }
 
 async fn create_comment<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
@@ -439,9 +461,9 @@ async fn create_comment<B: Backend + ?Sized>(backend: &B, args: Option<Map<Strin
         return Err(ToolFailure::InvalidArgs("text is empty".into()));
     }
     if let Some(thread) = &args.thread_id {
-        return Ok(ToolOutput::json(
-            backend.notee_reply_comment(thread, &args.text).await?,
-        ));
+        let reply = backend.notee_reply_comment(thread, &args.text).await?;
+        let text = Md::title("✓", format!("Replied in thread {thread}")).build();
+        return Ok(ToolOutput::with_text(reply, text));
     }
     let anchor = match args.quote {
         Some(q) => NewAnchor::Quote {
@@ -453,11 +475,31 @@ async fn create_comment<B: Backend + ?Sized>(backend: &B, args: Option<Map<Strin
         },
         None => NewAnchor::Page,
     };
-    Ok(ToolOutput::json(to_value(
-        &backend
-            .notee_create_comment(&resource_id(&args.page), &anchor, &args.text)
-            .await?,
-    )))
+    let thread = backend
+        .notee_create_comment(&resource_id(&args.page), &anchor, &args.text)
+        .await?;
+    let text = Md::title("✓", format!("Comment thread {} created", thread.id))
+        .next(&[("notee-get-comments", "read the threads")])
+        .build();
+    Ok(ToolOutput::with_text(to_value(&thread), text))
+}
+
+/// `**✓ <title>**` and a table of the resources (title, id, url).
+fn pages_md(title: &str, pages: &[ttm_api::notee::ResourceRef]) -> String {
+    let rows: Vec<Vec<String>> = pages
+        .iter()
+        .map(|p| {
+            vec![
+                p.title.clone().unwrap_or_default(),
+                p.id.clone(),
+                p.url.clone().unwrap_or_default(),
+            ]
+        })
+        .collect();
+    Md::title("✓", title)
+        .table(&["Title", "Id", "URL"], &rows)
+        .next(&[("notee-fetch", "read one")])
+        .build()
 }
 
 #[cfg(test)]

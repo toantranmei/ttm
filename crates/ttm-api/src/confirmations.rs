@@ -19,7 +19,8 @@ pub struct NewConfirmation {
     pub preview: Value,
 }
 
-/// `POST /confirmations` answer / `GET /confirmations/{id}`.
+/// `POST /confirmations` answer (201 `{confirm_id, expires_at}`) / `GET /confirmations/{id}` / cancel answer
+/// (`{confirm_id, status}`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Confirmation {
     #[serde(default)]
@@ -27,12 +28,66 @@ pub struct Confirmation {
     #[serde(default)]
     pub expires_at: Option<String>,
     #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
     pub summary: Option<String>,
     #[serde(default)]
     pub preview: Value,
     /// `pending`, `applied`, `cancelled`, `expired`.
     #[serde(default)]
     pub status: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub used_at: Option<String>,
+    /// HTTP status the applied action answered.
+    #[serde(default)]
+    pub result_status: Option<u16>,
+}
+
+/// Header the server puts on the replayed answer of `POST /confirmations/{id}/apply`.
+pub const APPLIED_HEADER: &str = "x-confirmation";
+
+/// Errors of the confirmation step itself (not of the confirmed action).
+pub const CONFIRM_ERRORS: &[&str] = &[
+    "not_found",
+    "confirm_expired",
+    "confirm_used",
+    "confirm_cancelled",
+    "confirm_tampered",
+    "bearer_required",
+    "job_token_not_allowed",
+    "not_confirmable",
+    "payload_too_large",
+    "token_not_allowed",
+    "insufficient_scope",
+    "rate_limited",
+];
+
+/// Answer of `POST /confirmations/{id}/apply`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApplyOutcome {
+    pub status: u16,
+    pub body: Value,
+    /// `X-Confirmation: applied`: the status and body are those of the confirmed action (e.g. 409 `draft-stale`);
+    /// without it an error belongs to the confirmation step (`confirm_expired`, `confirm_used`, …).
+    pub applied: bool,
+}
+
+impl ApplyOutcome {
+    pub fn ok(&self) -> bool {
+        (200..300).contains(&self.status)
+    }
+
+    /// `code` (or `rule`) of an error body.
+    pub fn code(&self) -> Option<&str> {
+        self.body
+            .get("rule")
+            .or_else(|| self.body.get("code"))
+            .and_then(Value::as_str)
+    }
 }
 
 /// Routes that can be confirmed (`CONFIRMABLE` of the server), as `(method, path pattern)` with `{}` segments.
@@ -75,19 +130,28 @@ impl Client {
         self.get(&format!("/confirmations/{}", encode(id))).await
     }
 
-    /// Applies a confirmation; answers the status and body of the confirmed request (a non-2xx replayed status is
-    /// returned as `(status, body)`, not as an error).
-    pub async fn confirmation_apply(&self, id: &str) -> Result<(u16, Value)> {
-        self.json_raw(
-            reqwest::Method::POST,
-            &format!("/confirmations/{}/apply", encode(id)),
-            &serde_json::json!({}),
-            None,
-        )
-        .await
+    /// Applies a confirmation. Error statuses come back as data: with `applied` they belong to the action, else to
+    /// the confirmation step.
+    pub async fn confirmation_apply(&self, id: &str) -> Result<ApplyOutcome> {
+        let (status, body, headers) = self
+            .json_raw_headers(
+                reqwest::Method::POST,
+                &format!("/confirmations/{}/apply", encode(id)),
+                &serde_json::json!({}),
+            )
+            .await?;
+        let applied = headers
+            .get(APPLIED_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.eq_ignore_ascii_case("applied"));
+        Ok(ApplyOutcome {
+            status,
+            body,
+            applied,
+        })
     }
 
-    pub async fn confirmation_cancel(&self, id: &str) -> Result<Value> {
+    pub async fn confirmation_cancel(&self, id: &str) -> Result<Confirmation> {
         self.post(
             &format!("/confirmations/{}/cancel", encode(id)),
             &serde_json::json!({}),

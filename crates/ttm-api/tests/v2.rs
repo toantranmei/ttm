@@ -241,7 +241,9 @@ async fn confirmations_and_inbox() {
     Mock::given(method("POST"))
         .and(path("/api/v1/confirmations/c1/apply"))
         .respond_with(
-            ResponseTemplate::new(409).set_body_json(json!({"code": "conflict", "rule": "confirm_stale"})),
+            ResponseTemplate::new(409)
+                .insert_header("x-confirmation", "applied")
+                .set_body_json(json!({"code": "conflict", "rule": "draft-stale"})),
         )
         .mount(&server)
         .await;
@@ -269,8 +271,11 @@ async fn confirmations_and_inbox() {
         .unwrap();
     assert_eq!(conf.confirm_id, "c1");
     // The replayed status comes back as data, not as an error.
-    let (status, body) = c.confirmation_apply("c1").await.unwrap();
-    assert_eq!((status, body["rule"].as_str()), (409, Some("confirm_stale")));
+    let out = c.confirmation_apply("c1").await.unwrap();
+    assert_eq!(
+        (out.status, out.code(), out.applied),
+        (409, Some("draft-stale"), true)
+    );
     let inbox = c
         .notifications(&ttm_api::inbox::InboxQuery {
             kinds: vec!["factory".into()],

@@ -1,0 +1,11 @@
+---
+source: crates/ttm-mcp-tools/tests/markdown.rs
+expression: "md(\"factory-agent-list\", json!({})).await"
+---
+**🤖 1 agent(s)**
+
+| Agent | Handle | Role | Model | Skills | MCP | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 🤖 DEV · Code ✦✦ Sponsor | @dev | DEV | sonnet | ttm-tdd, ttm-pr ◐ | local:github-local | active |
+
+**Next:** `factory-agent-get` — one agent's profile

@@ -1,0 +1,18 @@
+---
+source: crates/ttm-mcp-tools/tests/markdown.rs
+expression: "md(\"factory-workflow-publish\", json!({\"note\": \"QC 2\"})).await"
+---
+**! Confirm: Publish workflow Professional v3**
+
+**◐ v2 → v3 (draft)**
+
+| Change | Item |
+| --- | --- |
+| + states | QC 2 |
+
+- **note:** QC 2
+
+- **confirm_id:** c1
+- **expires:** 2026-11-05T10:10:00Z
+
+**Next:** `factory-confirm` — with confirm_id `c1` only after the user agrees (expires in 10 minutes); `factory-confirm-cancel` to drop it

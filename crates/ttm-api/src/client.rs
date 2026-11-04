@@ -207,6 +207,36 @@ impl Client {
         Ok((status, value))
     }
 
+    /// Like [`Client::json_raw`] (no retries, error statuses returned as data), also answering the response
+    /// headers (`X-Confirmation: applied` of a confirmation apply).
+    pub async fn json_raw_headers<B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        body: &B,
+    ) -> Result<(u16, serde_json::Value, HeaderMap)> {
+        let mut request = self
+            .http
+            .request(method, self.url(path))
+            .header(header::ACCEPT, "application/json");
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.json(&to_value(body)?).send().await?;
+        let status = response.status().as_u16();
+        if status == 426 {
+            return Err(error_from(response).await);
+        }
+        let headers = response.headers().clone();
+        let bytes = response.bytes().await?;
+        let value = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+        };
+        Ok((status, value, headers))
+    }
+
     /// Sends with retries; non-success statuses become [`ApiError`].
     pub async fn send(
         &self,

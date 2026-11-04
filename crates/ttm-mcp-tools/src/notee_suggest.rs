@@ -3,6 +3,8 @@
 
 use crate::Backend;
 use crate::common::{ToolFailure, ToolOutput, ToolResult, parse_required, read_only, to_value, writes};
+use crate::md::Md;
+use crate::out::{ObjectOut, SuggestionsOut};
 use rmcp::handler::server::common::schema_for_type;
 use rmcp::model::Tool;
 use schemars::JsonSchema;
@@ -50,6 +52,7 @@ pub fn tools() -> Vec<Tool> {
              quoted anchor and before/after Markdown.",
             schema_for_type::<GetArgs>(),
         )
+        .with_output_schema::<SuggestionsOut>()
         .annotate(read_only("Read suggestions")),
         Tool::new(
             RESOLVE_SUGGESTION,
@@ -57,6 +60,7 @@ pub fn tools() -> Vec<Tool> {
              back as stale.",
             schema_for_type::<ResolveArgs>(),
         )
+        .with_output_schema::<ObjectOut>()
         .annotate(writes("Resolve suggestion", true)),
     ]
 }
@@ -81,11 +85,13 @@ async fn get<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>)
         .into_iter()
         .filter(|s| args.include_resolved || s.status == "pending")
         .collect();
-    let mut text = String::new();
-    if list.is_empty() {
-        text.push_str("No pending suggestions.");
-    }
+    let mut md = if list.is_empty() {
+        Md::title("○", "No pending suggestions")
+    } else {
+        Md::title("◐", format!("{} suggestion(s)", list.len()))
+    };
     for s in &list {
+        let mut text = String::new();
         let who = s.author.as_ref().map(|a| a.name.as_str()).unwrap_or("someone");
         let via = s
             .via_agent
@@ -103,8 +109,12 @@ async fn get<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>)
                 c.after_nfm.as_deref().unwrap_or("")
             );
         }
+        md = md.text(text);
     }
-    Ok(ToolOutput::with_text(json!({ "suggestions": list }), text))
+    if !list.is_empty() {
+        md = md.next(&[(RESOLVE_SUGGESTION, "accept or reject one")]);
+    }
+    Ok(ToolOutput::with_text(json!({ "suggestions": list }), md.build()))
 }
 
 async fn resolve<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
@@ -118,5 +128,19 @@ async fn resolve<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Valu
     let result = backend
         .notee_resolve_suggestion(&args.suggestion, accept, args.change_ids.as_deref())
         .await?;
-    Ok(ToolOutput::json(to_value(&result)))
+    let status = result.status.clone().unwrap_or_else(|| {
+        if accept {
+            "accepted".into()
+        } else {
+            "rejected".into()
+        }
+    });
+    let mut md = Md::title(
+        if accept { "✓" } else { "✕" },
+        format!("Suggestion {} {status}", args.suggestion),
+    );
+    if !result.stale_change_ids.is_empty() {
+        md = md.kv(&[("stale changes", result.stale_change_ids.join(", "))]);
+    }
+    Ok(ToolOutput::with_text(to_value(&result), md.build()))
 }
