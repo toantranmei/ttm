@@ -467,14 +467,30 @@ pub fn safe_extract(bytes: &[u8], dest: &Path) -> Result<Vec<String>, BundleErro
     check(&files)?;
     std::fs::create_dir_all(dest)
         .map_err(|e| err("zip_invalid", format!("cannot create {}: {e}", dest.display())))?;
+    // Compare real paths: a symlinked directory inside `dest` must not lead the files elsewhere.
+    let root = dest
+        .canonicalize()
+        .map_err(|e| err("zip_invalid", format!("cannot resolve {}: {e}", dest.display())))?;
     let mut written = Vec::new();
     for f in &files {
-        let target = dest.join(&f.path);
-        if !target.starts_with(dest) {
+        let target = root.join(&f.path);
+        if !target.starts_with(&root) {
             return Err(err("path_unsafe", format!("unsafe path `{}`", f.path)));
         }
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|e| err("zip_invalid", e.to_string()))?;
+            let real = parent
+                .canonicalize()
+                .map_err(|e| err("zip_invalid", e.to_string()))?;
+            if !real.starts_with(&root) {
+                return Err(err(
+                    "path_unsafe",
+                    format!("`{}` leads outside the skill directory", f.path),
+                ));
+            }
+        }
+        if std::fs::symlink_metadata(&target).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(err("path_unsafe", format!("`{}` is a symbolic link", f.path)));
         }
         std::fs::write(&target, &f.bytes).map_err(|e| err("zip_invalid", e.to_string()))?;
         #[cfg(unix)]

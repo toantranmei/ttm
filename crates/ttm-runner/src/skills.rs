@@ -157,6 +157,34 @@ fn tracked(worktree: &Path, rel: &str) -> bool {
     git(worktree, &["ls-files", "--", rel]).is_ok_and(|out| !out.is_empty())
 }
 
+/// Refuses `rel` (`.claude/skills/ttm-<slug>`) when any existing component is a symbolic link or resolves outside
+/// the worktree, so a repository cannot point skill files at the rest of the machine.
+pub fn inside_worktree(worktree: &Path, rel: &str) -> Result<(), String> {
+    let root = worktree
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve the worktree: {e}"))?;
+    let mut current = root.clone();
+    for part in rel.split('/') {
+        current = current.join(part);
+        match std::fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(format!(
+                    "{} is a symbolic link; refusing to install skills there",
+                    current.display()
+                ));
+            }
+            Ok(_) => {
+                let real = current.canonicalize().map_err(|e| e.to_string())?;
+                if !real.starts_with(&root) {
+                    return Err(format!("{} is outside the worktree", current.display()));
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    Ok(())
+}
+
 /// Installs every skill of `job` into the worktree. A hash mismatch refuses the job; a skill whose directory git
 /// already tracks is skipped with a warning.
 pub async fn install(
@@ -191,8 +219,12 @@ pub async fn install(
             ));
             continue;
         }
-        let bytes = fetch(http, skill, cache_dir).await?;
         let dest = worktree.join(&rel);
+        inside_worktree(worktree, &rel).map_err(|message| SkillError::Other {
+            slug: skill.slug.clone(),
+            message,
+        })?;
+        let bytes = fetch(http, skill, cache_dir).await?;
         let _ = std::fs::remove_dir_all(&dest);
         skill_zip::safe_extract(&bytes, &dest).map_err(|e| SkillError::Other {
             slug: skill.slug.clone(),

@@ -123,3 +123,37 @@ async fn unsafe_zips_are_refused() {
     assert!(err.to_string().contains("path_unsafe"), "{err}");
     assert!(!repo.path().parent().unwrap().join("evil").exists());
 }
+
+#[tokio::test]
+async fn symlinked_skill_dirs_are_refused() {
+    let outside = tempfile::tempdir().unwrap();
+    let repo = repo();
+    std::os::unix::fs::symlink(outside.path(), repo.path().join(".claude")).unwrap();
+    assert!(skills::inside_worktree(repo.path(), ".claude/skills/ttm-tdd").is_err());
+    let server = MockServer::start().await;
+    let (zip, sha) = skill_zip::pack(&[BundleFile {
+        path: "SKILL.md".into(),
+        bytes: b"---\nname: TDD\ndescription: Tests first.\n---\n".to_vec(),
+        executable: false,
+    }]);
+    Mock::given(method("GET"))
+        .and(path("/s.zip"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(zip.clone()))
+        .mount(&server)
+        .await;
+    let cache = tempfile::tempdir().unwrap();
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let j = job(format!("{}/s.zip", server.uri()), sha, zip.len() as u64);
+    assert!(
+        skills::install(&reqwest::Client::new(), &j, repo.path(), cache.path(), &tx)
+            .await
+            .is_err()
+    );
+    assert!(
+        std::fs::read_dir(outside.path()).unwrap().next().is_none(),
+        "nothing written outside"
+    );
+    // A plain directory is fine.
+    let clean = crate::repo();
+    assert!(skills::inside_worktree(clean.path(), ".claude/skills/ttm-tdd").is_ok());
+}
