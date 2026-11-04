@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -14,10 +14,10 @@ keywords = ["cli", "mcp", "notee", "factory", "ttm"]
 categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
-ttm-api = { path = "crates/ttm-api", version = "0.1.4" }
-ttm-core = { path = "crates/ttm-core", version = "0.1.4" }
-ttm-mcp-tools = { path = "crates/ttm-mcp-tools", version = "0.1.4" }
-ttm-runner = { path = "crates/ttm-runner", version = "0.1.4" }
+ttm-api = { path = "crates/ttm-api", version = "0.1.5" }
+ttm-core = { path = "crates/ttm-core", version = "0.1.5" }
+ttm-mcp-tools = { path = "crates/ttm-mcp-tools", version = "0.1.5" }
+ttm-runner = { path = "crates/ttm-runner", version = "0.1.5" }
 
 anyhow = "1.0.104"
 async-trait = "0.1.92"
@@ -41,7 +41,7 @@ time = { version = "0.3.55", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "io-util", "io-std", "time", "sync", "signal", "fs", "process"] }
 toml = "1.1.8"
 toml_edit = "0.25.17"
-tracing = "0.1.44"
+tracing = "0.1.54"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 url = "2.5.8"
 wiremock = "0.6.5"

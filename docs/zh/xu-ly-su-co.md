@@ -162,7 +162,7 @@ PAT 没有 `workspace:read`：Notee/Factory 命令仍可运行，但 `whoami`、
 ## Runner
 
 **``no agent harness found; install Claude Code (`claude`) first``。**
-安装 Claude Code。若以服务方式运行仍然报错：服务使用的是安装时记录的 `PATH`（0.1.4 之前的版本不记录 `PATH`）。请在
+安装 Claude Code。若以服务方式运行仍然报错：服务使用的是安装时记录的 `PATH`（0.1.5 之前的版本不记录 `PATH`）。请在
 `which claude` 能找到它的 shell 中再次运行 `ttm runner install-service`（见 [Runner](runner.md)）。
 
 **作业被拒绝：`refused AUR-12: no local clone is configured for project AUR`。**
@@ -214,7 +214,7 @@ toantranmei 的额度。
 尚未发布到 crates.io；可用 `cargo install --git https://github.com/toantranmei/ttm ttm-cli` 从源码安装。
 
 **有 Claude Desktop 的 `.mcpb` 包吗？**
-有，从 0.1.4 起：在 GitHub Releases 下载 `ttm-mcp-<操作系统>.mcpb`（见 [MCP](mcp.md)）。更早的版本请使用
+有，从 0.1.5 起：在 GitHub Releases 下载 `ttm-mcp-<操作系统>.mcpb`（见 [MCP](mcp.md)）。更早的版本请使用
 `ttm mcp install --client claude-desktop` 或远程 MCP。
 
 **我的数据会被用来训练模型吗？**

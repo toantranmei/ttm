@@ -13,7 +13,7 @@ cùng phiên bản:
 | `ttm` | Dòng lệnh (CLI) | Đăng nhập, đổi workspace, đọc và sửa page Notee, liên kết repo với dự án Factory, đồng bộ kế hoạch, ép luật cho agent, chạy agent trên máy bạn, cài MCP vào các ứng dụng AI |
 | `ttm-mcp` | Máy chủ [MCP](https://modelcontextprotocol.io) chạy trên máy bạn qua stdio | Cho Claude Code, Claude Desktop, Cursor, Codex, VS Code… đọc và ghi Notee, làm việc trong task Factory thay mặt bạn |
 
-Mã nguồn: <https://github.com/toantranmei/ttm>. Phiên bản hiện tại: **0.1.4**.
+Mã nguồn: <https://github.com/toantranmei/ttm>. Phiên bản hiện tại: **0.1.5**.
 
 Nếu bạn không dùng terminal, bạn không cần cài gì: dán **URL MCP từ xa** `https://toantranmei.com/api/v1/mcp` vào
 Claude.ai hoặc ChatGPT (xem [Kết nối MCP](mcp.md)).

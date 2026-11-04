@@ -28,7 +28,7 @@ Code、Claude Desktop、Cursor、Codex 等）或要运行 runner，再额外安�
 | npm（所有平台） | `@toantranmei/cli` | `@toantranmei/mcp` | `npm update -g` |
 | MSI（Windows x64） | `ttm-cli-x86_64-pc-windows-msvc.msi` | `ttm-mcp-x86_64-pc-windows-msvc.msi` | 下载新的 MSI |
 | 源码 | `cargo install --git … ttm-cli` | `cargo install --git … ttm-mcp` | 重新安装 |
-| Claude Desktop（从 0.1.4 起） | | `ttm-mcp-<操作系统>.mcpb`（见 [MCP](mcp.md)） | 安装新包 |
+| Claude Desktop（从 0.1.5 起） | | `ttm-mcp-<操作系统>.mcpb`（见 [MCP](mcp.md)） | 安装新包 |
 
 ### macOS、Linux：脚本
 
@@ -38,7 +38,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/toantranmei/ttm/release
 ```
 
 脚本会把二进制文件放到 `$CARGO_HOME/bin`（默认 `~/.cargo/bin`），并在 shell 的启动文件中把该目录加入 `PATH`。打开新的终端（或执行
-`source ~/.cargo/env`）即可立即使用。安装固定版本：把 `latest/download` 换成 `download/v0.1.4`。
+`source ~/.cargo/env`）即可立即使用。安装固定版本：把 `latest/download` 换成 `download/v0.1.5`。
 
 ### Windows：PowerShell
 
@@ -92,8 +92,8 @@ npx -y @toantranmei/mcp --help
 这些 crate 尚未发布到 crates.io；直接从 GitHub 安装（需要 Rust stable ≥ 1.88 和 `git`）：
 
 ```sh
-cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.4 ttm-cli
-cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.4 ttm-mcp
+cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.5 ttm-cli
+cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.5 ttm-mcp
 ```
 
 自行构建的版本与正式发布版一样指向 `https://toantranmei.com`。在构建时修改默认 host：
@@ -108,11 +108,11 @@ ttm doctor
 ```
 
 ```text
-ttm 0.1.4
-ttm-mcp 0.1.4
+ttm 0.1.5
+ttm-mcp 0.1.5
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.4, server API v1
+[ok  ] version    ttm 0.1.5, server API v1
 [warn] token      not signed in (ttm login)
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1
@@ -134,7 +134,7 @@ ttm-mcp 0.1.4
 SHA-256：
 
 ```sh
-V=v0.1.4; F=ttm-cli-aarch64-apple-darwin.tar.xz
+V=v0.1.5; F=ttm-cli-aarch64-apple-darwin.tar.xz
 curl -LO https://github.com/toantranmei/ttm/releases/download/$V/$F
 curl -LO https://github.com/toantranmei/ttm/releases/download/$V/$F.sha256
 shasum -a 256 "$F"; cat "$F.sha256"   # 两个值必须一致
@@ -175,15 +175,15 @@ xattr -d com.apple.quarantine ./ttm ./ttm-mcp
 ```sh
 ttm self-update --check           # 只报告是否有新版本
 ttm self-update                   # 安装最新版本
-ttm self-update --version 0.1.4   # 安装指定版本（可用于降级）
+ttm self-update --version 0.1.5   # 安装指定版本（可用于降级）
 ```
 
 ```text
-ttm 0.1.4 is up to date.
+ttm 0.1.5 is up to date.
 ```
 
 ```text
-Updated to ttm 0.1.4: /Users/an/.cargo/bin/ttm, /Users/an/.cargo/bin/ttm-mcp
+Updated to ttm 0.1.5: /Users/an/.cargo/bin/ttm, /Users/an/.cargo/bin/ttm-mcp
 SHA-256 verified; attestation verified.
 ```
 

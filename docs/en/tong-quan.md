@@ -13,7 +13,7 @@ under the same version:
 | `ttm` | Command-line interface (CLI) | Sign in, switch workspaces, read and edit Notee pages, link a repo to a Factory project, sync the plan, enforce rules for agents, run agents on your machine, install MCP into AI apps |
 | `ttm-mcp` | An [MCP](https://modelcontextprotocol.io) server that runs on your machine over stdio | Let Claude Code, Claude Desktop, Cursor, Codex, VS Code… read and write Notee and work on Factory tasks on your behalf |
 
-Source code: <https://github.com/toantranmei/ttm>. Current version: **0.1.4**.
+Source code: <https://github.com/toantranmei/ttm>. Current version: **0.1.5**.
 
 If you don't use a terminal, you don't need to install anything: paste the **remote MCP URL**
 `https://toantranmei.com/api/v1/mcp` into Claude.ai or ChatGPT (see [Connecting MCP](mcp.md)).

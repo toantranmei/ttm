@@ -7,9 +7,9 @@ section: more
 
 `ttm` và `ttm-mcp` phát hành cùng phiên bản. Bản tải: <https://github.com/toantranmei/ttm/releases>.
 
-## 0.1.4 (04/11/2026)
+## 0.1.5 (04/11/2026)
 
-Bản 0.1.3 đã gắn tag nhưng chưa từng phát hành (commit của tag có `[skip ci]` nên workflow phát hành không chạy); 0.1.4 là bản đầu tiên có các thay đổi dưới đây.
+Tag 0.1.3 và 0.1.4 đã tạo nhưng chưa từng phát hành (commit của tag chặn CI nên workflow phát hành không chạy); 0.1.5 là bản đầu tiên có các thay đổi dưới đây.
 
 ### Lỗi và mã lỗi
 

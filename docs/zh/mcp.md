@@ -138,7 +138,7 @@ claude mcp add --scope user ttm-notee -- ttm-mcp --toolsets notee
 
 #### `.mcpb` 包（一键安装）
 
-从 0.1.4 起，[GitHub Releases](https://github.com/toantranmei/ttm/releases) 上的每个版本都为各操作系统提供 Claude Desktop
+从 0.1.5 起，[GitHub Releases](https://github.com/toantranmei/ttm/releases) 上的每个版本都为各操作系统提供 Claude Desktop
 包，并附带 `.sha256` 文件：
 
 | 包 | 机器 |
