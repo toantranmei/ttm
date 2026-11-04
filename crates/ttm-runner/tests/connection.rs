@@ -15,7 +15,7 @@ async fn poll_returns_none_on_204_and_a_job_otherwise() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/v1/factory/runners/rn1/jobs"))
-        .and(query_param("wait", "15"))
+        .and(query_param("wait", "25"))
         .respond_with(ResponseTemplate::new(204))
         .up_to_n_times(1)
         .mount(&server)
@@ -28,8 +28,17 @@ async fn poll_returns_none_on_204_and_a_job_otherwise() {
         .mount(&server)
         .await;
     let c = client(&server).await;
-    assert!(c.poll_job("rn1", 15).await.unwrap().is_none());
-    let job = c.poll_job("rn1", 15).await.unwrap().unwrap();
+    assert!(
+        c.poll_job("rn1", ttm_runner::connection::POLL_WAIT_SECS)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let job = c
+        .poll_job("rn1", ttm_runner::connection::POLL_WAIT_SECS)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!((job.run_id.as_str(), job.harness.as_str()), ("r1", "claude-code"));
 }
 

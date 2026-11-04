@@ -18,8 +18,11 @@ use tokio::task::JoinSet;
 use ttm_api::Client;
 use ttm_api::factory::Heartbeat;
 
+type PollFuture = Pin<Box<dyn Future<Output = ttm_api::Result<Option<ttm_api::factory::JobSpec>>> + Send>>;
+
 pub const HEARTBEAT: Duration = Duration::from_secs(20);
-pub const POLL_WAIT_SECS: u64 = 15;
+/// Long-poll wait sent as `?wait=`: the server's maximum (it holds the request at most 25 s; the client timeout is 30 s).
+pub const POLL_WAIT_SECS: u64 = 25;
 /// Renew the runner token this long before it expires.
 pub const RENEW_BEFORE: time::Duration = time::Duration::minutes(30);
 /// Merge-queue pass every this many heartbeats (one minute).
@@ -67,6 +70,9 @@ impl Runner {
         let mut backoff = Duration::from_secs(1);
         let mut rejections = Rejections::default();
         let mut failure: Option<anyhow::Error> = None;
+        // The long-poll in flight. It lives across loop turns: a heartbeat or a finished run must not drop a poll
+        // the server may already have answered with a claimed job.
+        let mut poll: Option<PollFuture> = None;
         tracing::info!(runner = %self.runner_id, capacity = self.capacity, "runner up");
         loop {
             if paused_until
@@ -77,6 +83,10 @@ impl Runner {
             }
             let can_take = running.len() < self.capacity && paused_until.is_none();
             let client = self.client.get();
+            if can_take && poll.is_none() {
+                let (c, id) = (client.clone(), self.runner_id.clone());
+                poll = Some(Box::pin(async move { c.poll_job(&id, POLL_WAIT_SECS).await }));
+            }
             tokio::select! {
                 _ = shutdown.changed() => {
                     if *shutdown.borrow() { break; }
@@ -132,7 +142,8 @@ impl Runner {
                         }
                     }
                 }
-                polled = client.poll_job(&self.runner_id, POLL_WAIT_SECS), if can_take => {
+                polled = async { poll.as_mut().expect("guarded by is_some").await }, if poll.is_some() => {
+                    poll = None;
                     match polled {
                         Ok(Some(job)) => {
                             backoff = Duration::from_secs(1);
@@ -159,7 +170,7 @@ impl Runner {
                         }
                     }
                 }
-                _ = tokio::time::sleep(Duration::from_secs(1)), if !can_take => {}
+                _ = tokio::time::sleep(Duration::from_secs(1)), if poll.is_none() => {}
             }
         }
         for tx in running.values() {
