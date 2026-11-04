@@ -8,9 +8,11 @@ use serde_json::{Value, json};
 use std::process::ExitCode;
 use ttm_api::Client;
 use ttm_api::notee::{
-    ContentEdit, NewAnchor, NewPage, Parent, QueryRequest, RowUpsert, TextQuote, UpdatePage, WriteMode,
-    resource_id,
+    ContentEdit, NewAnchor, NewPage, Parent, QueryRequest, QueryResult, RowUpsert, TextQuote, UpdatePage,
+    WriteMode, resource_id,
 };
+use ttm_ui::vocab::Phase;
+use ttm_ui::{Badge, Callout, Cell, Col, Diff, Status, Table, Token, next_line, shell_quote, truncate};
 
 pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
     let (client, _) = app.api().await?;
@@ -23,16 +25,30 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
             let workspace = workspace.or_else(|| app.ctx.workspace());
             let mut hits = client.search(&query, workspace.as_deref()).await?;
             hits.truncate(limit);
-            emit(&app, &hits, |_ui| {
+            emit(&app, &hits, |ui| {
                 if hits.is_empty() {
-                    println!("No pages found.");
+                    ui.print(&Callout::info(format!("No pages match \"{query}\"")));
+                    return;
                 }
+                ui.line(&format!("{} page(s) match \"{query}\"", hits.len()));
+                let mut table = Table::new(&[
+                    Col::new("TITLE").flex(2).min(10),
+                    Col::new("SNIPPET").flex(3).min(10),
+                    Col::new("ID"),
+                ]);
                 for h in &hits {
-                    println!("{}  {}", h.id, h.title);
-                    if !h.snippet.is_empty() {
-                        println!("    {}", h.snippet.replace('\n', " "));
-                    }
+                    let title = match &h.icon {
+                        Some(icon) if !ui.mode().plain => format!("{icon} {}", h.title),
+                        _ => h.title.clone(),
+                    };
+                    table.push(vec![
+                        Cell::new(title),
+                        Cell::token(h.snippet.replace('\n', " "), Token::Muted),
+                        Cell::new(h.id.as_str()),
+                    ]);
                 }
+                ui.print(&table);
+                ui.line(&next_line(ui.mode(), &format!("ttm notes get {}", hits[0].id)));
             });
         }
         NotesCommand::Get { id, block, output } => {
@@ -47,11 +63,26 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
             };
             if summary_kind == "database" {
                 let schema = client.database_schema(&id).await?;
-                emit(&app, &schema, |_ui| {
-                    println!("# {}", schema.title.as_deref().unwrap_or("(database)"));
+                emit(&app, &schema, |ui| {
+                    ui.line(&format!(
+                        "{} · database · {} propert{}",
+                        ui.paint(Token::Ink, schema.title.as_deref().unwrap_or("(database)")),
+                        schema.properties.len(),
+                        if schema.properties.len() == 1 { "y" } else { "ies" }
+                    ));
+                    let mut table = Table::new(&[Col::new("PROPERTY").flex(1).min(8), Col::new("TYPE")])
+                        .empty_text("No properties.");
                     for p in &schema.properties {
-                        println!("- {} ({})", p.name, p.kind);
+                        table.push(vec![
+                            Cell::new(p.name.as_str()),
+                            Cell::token(p.kind.as_str(), Token::Muted),
+                        ]);
                     }
+                    ui.print(&table);
+                    ui.line(&next_line(
+                        ui.mode(),
+                        &format!("ttm notes query {id} --sql 'SELECT * FROM rows'"),
+                    ));
                 });
             } else {
                 let page = client.page_markdown(&id, block.as_deref()).await?;
@@ -59,23 +90,43 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                     std::fs::write(path, &page.markdown)
                         .with_context(|| format!("writing {}", path.display()))?;
                 }
-                emit(&app, &page, |_ui| {
-                    if output.is_none() {
-                        println!("{}", page.markdown);
-                    } else {
-                        println!(
-                            "Saved {} ({}).",
-                            page.title,
-                            output
-                                .as_ref()
-                                .map(|p| p.display().to_string())
-                                .unwrap_or_default()
-                        );
+                emit(&app, &page, |ui| {
+                    match &output {
+                        // The Markdown is printed whole and untouched, so it can be piped; the meta line goes to
+                        // stderr for a person at a terminal only.
+                        None => {
+                            if ui.mode().interactive {
+                                ui.eline(&ui.paint(
+                                    Token::Muted,
+                                    &format!(
+                                        "{} · {}{}",
+                                        page.title,
+                                        page.id,
+                                        if page.truncated { " · truncated" } else { "" }
+                                    ),
+                                ));
+                            }
+                            let text = if page.markdown.ends_with('\n') {
+                                page.markdown.clone()
+                            } else {
+                                format!("{}\n", page.markdown)
+                            };
+                            ui.raw(&text);
+                        }
+                        Some(path) => {
+                            ui.print(&Callout::success(format!("Saved {}", page.title)).detail(format!(
+                                "{} · {}",
+                                path.display(),
+                                page.id
+                            )))
+                        }
                     }
                     if page.truncated {
-                        eprintln!(
-                            "note: page truncated; read the rest with --block <id>: {}",
-                            page.unknown_block_ids.join(", ")
+                        let first = page.unknown_block_ids.first().cloned().unwrap_or_default();
+                        ui.eprint(
+                            &Callout::warning("The page is truncated")
+                                .detail(format!("unread parts: {}", page.unknown_block_ids.join(", ")))
+                                .next(format!("ttm notes get {id} --block {first}")),
                         );
                     }
                 });
@@ -99,13 +150,27 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                 request.filter = Some(filter);
                 request.sorts = sorts;
             }
-            let result = client.query_database(&resource_id(&database), &request).await?;
-            emit(&app, &result, |_ui| {
-                for row in &result.rows {
-                    println!("{}  {}", row.id, Value::Object(row.values.clone()));
+            let database = resource_id(&database);
+            let paging_from = request.cursor.is_some();
+            let result = client.query_database(&database, &request).await?;
+            emit(&app, &result, |ui| {
+                ui.print(&query_table(&result));
+                let mut summary = format!("{} row(s)", result.rows.len());
+                if paging_from {
+                    summary.push_str(" · next page");
                 }
+                if result.next_cursor.is_some() {
+                    summary.push_str(" · more rows");
+                }
+                ui.line(&ui.paint(Token::Muted, &summary));
                 if let Some(next) = &result.next_cursor {
-                    eprintln!("more rows: --cursor {next}");
+                    ui.line(&next_line(
+                        ui.mode(),
+                        &format!(
+                            "ttm notes query {database} {} --cursor {next}",
+                            query_flags(&request)
+                        ),
+                    ));
                 }
             });
         }
@@ -116,21 +181,46 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                 .into_iter()
                 .filter(|t| all || t.resolved_at.is_none())
                 .collect();
-            emit(&app, &threads, |_ui| {
+            emit(&app, &threads, |ui| {
                 if threads.is_empty() {
-                    println!("No open comments.");
+                    ui.print(&Callout::info(if all {
+                        "No comments"
+                    } else {
+                        "No open comments"
+                    }));
+                    return;
                 }
+                ui.line(&format!("{} thread(s)", threads.len()));
                 for t in &threads {
-                    let quote = t
-                        .quote
-                        .as_ref()
-                        .map(|q| format!(" on \"{}\"", q.exact))
-                        .unwrap_or_default();
-                    println!("Thread {}{quote}", t.id);
+                    ui.blank();
+                    let state = if t.resolved_at.is_some() {
+                        format!(" {}", ui.render(&Status::phase(Phase::Done)))
+                    } else {
+                        String::new()
+                    };
+                    let resolved = if t.resolved_at.is_some() { " resolved" } else { "" };
+                    ui.line(&format!(
+                        "{}{state}{resolved}",
+                        ui.paint(Token::Ink, &format!("Thread {}", t.id))
+                    ));
+                    if let Some(q) = &t.quote {
+                        let quote = truncate(&q.exact.replace('\n', " "), ui.mode().width.saturating_sub(4));
+                        ui.line(&format!("  {}", ui.paint(Token::Muted, &format!("> {quote}"))));
+                    }
                     for c in &t.comments {
-                        println!("  {}: {}", c.author.name, c.text().replace('\n', " "));
+                        ui.line(&format!(
+                            "  {} {}: {}",
+                            ui.render(&Badge::person()),
+                            ui.paint(Token::Ink, &c.author.name),
+                            c.text().replace('\n', " ")
+                        ));
                     }
                 }
+                ui.blank();
+                ui.line(&next_line(
+                    ui.mode(),
+                    &format!("ttm notes comment {page} --thread <id> -m <reply>"),
+                ));
             });
         }
         NotesCommand::Create(args) => create(&app, &client, args).await?,
@@ -144,33 +234,63 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                 .into_iter()
                 .filter(|s| all || s.status == "pending")
                 .collect();
-            emit(&app, &list, |_ui| {
+            emit(&app, &list, |ui| {
                 if list.is_empty() {
-                    println!("No pending suggestions.");
+                    ui.print(&Callout::info(if all {
+                        "No suggestions"
+                    } else {
+                        "No pending suggestions"
+                    }));
+                    return;
                 }
+                ui.line(&format!("{} suggestion(s)", list.len()));
+                let mut table = Table::new(&[
+                    Col::new("ID"),
+                    Col::new("STATUS"),
+                    Col::new("AUTHOR").flex(1).min(8),
+                    Col::new("CHANGES").right(),
+                ]);
                 for s in &list {
                     let who = s.author.as_ref().map(|a| a.name.as_str()).unwrap_or("?");
-                    let via = s
-                        .via_agent
-                        .as_deref()
-                        .map(|a| format!(" (via {a})"))
-                        .unwrap_or_default();
-                    println!(
-                        "{}  {}  {who}{via}  {} change(s)",
-                        s.id,
-                        s.status,
-                        s.changes.len()
-                    );
+                    let author = match &s.via_agent {
+                        Some(agent) => format!("{} {who} via {agent}", ui.render(&Badge::agent())),
+                        None => format!("{} {who}", ui.render(&Badge::person())),
+                    };
+                    let status = match s.status.as_str() {
+                        "pending" => Cell::token("pending", Token::Yellow),
+                        "accepted" => Cell::token("accepted", Token::Teal),
+                        "rejected" => Cell::token("rejected", Token::Coral),
+                        other => Cell::new(other),
+                    };
+                    table.push(vec![
+                        Cell::new(s.id.as_str()),
+                        status,
+                        Cell::new(author),
+                        Cell::new(s.changes.len().to_string()),
+                    ]);
+                }
+                ui.print(&table);
+                for s in &list {
                     for c in &s.changes {
-                        println!("    [{}] {}", c.id.as_deref().unwrap_or("-"), c.kind);
-                        if let Some(before) = &c.before_nfm {
-                            println!("      - {}", before.replace('\n', "\n      - "));
-                        }
-                        if let Some(after) = &c.after_nfm {
-                            println!("      + {}", after.replace('\n', "\n      + "));
-                        }
+                        ui.blank();
+                        let label = format!(
+                            "suggestion {} · change {} · {}",
+                            s.id,
+                            c.id.as_deref().unwrap_or("-"),
+                            c.kind
+                        );
+                        ui.print(&Diff::text(
+                            &with_newline(c.before_nfm.as_deref().unwrap_or("")),
+                            &with_newline(c.after_nfm.as_deref().unwrap_or("")),
+                            label,
+                        ));
                     }
                 }
+                ui.blank();
+                ui.line(&next_line(
+                    ui.mode(),
+                    &format!("ttm notes resolve {} --accept", list[0].id),
+                ));
             });
         }
         NotesCommand::Resolve {
@@ -185,17 +305,22 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
             } else {
                 client.reject_suggestion(&suggestion).await?
             };
-            emit(&app, &result, |_ui| {
-                println!(
-                    "Suggestion {suggestion}: {}",
-                    result
-                        .status
-                        .as_deref()
-                        .unwrap_or(if accept { "accepted" } else { "rejected" })
-                );
+            emit(&app, &result, |ui| {
+                let status = result
+                    .status
+                    .as_deref()
+                    .unwrap_or(if accept { "accepted" } else { "rejected" });
+                let mut callout = Callout::success(format!("Suggestion {suggestion} {status}"));
                 if !result.stale_change_ids.is_empty() {
-                    println!("Stale (anchor text gone): {}", result.stale_change_ids.join(", "));
+                    callout = Callout::warning(format!(
+                        "Suggestion {suggestion} {status}, some changes are stale"
+                    ))
+                    .detail(format!(
+                        "anchor text gone: {}",
+                        result.stale_change_ids.join(", ")
+                    ));
                 }
+                ui.print(&callout);
             });
         }
     }
@@ -224,12 +349,16 @@ async fn create(app: &App, client: &Client, args: NotesCreateArgs) -> Result<()>
         properties: None,
     };
     let created = client.create_page(&parent, &page).await?;
-    emit(app, &created, |_ui| {
-        println!(
-            "Created {} ({})",
-            created.title.as_deref().unwrap_or(&page.title),
-            created.url.as_deref().unwrap_or(&created.id)
-        )
+    emit(app, &created, |ui| {
+        let mut callout = Callout::success(format!(
+            "Created {}",
+            created.title.as_deref().unwrap_or(&page.title)
+        ))
+        .detail(format!("id {}", created.id));
+        if let Some(url) = &created.url {
+            callout = callout.detail(ui.paint(Token::Blue, url));
+        }
+        ui.print(&callout.next(format!("ttm notes get {}", created.id)));
     });
     Ok(())
 }
@@ -285,14 +414,17 @@ async fn edit(app: &App, client: &Client, args: NotesEditArgs) -> Result<()> {
         update.update_content = Some(edits(&args.old, &args.new, args.replace_all)?);
     }
     let result = client.update_page(&resource_id(&args.page), &update).await?;
-    emit(app, &result, |_ui| {
-        match (&result.suggestion_id, result.applied) {
-            (Some(id), _) => println!("Suggestion {id} created."),
-            (None, true) => println!("Page updated."),
-            (None, false) => println!("No change applied."),
-        }
+    let page = resource_id(&args.page);
+    emit(app, &result, |ui| {
+        let callout = match (&result.suggestion_id, result.applied) {
+            (Some(id), _) => Callout::success(format!("Suggestion {id} created"))
+                .next(format!("ttm notes suggestions {page}")),
+            (None, true) => Callout::success("Page updated").next(format!("ttm notes get {page}")),
+            (None, false) => Callout::warning("No change applied"),
+        };
+        ui.print(&callout);
         for w in &result.warnings {
-            eprintln!("warning: {w}");
+            ui.eprint(&Callout::warning(w.as_str()));
         }
     });
     Ok(())
@@ -301,7 +433,9 @@ async fn edit(app: &App, client: &Client, args: NotesEditArgs) -> Result<()> {
 async fn comment(app: &App, client: &Client, args: NotesCommentArgs) -> Result<()> {
     if let Some(thread) = &args.thread {
         let reply = client.reply_comment(thread, &args.message).await?;
-        emit(app, &reply, |_ui| println!("Replied in thread {thread}."));
+        emit(app, &reply, |ui| {
+            ui.print(&Callout::success(format!("Replied in thread {thread}")))
+        });
         return Ok(());
     }
     let anchor = match args.quote {
@@ -317,8 +451,11 @@ async fn comment(app: &App, client: &Client, args: NotesCommentArgs) -> Result<(
     let thread = client
         .create_comment(&resource_id(&args.page), &anchor, &args.message)
         .await?;
-    emit(app, &thread, |_ui| {
-        println!("Comment thread {} created.", thread.id)
+    emit(app, &thread, |ui| {
+        ui.print(
+            &Callout::success(format!("Comment thread {} created", thread.id))
+                .next(format!("ttm notes comments {}", resource_id(&args.page))),
+        )
     });
     Ok(())
 }
@@ -332,16 +469,97 @@ async fn rows(app: &App, client: &Client, command: RowsCommand) -> Result<()> {
                 bail!("give 1 to 100 rows per call");
             }
             let result = client.upsert_rows(&resource_id(&database), &rows).await?;
-            emit(app, &result, |_ui| {
-                println!("{} row(s) saved: {}", result.ids.len(), result.ids.join(", "))
+            emit(app, &result, |ui| {
+                ui.print(&Callout::success(format!("{} row(s) saved", result.ids.len())));
+                let mut table = Table::new(&[Col::new("ROW ID")]);
+                for id in &result.ids {
+                    table.push(vec![Cell::new(id.as_str())]);
+                }
+                ui.print(&table);
             });
         }
         RowsCommand::Delete { database, ids } => {
             let result = client.delete_rows(&resource_id(&database), &ids).await?;
-            emit(app, &result, |_ui| println!("{} row(s) deleted.", ids.len()));
+            emit(app, &result, |ui| {
+                ui.print(&Callout::success(format!("{} row(s) deleted", ids.len())))
+            });
         }
     }
     Ok(())
+}
+
+/// Columns of a query result: the server's `columns` (names or `{name}` objects), else the keys of the rows in order.
+pub fn query_columns(result: &QueryResult) -> Vec<String> {
+    let named: Vec<String> = result
+        .columns
+        .iter()
+        .filter_map(|c| match c {
+            Value::String(s) => Some(s.clone()),
+            Value::Object(o) => o.get("name").and_then(Value::as_str).map(String::from),
+            _ => None,
+        })
+        .collect();
+    if !named.is_empty() {
+        return named;
+    }
+    let mut keys: Vec<String> = Vec::new();
+    for row in &result.rows {
+        for k in row.values.keys() {
+            if !keys.contains(k) {
+                keys.push(k.clone());
+            }
+        }
+    }
+    keys
+}
+
+/// A cell value: strings as they are, `null` as `-`, the rest as compact JSON.
+pub fn cell_text(value: Option<&Value>) -> String {
+    match value {
+        None | Some(Value::Null) => "-".into(),
+        Some(Value::String(s)) => s.replace('\n', " "),
+        Some(Value::Array(items)) if items.iter().all(Value::is_string) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", "),
+        Some(other) => other.to_string(),
+    }
+}
+
+fn query_table(result: &QueryResult) -> Table {
+    let columns = query_columns(result);
+    let mut cols = vec![Col::new("ID")];
+    cols.extend(columns.iter().map(|c| Col::new(c.to_uppercase()).flex(1).min(4)));
+    let mut table = Table::new(&cols).empty_text("No rows.");
+    for row in &result.rows {
+        let mut cells = vec![Cell::token(row.id.as_str(), Token::Muted)];
+        cells.extend(columns.iter().map(|c| Cell::new(cell_text(row.values.get(c)))));
+        table.push(cells);
+    }
+    table
+}
+
+/// The flags of a query request, to repeat it with `--cursor`.
+fn query_flags(request: &QueryRequest) -> String {
+    let mut flags = Vec::new();
+    if let Some(sql) = &request.sql {
+        flags.push(format!("--sql {}", shell_quote(sql)));
+    } else {
+        flags.push("--filter <file>".to_string());
+    }
+    if let Some(n) = request.page_size {
+        flags.push(format!("--page-size {n}"));
+    }
+    flags.join(" ")
+}
+
+fn with_newline(text: &str) -> String {
+    if text.is_empty() || text.ends_with('\n') {
+        text.to_string()
+    } else {
+        format!("{text}\n")
+    }
 }
 
 /// A file holding `{"filter": …, "sorts": …}` or the bare filter; `-` reads stdin.
@@ -385,6 +603,20 @@ mod tests {
             "b"
         );
         assert!(edits(&["a".into()], &[], false).is_err());
+    }
+
+    #[test]
+    fn query_columns_and_cells() {
+        let result: QueryResult = serde_json::from_value(json!({
+            "columns": [],
+            "rows": [{"id": "r1", "values": {"Name": "A", "Tags": ["x", "y"]}}, {"id": "r2", "values": {"Name": null, "Due": 3}}]
+        }))
+        .unwrap();
+        assert_eq!(query_columns(&result), ["Name", "Tags", "Due"]);
+        assert_eq!(cell_text(result.rows[0].values.get("Tags")), "x, y");
+        assert_eq!(cell_text(result.rows[1].values.get("Name")), "-");
+        assert_eq!(cell_text(result.rows[1].values.get("Due")), "3");
+        assert_eq!(cell_text(None), "-");
     }
 
     #[test]

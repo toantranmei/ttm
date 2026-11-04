@@ -71,3 +71,34 @@ async fn json_mode_prints_only_json_on_stdout() {
     let v = json(&out);
     assert_eq!(v["error"]["code"], "error", "{v}");
 }
+
+#[tokio::test]
+async fn notes_commands_keep_their_keys() {
+    use serde_json::json;
+    let server = server().await;
+    let ok = |body: serde_json::Value| ResponseTemplate::new(200).set_body_json(body);
+    Mock::given(method("GET"))
+        .and(path("/api/v1/search"))
+        .respond_with(ok(
+            json!([{"id": "pg1", "workspace_id": "w1", "title": "Plan", "icon": "📝", "snippet": "x"}]),
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/databases/db1/query"))
+        .respond_with(ok(json!({"columns": [{"name": "Name"}], "rows": [{"id": "r1", "values": {"Name": "A"}}], "next_cursor": "c2"})))
+        .mount(&server)
+        .await;
+    let root = tempfile::tempdir().unwrap();
+    let host = server.uri();
+    ttm(root.path(), &host, &["login", "--token", "ttm_pat_good"]).await;
+    let out = ttm(root.path(), &host, &["notes", "search", "plan", "--json"]).await;
+    assert_json_contract("notes_search", &json(&out));
+    let out = ttm(
+        root.path(),
+        &host,
+        &["notes", "query", "db1", "--sql", "SELECT 1", "--json"],
+    )
+    .await;
+    assert_json_contract("notes_query", &json(&out));
+}
