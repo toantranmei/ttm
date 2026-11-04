@@ -18,7 +18,8 @@ pub const NO_VERIFY: &str = "no_verify";
 pub const CONVENTIONAL: &str = "conventional_commits";
 pub const TESTS_BEFORE_DONE: &str = "tests_before_done";
 
-const PROTECTED: [&str; 2] = ["main", "master"];
+/// Protected branches when neither the cached rules nor `.ttm/project.toml` name one.
+const FALLBACK_PROTECTED: [&str; 2] = ["main", "master"];
 const TYPES: [&str; 12] = [
     "feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert", "merge",
 ];
@@ -39,7 +40,8 @@ pub async fn run(app: App, command: HookCommand) -> Result<ExitCode> {
         HookCommand::PreBash => {
             let command = hook["tool_input"]["command"].as_str().unwrap_or_default();
             let branch = worktree::current_branch(&cwd).ok();
-            check_command(command, branch.as_deref(), &rules)
+            let protected = protected_branches(&rules, linked.file.default_branch.as_deref());
+            check_command(command, branch.as_deref(), &rules, &protected)
         }
         HookCommand::Stop => {
             if hook["stop_hook_active"].as_bool() == Some(true) {
@@ -79,6 +81,27 @@ pub fn default_rules() -> RuleSet {
     RuleSet {
         checks: vec![check(NO_PUSH_MAIN), check(NO_VERIFY), check(CONVENTIONAL)],
         ..RuleSet::default()
+    }
+}
+
+/// Branches `no_push_main` protects: `hooks.pre_bash.protected_branches` of the rules the server sent (cached by
+/// `ttm rules apply`), else the project's default branch from `.ttm/project.toml`, else `main` and `master`.
+pub fn protected_branches(rules: &RuleSet, default_branch: Option<&str>) -> Vec<String> {
+    let from_rules: Vec<String> = rules.hooks["pre_bash"]["protected_branches"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if !from_rules.is_empty() {
+        return from_rules;
+    }
+    match default_branch.map(str::trim).filter(|b| !b.is_empty()) {
+        Some(branch) => vec![branch.to_owned()],
+        None => FALLBACK_PROTECTED.iter().map(|b| b.to_string()).collect(),
     }
 }
 
@@ -161,7 +184,13 @@ fn git_calls(line: &str) -> Vec<Vec<String>> {
 }
 
 /// Evaluates the Bash rules for one command.
-pub fn check_command(line: &str, branch: Option<&str>, rules: &RuleSet) -> Vec<RuleCheckReport> {
+pub fn check_command(
+    line: &str,
+    branch: Option<&str>,
+    rules: &RuleSet,
+    protected: &[String],
+) -> Vec<RuleCheckReport> {
+    let is_protected = |b: &str| protected.iter().any(|p| p == b);
     let mut out = Vec::new();
     for args in git_calls(line) {
         let Some(sub) = args.first().map(String::as_str) else {
@@ -192,17 +221,20 @@ pub fn check_command(line: &str, branch: Option<&str>, rules: &RuleSet) -> Vec<R
                     .unwrap_or(r)
                     .trim_start_matches('+')
                     .trim_start_matches("refs/heads/");
-                PROTECTED.contains(&dst)
+                is_protected(dst)
             });
-            let bare_on_main = refspecs.is_empty() && branch.is_some_and(|b| PROTECTED.contains(&b));
+            let bare_on_main = refspecs.is_empty() && branch.is_some_and(is_protected);
             let bad = targets_main || bare_on_main;
             out.push(verdict(
                 NO_PUSH_MAIN,
                 !bad,
                 if bad {
-                    "do not push to main/master directly; push a branch and open a pull request"
+                    format!(
+                        "do not push to {} directly; push a branch and open a pull request",
+                        protected.join("/")
+                    )
                 } else {
-                    "ok"
+                    "ok".to_string()
                 },
             ));
         }
@@ -302,7 +334,8 @@ mod tests {
     use super::*;
 
     fn blocked(line: &str, branch: Option<&str>) -> Vec<String> {
-        check_command(line, branch, &default_rules())
+        let rules = default_rules();
+        check_command(line, branch, &rules, &protected_branches(&rules, None))
             .into_iter()
             .filter(|v| !v.passed)
             .map(|v| v.rule)
@@ -331,6 +364,34 @@ mod tests {
             blocked("cd x && git -C repo push origin main", None),
             [NO_PUSH_MAIN]
         );
+    }
+
+    #[test]
+    fn protected_branches_come_from_the_rules() {
+        let mut rules = default_rules();
+        assert_eq!(protected_branches(&rules, None), ["main", "master"]);
+        assert_eq!(protected_branches(&rules, Some("develop")), ["develop"]);
+        rules.hooks = serde_json::json!({"pre_bash": {"protected_branches": ["trunk", "release"]}});
+        let protected = protected_branches(&rules, Some("develop"));
+        assert_eq!(protected, ["trunk", "release"]);
+        let block = |line: &str, branch: Option<&str>| {
+            check_command(line, branch, &rules, &protected)
+                .into_iter()
+                .filter(|v| !v.passed)
+                .map(|v| v.message)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            block("git push origin release", Some("x")),
+            ["do not push to trunk/release directly; push a branch and open a pull request"]
+        );
+        assert_eq!(block("git push", Some("trunk")).len(), 1);
+        assert!(
+            block("git push origin main", Some("x")).is_empty(),
+            "main is not protected here"
+        );
+        rules.hooks = serde_json::json!({"pre_bash": {"protected_branches": []}});
+        assert_eq!(protected_branches(&rules, Some("develop")), ["develop"]);
     }
 
     #[test]
