@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -14,10 +14,10 @@ keywords = ["cli", "mcp", "notee", "factory", "ttm"]
 categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
-ttm-api = { path = "crates/ttm-api", version = "0.1.5" }
-ttm-core = { path = "crates/ttm-core", version = "0.1.5" }
-ttm-mcp-tools = { path = "crates/ttm-mcp-tools", version = "0.1.5" }
-ttm-runner = { path = "crates/ttm-runner", version = "0.1.5" }
+ttm-api = { path = "crates/ttm-api", version = "0.1.6" }
+ttm-core = { path = "crates/ttm-core", version = "0.1.6" }
+ttm-mcp-tools = { path = "crates/ttm-mcp-tools", version = "0.1.6" }
+ttm-runner = { path = "crates/ttm-runner", version = "0.1.6" }
 
 anyhow = "1.0.104"
 async-trait = "0.1.92"

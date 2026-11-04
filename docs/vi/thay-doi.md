@@ -7,6 +7,13 @@ section: more
 
 `ttm` và `ttm-mcp` phát hành cùng phiên bản. Bản tải: <https://github.com/toantranmei/ttm/releases>.
 
+## 0.1.6 (04/11/2026)
+
+### ttm runner
+
+- Runner chạy Claude Code với `--strict-mcp-config`: job chỉ thấy các MCP server của ttm trong cấu hình của job, không
+  bao giờ thấy MCP server khác đã cài trên máy, kể cả khi job do thành viên khác giao.
+
 ## 0.1.5 (04/11/2026)
 
 Tag 0.1.3 và 0.1.4 đã tạo nhưng chưa từng phát hành (commit của tag chặn CI nên workflow phát hành không chạy); 0.1.5 là bản đầu tiên có các thay đổi dưới đây.

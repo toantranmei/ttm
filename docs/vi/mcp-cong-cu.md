@@ -6,7 +6,7 @@ section: reference
 ---
 
 Trang này áp dụng cho cả `ttm-mcp` (stdio) và MCP từ xa `https://toantranmei.com/api/v1/mcp`: cùng tên tool, cùng tham số,
-cùng kết quả. Phiên bản **0.1.5**: 26 tool trong 3 nhóm và 1 resource.
+cùng kết quả. Phiên bản **0.1.6**: 26 tool trong 3 nhóm và 1 resource.
 
 ## Quy ước
 

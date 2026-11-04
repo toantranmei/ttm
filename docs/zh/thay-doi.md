@@ -7,6 +7,13 @@ section: more
 
 `ttm` 和 `ttm-mcp` 以相同版本发布。下载：<https://github.com/toantranmei/ttm/releases>。
 
+## 0.1.6（2026-11-04）
+
+### ttm runner
+
+- runner 以 `--strict-mcp-config` 启动 Claude Code：任务只看到其配置中的 ttm MCP 服务器，绝不会看到本机配置的其他
+  MCP 服务器，即使任务由其他成员委派。
+
 ## 0.1.5（2026-11-04）
 
 0.1.3 和 0.1.4 已打标签但从未发布（打标签的提交禁用了 CI，发布流程没有运行）；0.1.5 是包含以下改动的第一个版本。

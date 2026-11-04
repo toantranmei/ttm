@@ -7,6 +7,13 @@ section: more
 
 `ttm` and `ttm-mcp` are released under the same version. Downloads: <https://github.com/toantranmei/ttm/releases>.
 
+## 0.1.6 (2026-11-04)
+
+### ttm runner
+
+- The runner starts Claude Code with `--strict-mcp-config`: a job only sees the ttm MCP servers in its own config, never
+  other MCP servers configured on the machine, even when a teammate delegated the job.
+
 ## 0.1.5 (2026-11-04)
 
 The 0.1.3 and 0.1.4 tags exist but were never released (their tagged commits disabled CI, so the release workflow did not run); 0.1.5 is the first release with the changes below.

@@ -173,7 +173,7 @@ The workflow blocks the status change. See the table in [Error codes](ma-loi.md)
 
 **``no agent harness found; install Claude Code (`claude`) first``.**
 Install Claude Code. If it still reports this when running as a service: the service uses the `PATH` recorded at install
-time (versions before 0.1.5 recorded none). Run `ttm runner install-service` again from a shell where `which claude`
+time (versions before 0.1.6 recorded none). Run `ttm runner install-service` again from a shell where `which claude`
 finds it (see [Runner](runner.md)).
 
 **A job is refused: `refused AUR-12: no local clone is configured for project AUR`.**
@@ -229,7 +229,7 @@ A minimal PAT + `TTM_TOKEN`, for example `ttm sync --check` to block PRs that ma
 Not published on crates.io yet; install from source with `cargo install --git https://github.com/toantranmei/ttm ttm-cli`.
 
 **Is there an `.mcpb` bundle for Claude Desktop?**
-Yes, since 0.1.5: download `ttm-mcp-<os>.mcpb` from GitHub Releases (see [MCP](mcp.md)). With older releases, use
+Yes, since 0.1.6: download `ttm-mcp-<os>.mcpb` from GitHub Releases (see [MCP](mcp.md)). With older releases, use
 `ttm mcp install --client claude-desktop` or remote MCP.
 
 **Is my data used to train models?**

@@ -138,7 +138,7 @@ Trên Windows dùng đường dẫn có `\\`: `"C:\\Users\\an\\.cargo\\bin\\ttm-
 
 #### Gói `.mcpb` (cài một chạm)
 
-Từ 0.1.5, mỗi bản phát hành trên [GitHub Releases](https://github.com/toantranmei/ttm/releases) có gói Claude Desktop
+Từ 0.1.6, mỗi bản phát hành trên [GitHub Releases](https://github.com/toantranmei/ttm/releases) có gói Claude Desktop
 cho từng hệ điều hành, kèm file `.sha256`:
 
 | Gói | Máy |

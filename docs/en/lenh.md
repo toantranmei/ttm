@@ -9,7 +9,7 @@ section: reference
 ttm [OPTIONS] <COMMAND>
 ```
 
-`ttm --help` and `ttm <command> --help` print the built-in help (in English). This page covers version **0.1.5**.
+`ttm --help` and `ttm <command> --help` print the built-in help (in English). This page covers version **0.1.6**.
 
 ## Global flags
 
@@ -22,7 +22,7 @@ Available on every command, before or after the subcommand (`ttm whoami --json` 
 | `--json` | | Print results as JSON on stdout |
 | `-v`, `--verbose` | `TTM_LOG` | More logging to stderr (`-v` info, `-vv` debug) |
 | `-h`, `--help` | | Help |
-| `-V`, `--version` | | Version (`ttm 0.1.5`; top level only) |
+| `-V`, `--version` | | Version (`ttm 0.1.6`; top level only) |
 
 ## Exit codes
 
@@ -132,7 +132,7 @@ ttm status
 What this machine will use; requires no sign-in or network (always exits 0).
 
 ```text
-ttm 0.1.5
+ttm 0.1.6
 host:      https://toantranmei.com
 profile:   default (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -156,7 +156,7 @@ One check per line: `host`, `discovery` (fetched fresh, not from the cache), `ve
 ```text
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.5, server API v1
+[ok  ] version    ttm 0.1.6, server API v1
 [ok  ] token      ttm_oat_Ab12… (keyring) as an@example.com
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1

@@ -9,7 +9,7 @@ section: reference
 ttm [OPTIONS] <COMMAND>
 ```
 
-`ttm --help` và `ttm <lệnh> --help` in trợ giúp gốc (tiếng Anh). Trang này theo phiên bản **0.1.5**.
+`ttm --help` và `ttm <lệnh> --help` in trợ giúp gốc (tiếng Anh). Trang này theo phiên bản **0.1.6**.
 
 ## Cờ chung
 
@@ -22,7 +22,7 @@ Dùng được với mọi lệnh, đặt trước hay sau lệnh con đều đ�
 | `--json` | | Kết quả dạng JSON trên stdout |
 | `-v`, `--verbose` | `TTM_LOG` | Thêm log ra stderr (`-v` info, `-vv` debug) |
 | `-h`, `--help` | | Trợ giúp |
-| `-V`, `--version` | | Phiên bản (`ttm 0.1.5`; chỉ ở cấp gốc) |
+| `-V`, `--version` | | Phiên bản (`ttm 0.1.6`; chỉ ở cấp gốc) |
 
 ## Mã thoát
 
@@ -132,7 +132,7 @@ ttm status
 Những gì máy này sẽ dùng; không cần đăng nhập hay mạng (luôn thoát 0).
 
 ```text
-ttm 0.1.5
+ttm 0.1.6
 host:      https://toantranmei.com
 profile:   default (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -155,7 +155,7 @@ Mỗi dòng một kiểm tra: `host`, `discovery` (tải mới, không dùng b�
 ```text
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.5, server API v1
+[ok  ] version    ttm 0.1.6, server API v1
 [ok  ] token      ttm_oat_Ab12… (keyring) as an@example.com
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1

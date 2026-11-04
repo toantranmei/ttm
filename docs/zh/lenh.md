@@ -9,7 +9,7 @@ section: reference
 ttm [OPTIONS] <COMMAND>
 ```
 
-`ttm --help` 和 `ttm <命令> --help` 会打印原始帮助信息（英文）。本页对应版本 **0.1.5**。
+`ttm --help` 和 `ttm <命令> --help` 会打印原始帮助信息（英文）。本页对应版本 **0.1.6**。
 
 ## 全局选项
 
@@ -22,7 +22,7 @@ ttm [OPTIONS] <COMMAND>
 | `--json` | | 在 stdout 上以 JSON 输出结果 |
 | `-v`, `--verbose` | `TTM_LOG` | 向 stderr 输出更多日志（`-v` 为 info，`-vv` 为 debug） |
 | `-h`, `--help` | | 帮助 |
-| `-V`, `--version` | | 版本（`ttm 0.1.5`；仅在顶层可用） |
+| `-V`, `--version` | | 版本（`ttm 0.1.6`；仅在顶层可用） |
 
 ## 退出码
 
@@ -132,7 +132,7 @@ ttm status
 显示本机将要使用的设置；无需登录或联网（始终以 0 退出）。
 
 ```text
-ttm 0.1.5
+ttm 0.1.6
 host:      https://toantranmei.com
 profile:   default (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -155,7 +155,7 @@ ttm doctor
 ```text
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.5, server API v1
+[ok  ] version    ttm 0.1.6, server API v1
 [ok  ] token      ttm_oat_Ab12… (keyring) as an@example.com
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1
