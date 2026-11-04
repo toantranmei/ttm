@@ -450,7 +450,7 @@ pub enum RunnerConfigSub {
     Mcp(RunnerMcpCommand),
     /// Save the Claude Code OAuth token used for teammates' jobs (from `claude setup-token`, read on stdin).
     ClaudeToken {
-        /// Remove the saved token (teammates' jobs then run without isolation).
+        /// Remove the saved token (this runner then refuses teammates' jobs).
         #[arg(long)]
         remove: bool,
     },

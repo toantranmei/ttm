@@ -582,14 +582,15 @@ fn claude_token(app: &App, remove: bool) -> Result<ExitCode> {
         });
         return Ok(ExitCode::SUCCESS);
     }
-    if app.ui.mode().interactive {
-        app.ui.eline(&app.ui.paint(
-            Token::Muted,
-            "Paste the token printed by `claude setup-token`, then press Enter:",
-        ));
-    }
-    let mut token = String::new();
-    std::io::stdin().read_line(&mut token)?;
+    // At a terminal the token is typed hidden; piped, it is read from stdin.
+    let token = if app.ui.mode().interactive && !app.json {
+        use ttm_ui::Term as _;
+        ttm_ui::InquireTerm::for_mode(app.ui.mode()).secret("Token printed by `claude setup-token`:")?
+    } else {
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        line
+    };
     let token = token.trim();
     if token.is_empty() {
         bail!("no token on stdin; run `claude setup-token` and pipe or paste its token");
