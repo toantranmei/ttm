@@ -2,8 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A problem+json body. `code` is stable and meant for branching (`unauthorized`, `insufficient_scope`,
-/// `token_not_allowed`, `too_many_blocks`, …); `title` is English for humans.
+/// A problem+json body: `{code, title, status, field?, rule?, params?}`. `code` is stable and meant for branching
+/// (`unauthorized`, `insufficient_scope`, `conflict`, `too_many_blocks`, …); `rule` names the check that failed on a
+/// `bad_request` / `conflict` / `precondition_failed` (`split-limit`, `rev-conflict`, `approval-required`, …), `field`
+/// the input it is about and `params` the values it names (`{"per_run": 10}`, `{"required": "notee:write"}`); `title`
+/// is English for humans.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Problem {
     #[serde(default)]
@@ -20,22 +23,44 @@ pub struct Problem {
     pub rule: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<serde_json::Map<String, serde_json::Value>>,
-    /// The scope that was missing (`insufficient_scope`).
+    /// The scope that was missing (`insufficient_scope`): `params.required`, or a top-level `required` from older
+    /// servers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub required: Option<String>,
 }
 
+impl Problem {
+    /// One param of the rule (`params.per_run`, `params.required`, …).
+    pub fn param(&self, key: &str) -> Option<&serde_json::Value> {
+        self.params.as_ref()?.get(key)
+    }
+}
+
 impl std::fmt::Display for Problem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} ({}, HTTP {})", self.title, self.code, self.status)?;
+        write!(f, "{} ({}", self.title, self.code)?;
+        if let Some(rule) = &self.rule {
+            write!(f, ", rule `{rule}`")?;
+        }
+        if let Some(field) = &self.field {
+            write!(f, ", field `{field}`")?;
+        }
+        write!(f, ", HTTP {})", self.status)?;
         if let Some(detail) = &self.detail {
             write!(f, ": {detail}")?;
         }
         if let Some(required) = &self.required {
             write!(f, " [requires scope {required}]")?;
         }
-        if let Some(params) = &self.params {
-            write!(f, " {}", serde_json::Value::Object(params.clone()))?;
+        let params: serde_json::Map<String, serde_json::Value> = self
+            .params
+            .iter()
+            .flatten()
+            .filter(|(k, _)| !(k.as_str() == "required" && self.required.is_some()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if !params.is_empty() {
+            write!(f, " {}", serde_json::Value::Object(params))?;
         }
         Ok(())
     }
@@ -87,6 +112,34 @@ impl ApiError {
         }
     }
 
+    /// The problem+json body, when the server answered with one.
+    pub fn problem(&self) -> Option<&Problem> {
+        match self {
+            ApiError::Problem(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    /// The `rule` of the problem (`split-limit`, `rev-conflict`, `approval-required`, …).
+    pub fn rule(&self) -> Option<&str> {
+        self.problem()?.rule.as_deref()
+    }
+
+    /// The input the problem is about (`tasks`, `links.repo`, …).
+    pub fn field(&self) -> Option<&str> {
+        self.problem()?.field.as_deref()
+    }
+
+    /// The values the rule names.
+    pub fn params(&self) -> Option<&serde_json::Map<String, serde_json::Value>> {
+        self.problem()?.params.as_ref()
+    }
+
+    /// The scope a token lacks (`insufficient_scope`).
+    pub fn required_scope(&self) -> Option<&str> {
+        self.problem()?.required.as_deref()
+    }
+
     pub fn is_unauthorized(&self) -> bool {
         self.status() == Some(401)
     }
@@ -109,6 +162,12 @@ impl ApiError {
             }
             if problem.code.is_empty() {
                 problem.code = format!("http_{status}");
+            }
+            if problem.required.is_none() {
+                problem.required = problem
+                    .param("required")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned);
             }
             return ApiError::Problem(Box::new(problem));
         }
@@ -153,6 +212,38 @@ mod tests {
         );
         assert_eq!(err.code(), "insufficient_scope");
         assert!(err.to_string().contains("notee:write"));
+    }
+
+    #[test]
+    fn insufficient_scope_reads_params_required() {
+        let body = r#"{"code":"insufficient_scope","title":"this token lacks the scope factory:write","status":403,"params":{"required":"factory:write"}}"#;
+        let err = ApiError::from_body(403, "application/problem+json", body);
+        assert_eq!(err.required_scope(), Some("factory:write"));
+        assert_eq!(err.params().unwrap()["required"], "factory:write");
+        let text = err.to_string();
+        assert!(text.contains("[requires scope factory:write]"), "{text}");
+        assert!(!text.contains(r#"{"required""#), "printed once: {text}");
+    }
+
+    #[test]
+    fn rule_field_and_params_are_kept() {
+        let body = r#"{"code":"conflict","title":"At most 10 subtasks per run (10 already).","status":409,"rule":"split-limit","params":{"per_run":10,"run_count":10}}"#;
+        let err = ApiError::from_body(409, "application/problem+json", body);
+        assert_eq!(
+            (err.code(), err.rule(), err.field()),
+            ("conflict", Some("split-limit"), None)
+        );
+        assert_eq!(err.params().unwrap()["per_run"], 10);
+        let text = err.to_string();
+        assert!(
+            text.contains("rule `split-limit`") && text.contains("\"per_run\":10"),
+            "{text}"
+        );
+
+        let body = r#"{"code":"bad_request","title":"tags may have at most 32 characters","status":400,"field":"tags","rule":"too_long","params":{"max":32}}"#;
+        let err = ApiError::from_body(400, "application/problem+json", body);
+        assert_eq!((err.rule(), err.field()), (Some("too_long"), Some("tags")));
+        assert!(err.to_string().contains("field `tags`"), "{err}");
     }
 
     #[test]

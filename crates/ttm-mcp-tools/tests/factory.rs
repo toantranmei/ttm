@@ -102,9 +102,9 @@ async fn split_limit_comes_back_as_tool_error() {
     Mock::given(method("POST"))
         .and(path("/api/v1/factory/tasks/AUR-12/subtasks"))
         .respond_with(
-            ResponseTemplate::new(422)
+            ResponseTemplate::new(409)
                 .insert_header("content-type", "application/problem+json")
-                .set_body_string(r#"{"code":"split-limit","title":"Split limit","status":422,"params":{"per_run":10,"used":10}}"#),
+                .set_body_string(r#"{"code":"conflict","title":"At most 10 subtasks per run (10 already).","status":409,"rule":"split-limit","params":{"max_depth":2,"per_run":10,"per_root":30,"depth":1,"run_count":10,"root_count":12}}"#),
         )
         .mount(&server)
         .await;
@@ -116,7 +116,48 @@ async fn split_limit_comes_back_as_tool_error() {
         .await
         .unwrap();
     assert_eq!(out.is_error, Some(true));
-    assert!(out.content[0].as_text().unwrap().text.contains("per_run"));
+    let text = &out.content[0].as_text().unwrap().text;
+    assert!(
+        text.contains("per_run") && text.contains("rule `split-limit`"),
+        "{text}"
+    );
+    let error = &out.structured_content.unwrap()["error"];
+    assert_eq!(
+        (
+            &error["code"],
+            &error["rule"],
+            &error["status"],
+            &error["params"]["per_run"]
+        ),
+        (&json!("conflict"), &json!("split-limit"), &json!(409), &json!(10))
+    );
+}
+
+#[tokio::test]
+async fn insufficient_scope_exposes_the_required_scope() {
+    let (server, set) = setup(in_run()).await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/factory/tasks/AUR-12/subtasks"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("content-type", "application/problem+json")
+                .set_body_string(r#"{"code":"insufficient_scope","title":"this token lacks the scope factory:write","status":403,"params":{"required":"factory:write"}}"#),
+        )
+        .mount(&server)
+        .await;
+    let out = set
+        .call(
+            "factory-create-subtasks",
+            args(json!({"tasks": [{"title": "x"}]})),
+        )
+        .await
+        .unwrap();
+    let error = &out.structured_content.unwrap()["error"];
+    assert_eq!(
+        (&error["code"], &error["params"]["required"]),
+        (&json!("insufficient_scope"), &json!("factory:write"))
+    );
+    assert!(error.get("rule").is_none());
 }
 
 #[tokio::test]

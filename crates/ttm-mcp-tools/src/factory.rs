@@ -147,8 +147,10 @@ pub fn tools() -> Vec<Tool> {
         .annotate(writes("Request approval", false)),
         Tool::new(
             CREATE_SUBTASKS,
-            "Split the task into subtasks. Limits: 10 per run, 30 per root task, depth 2; over a limit the error \
-             `split_limit` gives the current limits.",
+            "Split the task into subtasks. Limits (defaults; the workflow may change them): 10 per run, 30 per root task, \
+             depth 2. Over a limit the tool fails with code `conflict` and rule `split-limit`; its params give the limits \
+             and current counts (max_depth, per_run, per_root, depth, run_count, root_count), so split again with fewer \
+             or shallower subtasks.",
             schema_for_type::<SubtasksArgs>(),
         )
         .annotate(writes("Create subtasks", false)),

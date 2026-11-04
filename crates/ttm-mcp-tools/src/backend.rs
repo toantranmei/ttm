@@ -18,9 +18,29 @@ use ttm_api::{ApiError, Client, MeUser, Member, WorkspaceSummary};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("{message} ({code})")]
 pub struct BackendError {
-    /// Stable code (`unauthorized`, `insufficient_scope`, `not_found`, …).
+    /// Stable code (`unauthorized`, `insufficient_scope`, `not_found`, `conflict`, …).
     pub code: String,
     pub message: String,
+    /// What the server said beyond the code (serialised flat next to `code` and `message`).
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<Box<ProblemDetail>>,
+}
+
+/// The parts of a server problem+json an agent branches on.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ProblemDetail {
+    /// HTTP status.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    /// The check that failed (`split-limit`, `rev-conflict`, `approval-required`, `too_long`, …): branch on it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+    /// The input the error is about (`tasks`, `tags`, …).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// Values the rule names (`{"per_run": 10}`, `{"required": "notee:write"}`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Map<String, Value>>,
 }
 
 impl BackendError {
@@ -28,7 +48,13 @@ impl BackendError {
         Self {
             code: code.into(),
             message: message.into(),
+            problem: None,
         }
+    }
+
+    /// The `rule` of the server problem, if any.
+    pub fn rule(&self) -> Option<&str> {
+        self.problem.as_ref()?.rule.as_deref()
     }
 
     pub fn unsupported(what: &str) -> Self {
@@ -46,6 +72,12 @@ impl From<ApiError> for BackendError {
         Self {
             code: err.code().to_string(),
             message: format!("{err}.{hint}"),
+            problem: Some(Box::new(ProblemDetail {
+                status: err.status(),
+                rule: err.rule().map(str::to_owned),
+                field: err.field().map(str::to_owned),
+                params: err.params().cloned(),
+            })),
         }
     }
 }

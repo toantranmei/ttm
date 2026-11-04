@@ -15,6 +15,8 @@ pub mod notee_write;
 pub mod toolset;
 pub mod workspace;
 
-pub use backend::{Backend, BackendError, BackendResult, FactoryScope, Fetched, HttpBackend, SelfInfo};
+pub use backend::{
+    Backend, BackendError, BackendResult, FactoryScope, Fetched, HttpBackend, ProblemDetail, SelfInfo,
+};
 pub use common::{CallContext, ToolFailure, ToolOutput};
 pub use toolset::{ToolSet, Toolset, Toolsets};
