@@ -39,6 +39,12 @@ pub fn provider_of(url: &str) -> &'static str {
     }
 }
 
+/// `--provider` when given, else guessed from the URL ([`provider_of`]), `local` without a URL.
+pub fn repo_provider(flag: Option<&str>, url: Option<&str>) -> String {
+    flag.map(str::to_string)
+        .unwrap_or_else(|| url.map(provider_of).unwrap_or("local").to_string())
+}
+
 pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
     match command {
         ProjectCommand::Init(args) => init(&app, args).await?,
@@ -337,13 +343,7 @@ async fn init(app: &App, args: crate::cli::ProjectInitArgs) -> Result<()> {
             key: key.clone(),
             name,
             workspace_id: workspace,
-            repo_provider: Some(
-                repo_url
-                    .as_deref()
-                    .map(provider_of)
-                    .unwrap_or("local")
-                    .to_string(),
-            ),
+            repo_provider: Some(repo_provider(args.provider.as_deref(), repo_url.as_deref())),
             repo_url,
             default_branch: Some(worktree::default_branch(&root)),
             template_slug: template,
@@ -460,5 +460,11 @@ mod tests {
         assert_eq!(provider_of("git@github.com:toantranmei/ttm.git"), "github");
         assert_eq!(provider_of("https://gitlab.example.com/a/b"), "gitlab");
         assert_eq!(provider_of("/srv/repo.git"), "local");
+        assert_eq!(
+            repo_provider(Some("github"), Some("http://127.0.0.1:4600/sim/todo-web.git")),
+            "github"
+        );
+        assert_eq!(repo_provider(None, Some("https://github.com/a/b")), "github");
+        assert_eq!(repo_provider(None, None), "local");
     }
 }
