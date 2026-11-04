@@ -7,7 +7,9 @@ section: more
 
 `ttm` and `ttm-mcp` are released under the same version. Downloads: <https://github.com/toantranmei/ttm/releases>.
 
-## 0.1.3 (2026-11-04)
+## 0.1.4 (2026-11-04)
+
+0.1.3 was tagged but never released (its tagged commit carried `[skip ci]`, so the release workflow did not run); 0.1.4 is the first release with the changes below.
 
 ### Errors and error codes
 

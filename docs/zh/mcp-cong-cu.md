@@ -6,7 +6,7 @@ section: reference
 ---
 
 本页同时适用于 `ttm-mcp`（stdio）和远程 MCP `https://toantranmei.com/api/v1/mcp`：工具名、参数和结果都相同。
-版本 **0.1.3**：3 个组共 26 个工具，以及 1 个 resource。
+版本 **0.1.4**：3 个组共 26 个工具，以及 1 个 resource。
 
 ## 约定
 

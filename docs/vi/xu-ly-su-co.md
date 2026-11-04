@@ -165,7 +165,7 @@ Workflow chặn chuyển trạng thái. Xem bảng ở [Mã lỗi](ma-loi.md).
 ## Runner
 
 **``no agent harness found; install Claude Code (`claude`) first``.**
-Cài Claude Code. Chạy dưới dịch vụ mà vẫn báo: dịch vụ dùng `PATH` ghi lúc cài (bản trước 0.1.3 không ghi `PATH`). Chạy
+Cài Claude Code. Chạy dưới dịch vụ mà vẫn báo: dịch vụ dùng `PATH` ghi lúc cài (bản trước 0.1.4 không ghi `PATH`). Chạy
 lại `ttm runner install-service` từ shell mà `which claude` tìm thấy (xem [Runner](runner.md)).
 
 **Job bị từ chối: `refused AUR-12: no local clone is configured for project AUR`.**
@@ -218,7 +218,7 @@ PAT tối thiểu + `TTM_TOKEN`, ví dụ `ttm sync --check` để chặn PR là
 Chưa đăng crates.io; cài từ mã nguồn bằng `cargo install --git https://github.com/toantranmei/ttm ttm-cli`.
 
 **Có gói `.mcpb` cho Claude Desktop không?**
-Có, từ 0.1.3: tải `ttm-mcp-<hệ điều hành>.mcpb` ở GitHub Releases (xem [MCP](mcp.md)). Bản cũ hơn: dùng
+Có, từ 0.1.4: tải `ttm-mcp-<hệ điều hành>.mcpb` ở GitHub Releases (xem [MCP](mcp.md)). Bản cũ hơn: dùng
 `ttm mcp install --client claude-desktop` hoặc MCP từ xa.
 
 **Dữ liệu của tôi có được dùng để huấn luyện model không?**

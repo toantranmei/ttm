@@ -140,7 +140,7 @@ it again.
 
 #### `.mcpb` bundle (one-click install)
 
-Since 0.1.3, every release on [GitHub Releases](https://github.com/toantranmei/ttm/releases) has a Claude Desktop bundle
+Since 0.1.4, every release on [GitHub Releases](https://github.com/toantranmei/ttm/releases) has a Claude Desktop bundle
 per operating system, with a `.sha256` file:
 
 | Bundle | Machine |

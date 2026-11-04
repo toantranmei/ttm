@@ -6,7 +6,7 @@ section: reference
 ---
 
 This page applies to both `ttm-mcp` (stdio) and the remote MCP at `https://toantranmei.com/api/v1/mcp`: same tool names,
-same parameters, same results. Version **0.1.3**: 26 tools in 3 toolsets and 1 resource.
+same parameters, same results. Version **0.1.4**: 26 tools in 3 toolsets and 1 resource.
 
 ## Conventions
 
