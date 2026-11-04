@@ -239,7 +239,11 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PLAN: ${{ needs.plan.outputs.val }}
-    # Off until NPM_TOKEN is set: repo variable PUBLISH_NPM=true turns it on.
+    # Trusted publishing (OIDC): npm trusts this workflow of toantranmei/ttm, so no token is stored. Repo variable
+    # PUBLISH_NPM=true turns the job on.
+    permissions:
+      contents: read
+      id-token: write
     if: ${{ vars.PUBLISH_NPM == 'true' && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
     steps:
       - name: Fetch npm packages
@@ -250,15 +254,15 @@ jobs:
           merge-multiple: true
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
       - run: |
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
             pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
             npm publish --access public "./npm/${pkg}"
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   announce:
     needs: [plan, host, publish-homebrew-formula, publish-npm]
