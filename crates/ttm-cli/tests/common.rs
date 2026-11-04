@@ -19,6 +19,23 @@ pub fn me_body() -> serde_json::Value {
 
 /// A server with discovery and `/me` accepting `ttm_pat_good`.
 pub async fn server() -> MockServer {
+    server_with(&["notee"], me_body()).await
+}
+
+/// Every v2 feature of the server (S0 Hợp đồng §11).
+pub const V2_FEATURES: &[&str] = &[
+    "notee",
+    "factory",
+    "workflow_v2",
+    "agent_v2",
+    "ascode_v2",
+    "templates",
+    "membership",
+    "confirmations",
+];
+
+/// A server with these discovery `features` and this `/me` body.
+pub async fn server_with(features: &[&str], me: serde_json::Value) -> MockServer {
     let server = MockServer::start().await;
     let base = server.uri();
     Mock::given(method("GET"))
@@ -32,14 +49,14 @@ pub async fn server() -> MockServer {
             "verification_uri": format!("{base}/activate"),
             "api_version": "v1",
             "min_cli": "0.0.1",
-            "features": ["notee"]
+            "features": features
         })))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v1/me"))
         .and(wiremock::matchers::header("authorization", "Bearer ttm_pat_good"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(me_body()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(me))
         .mount(&server)
         .await;
     Mock::given(method("GET"))

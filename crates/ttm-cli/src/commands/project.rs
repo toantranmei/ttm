@@ -327,7 +327,8 @@ async fn init(app: &App, args: crate::cli::ProjectInitArgs) -> Result<()> {
     } else {
         RunnerChoice::None
     };
-    if !wizard.confirm(&format!("Create project {key} ({name})?"))? {
+    // 0.1.6 scripts run `ttm project init --key AUR` without a terminal: no confirmation there.
+    if wizard.interactive() && !wizard.confirm(&format!("Create project {key} ({name})?"))? {
         anyhow::bail!("cancelled");
     }
     wizard.print_equivalent("project init");
