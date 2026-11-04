@@ -122,6 +122,22 @@ Restart the client to load it. Sign in first with `ttm login` if you have not.
 Claude 会用你的 token 先调用 `notee-search`，再调用 `notee-fetch`。其他应用（Claude Desktop、Cursor、Codex、VS Code）
 以及远程 MCP：见 [连接 MCP](mcp.md)。
 
+## 7. 创建 Factory 项目（可选）
+
+在你的仓库中：
+
+```sh
+ttm project init
+```
+
+向导会询问名称、key、工作区、仓库、工作流、预设 agent 和 runner；每个问题都有对应标志。在脚本或 CI 中，传入全部标志和 `--yes`：
+
+```sh
+ttm project init --name "Web todo" --key WEB --workflow balanced --agents create --runner this --yes
+```
+
+然后运行 `ttm runner up`，让本机接收 agent 的作业。见 [Factory](factory.md) 和[命令行界面](giao-dien.md)。
+
 ## 下一步
 
 - [Notee](notee.md)：编辑页面、修改建议、查询数据库、评论。

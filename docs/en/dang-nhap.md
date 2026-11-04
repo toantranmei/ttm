@@ -108,10 +108,11 @@ parameters; double-check the fields on the page before you click **Create token*
 | `factory:read` | View projects, tasks, plans (export), change requests, rules, run events; submit rule results (`rule_check`) | |
 | `factory:write` | Create projects, edit tasks, change status, approve, submit change requests, create subtasks | `factory:read` |
 | `factory:run` | Register and run runners, claim jobs, send events, finish runs, `ttm agent run`, create subtasks of the run itself | `factory:read` |
+| `factory:admin` | Administer Factory configuration with a token: workflows, Automation, agents, skills, MCP servers, template installs; from MCP always through a **two-step confirmation**. Job tokens (agents running a job) **never** have it | `factory:write` |
 | `offline_access` | Issue a refresh token (stay signed in) | |
 
 `ttm login` requests **all** of them by default: `workspace:read notee:read notee:write notee:comment factory:read
-factory:write factory:run offline_access`. Narrow it with `--scope`, for example read-only Notee:
+factory:write factory:run factory:admin offline_access`. Narrow it with `--scope`, for example read-only Notee:
 
 ```sh
 ttm login --scope "workspace:read notee:read"
@@ -164,7 +165,7 @@ When **writing**, `ttm` tries the keyring first (and removes any old copy from t
 access_token = "ttm_oat_…"
 refresh_token = "ttm_ort_…"
 expires_at = "2026-12-04T05:00:00Z"
-scope = "workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run offline_access"
+scope = "workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run factory:admin offline_access"
 ```
 
 `ttm status` shows where the token comes from and only displays its first few characters:
@@ -217,6 +218,31 @@ On `<host>/me/ket-noi`:
 - **Runners** tab: machines running `ttm runner`.
 
 Revocation takes effect immediately: every subsequent request returns `401 invalid_token`.
+
+## Old tokens and `factory:admin`
+
+Since 0.2.0, `ttm login` also asks for `factory:admin` (`ttm agent`, `ttm skill review`, `ttm workflow publish`…). Tokens
+made before lack it: admin commands fail with `insufficient_scope` and a `Fix:` that suggests signing in again. Running
+`ttm login` once is enough.
+
+## Mei-er badge
+
+When you are a Mei-er member, `ttm login` and `ttm whoami` print one more line in gold:
+
+```text
+✦ Mei-er since 2026-11  Thank you for being a Mei-er. You keep this going.
+```
+
+| Tier | Thanks line |
+| --- | --- |
+| Supporter (`· Supporter`) | `Thank you for supporting toantranmei.` |
+| Mei-er (`✦ Mei-er`) | `Thank you for being a Mei-er. You keep this going.` |
+| Sponsor (`✦✦ Sponsor`) | `Thank you, Sponsor. This work exists because of you.` |
+
+On the anniversary of joining (same month and day, from the first year) it adds `Happy <n>-year Mei-er anniversary!`.
+With `--plain` the badge is `[Mei-er]`. With `--json`, `whoami` and `login` add a `meta.membership` key (`{tier, status,
+since, until, badge}` or `null`). Non-members see, **only** in `ttm whoami`, one faint line `Support toantranmei →
+https://toantranmei.com/mei-er`; no other command mentions it.
 
 ## Multiple accounts, multiple servers
 

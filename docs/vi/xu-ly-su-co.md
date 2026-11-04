@@ -190,6 +190,20 @@ Cần `gh` đã đăng nhập (`gh auth status`) và repo có remote. Nhánh v�
 **Hết dung lượng vì worktree.**
 Giảm `--keep-days`, hoặc xoá thư mục trong `~/.ttm/worktrees` rồi `git worktree prune` trong repo.
 
+## Đầu ra và mã thoát (0.2)
+
+**Lệnh thoát mã 2 trong script.** Từ 0.2.0, mã 2 còn nghĩa là dùng sai: `missing_flag` (thiếu cờ khi không hỏi được),
+`confirmation_required` (cần `--yes`), `invalid_flag`, `unsupported_feature` (server chưa có tính năng). Dòng `Fix:` nói
+cờ nào cần thêm; với wizard, chạy một lần trong terminal rồi dán dòng `Equivalent:` vào script.
+
+**Log có mã màu lạ hoặc ký tự khung.** Đặt `NO_COLOR=1` (bỏ màu) hoặc `TTM_PLAIN=1`/`--plain` (bỏ màu, khung, glyph,
+emoji). Pipe và `TERM=dumb` tự bỏ màu.
+
+**Bảng bị cắt `…`.** Bảng không xuống dòng; tăng bề ngang bằng `TTM_COLUMNS=160` hoặc dùng `--json`.
+
+**Script đọc stderr cũ `error: …`.** 0.2.0 in lỗi dạng `✕ …` / `rule:` / `Fix:` / `Help:`. Script nên đọc
+`--json` (`{"error": {code, rule, field, …}}`, không đổi) thay vì stderr.
+
 ## Hỏi đáp
 
 **ttm có miễn phí và mã nguồn mở không?**

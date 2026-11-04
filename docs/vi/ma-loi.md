@@ -27,12 +27,26 @@ Server trả lỗi dạng `application/problem+json`:
 | `rule` | Quy tắc cụ thể bị vi phạm (với `bad_request`, `conflict`, `precondition_failed`), ví dụ `split-limit` |
 | `params` | Giá trị liên quan, ví dụ `{"required": "notee:write"}`, `{"max_depth": 2, "per_run": 10}` |
 
-`ttm` in ra stderr `error: <title> (<code>, rule <rule>, field <field>, HTTP <status>) <params>` (phần `rule`, `field`,
-`params` chỉ có khi server gửi), ví dụ:
+`ttm` in lỗi ra stderr theo một mẫu (từ 0.2.0):
 
 ```text
-error: At most 10 subtasks per run (10 already). (conflict, rule `split-limit`, HTTP 409) {"depth":1,"max_depth":2,"per_root":30,"per_run":10,"root_count":12,"run_count":10}
+✕ <tóm tắt>
+  rule: <rule>  field: <field>
+  Fix: <cách sửa>
+  Help: https://toantranmei.com/help/ttm/ma-loi#<rule>
 ```
+
+`rule` là `rule` của server, không có thì `code`. Ví dụ:
+
+```text
+✕ At most 10 subtasks per run (10 already).
+  rule: split-limit
+  Fix: split into fewer subtasks (see params.per_run)
+  Help: https://toantranmei.com/help/ttm/ma-loi#split-limit
+```
+
+Lỗi dùng sai lệnh (`missing_flag`, `confirmation_required`, `unsupported_feature`, `invalid_flag`) thoát với mã **2**;
+lỗi khác mã 1. Với `--plain`, dòng đầu là `ERROR: <tóm tắt>`.
 
 Với `--json`, stdout có thêm `{"error": {"code", "message", "status", "rule", "field", "params"}}` (ba trường cuối chỉ
 có khi server gửi) để script rẽ nhánh theo `rule`. Tool MCP trả `isError: true`, văn bản `<thông báo> (<code>)` và
@@ -190,3 +204,373 @@ Hai mã này được báo lên server làm `error` khi kết thúc run.
 | ``no agent harness found; install Claude Code (`claude`) first`` | `claude` không có trên `PATH` của runner |
 | `timed out after 5 minutes waiting for the browser` | Chưa bấm **Cho phép** kịp |
 | `invalid TOML in <file>: …` | `config.toml`/`credentials.toml`/`runner.toml` sai cú pháp |
+
+## Rule và cách sửa
+
+Mỗi mục dưới đây là đích của dòng `Help:`. Dòng **Fix** là câu `ttm` in ra.
+
+### `missing_flag`
+
+Thiếu cờ bắt buộc và không thể hỏi (có `--yes` hoặc không phải terminal). Mã thoát 2.
+
+**Fix:** pass the flag shown in field, or run in a terminal to be asked
+
+### `confirmation_required`
+
+Thao tác cần xác nhận nhưng không có terminal và không có `--yes`. Mã thoát 2.
+
+**Fix:** confirm in a terminal, or pass --yes
+
+### `invalid_flag`
+
+Giá trị của cờ không hợp lệ (ví dụ key không đúng `^[A-Z][A-Z0-9]{1,9}$`). Mã thoát 2.
+
+**Fix:** fix the value of the flag shown in field (ttm <command> --help lists the choices)
+
+### `unsupported_feature`
+
+Server (hoặc runner) chưa có tính năng này (`discovery.features` thiếu chuỗi tương ứng, hoặc job `requires` tính năng runner không có). `ttm` không gọi API. Mã thoát 2.
+
+**Fix:** this server is older than this ttm: update the server or use another host
+
+### `rev-conflict`
+
+Đối tượng đã đổi từ phiên bản bạn đọc (`If-Match`/`rev` cũ).
+
+**Fix:** someone changed it meanwhile: fetch it again (ttm sync) and redo the change
+
+### `draft-stale`
+
+Bản nháp workflow đã đổi từ lúc bạn đọc (`base_version` cũ).
+
+**Fix:** the draft changed since you read it: show it again and reapply your edit
+
+### `upgrade-preview-stale`
+
+Workflow đã đổi từ lúc xem trước nâng cấp (`preview_hash` không khớp).
+
+**Fix:** the workflow changed since the preview: run the upgrade preview again
+
+### `no-upgrade`
+
+Dự án đã dùng phiên bản workflow mới nhất.
+
+**Fix:** the project already uses the latest workflow version
+
+### `dry-run-required`
+
+Phải chạy thử luật trước khi bật.
+
+**Fix:** test the rule first: ttm automation test <rule> --task <KEY>
+
+### `rule-published`
+
+Luật đã xuất bản không sửa trực tiếp được.
+
+**Fix:** a published rule cannot change: edit the draft and publish again
+
+### `input_required`
+
+Cần thêm dữ liệu đầu vào (mẫu, luật).
+
+**Fix:** this needs more input: pass the missing value shown in field
+
+### `stale`
+
+Change request đã cũ so với server.
+
+**Fix:** the change request is out of date: sync again and send a new one
+
+### `secret_in_file`
+
+File as-code (`.ttm/agents/*.yaml`) chứa khoá giống secret (`token`, `*_token`, `secret`, `password`, `api_key`).
+
+**Fix:** remove the secret from the file and use a secret reference instead
+
+### `invalid_file`
+
+File as-code không hợp lệ theo server.
+
+**Fix:** fix the file at the path shown (ttm workflow validate --file … lists every issue)
+
+### `yaml`
+
+File YAML trong `.ttm/` không parse được (kiểm cục bộ trước khi `ttm sync` gửi đi; có số dòng).
+
+**Fix:** fix the YAML at the line shown, then run ttm sync again
+
+### `purchase_required`
+
+Mẫu có phí và bạn chưa mua.
+
+**Fix:** buy the template on the web first, then install it again
+
+### `sponsors_only`
+
+Mẫu chỉ dành cho Sponsor.
+
+**Fix:** this template is for Sponsors: see https://toantranmei.com/mei-er
+
+### `insufficient_scope`
+
+Token thiếu scope (`params.required`). Token tạo trước 0.2.0 không có `factory:admin`.
+
+**Fix:** sign in again with the missing scope: ttm login --scope '<scopes>'
+
+### `unauthorized`
+
+Không có token hoặc token không hợp lệ.
+
+**Fix:** sign in again: ttm login
+
+### `forbidden`
+
+Vai trò của bạn trong workspace không cho phép.
+
+**Fix:** your role in this workspace does not allow it: ask an owner or admin
+
+### `token_not_allowed`
+
+Route này không mở cho token (chỉ làm trên web).
+
+**Fix:** this action is not open to tokens: do it on the web
+
+### `job_token_not_allowed`
+
+Token của agent đang chạy job không làm được việc này (quản trị, xác nhận).
+
+**Fix:** agents running a job cannot do this: run it yourself with your own token
+
+### `not_found`
+
+Không có đối tượng (hoặc không thuộc về bạn).
+
+**Fix:** check the id or key (list commands show them)
+
+### `seat_limit`
+
+Workspace hết chỗ cho thành viên/agent.
+
+**Fix:** the workspace has no free seat: free one or upgrade the plan on the web
+
+### `plan_limit`
+
+Đã chạm giới hạn của gói (số MCP server, luật…).
+
+**Fix:** the plan limit is reached: upgrade the plan on the web
+
+### `handle_taken`
+
+Handle agent đã có trong workspace.
+
+**Fix:** pick another --handle
+
+### `skill_unchanged`
+
+Phiên bản skill mới giống hệt bản mới nhất (cùng SHA-256).
+
+**Fix:** nothing changed since the last version: edit the skill, then push again
+
+### `skill_limit`
+
+Quá nhiều skill trên agent hoặc workspace.
+
+**Fix:** too many skills on this agent or workspace: remove one first
+
+### `self_review`
+
+Bạn không tự duyệt phiên bản skill của mình được (workspace có ≥ 2 admin).
+
+**Fix:** someone else must review your own skill version
+
+### `skill_md_missing`
+
+Skill không có `SKILL.md` ở gốc.
+
+**Fix:** add a SKILL.md with a name and description front matter
+
+### `front_matter`
+
+Front matter của `SKILL.md` thiếu `name`/`description` hoặc `ttm.tags` sai.
+
+**Fix:** fix the front matter of SKILL.md
+
+### `path_unsafe`
+
+Đường dẫn trong skill không an toàn (`..`, tuyệt đối, `\`, `.git/`, symlink).
+
+**Fix:** remove the file or rename it to a plain relative path
+
+### `too_large`
+
+Skill vượt 5 MB sau giải nén (hoặc tỉ lệ nén > 100).
+
+**Fix:** make the skill smaller (at most 5 MB)
+
+### `too_many_files`
+
+Skill có quá 200 file.
+
+**Fix:** keep at most 200 files (list build output in .gitignore)
+
+### `zip_invalid`
+
+Gói skill không phải zip hợp lệ.
+
+**Fix:** pack the skill again with ttm skill push <dir>
+
+### `skill_hash_mismatch`
+
+Runner tải skill nhưng SHA-256 không khớp với job: job bị từ chối.
+
+**Fix:** the skill download is corrupt: run the job again
+
+### `secrets_disabled`
+
+Server chưa bật mã hoá secret.
+
+**Fix:** secrets are turned off on this server: ask its operator
+
+### `storage_disabled`
+
+Server chưa bật lưu file.
+
+**Fix:** file storage is turned off on this server: ask its operator
+
+### `oauth_client_unavailable`
+
+MCP server này không đăng nhập OAuth được.
+
+**Fix:** this MCP server cannot sign in by OAuth: use --auth workspace with a secret
+
+### `repo_not_configured`
+
+Runner không có clone của dự án trong `runner.toml`, hoặc `origin` không khớp.
+
+**Fix:** link the repository first: ttm project link <KEY>
+
+### `invalid_branch`
+
+Tên nhánh của job không hợp lệ.
+
+**Fix:** fix the task or branch on the web
+
+### `invalid_worktree`
+
+`worktree_hint` của job ra ngoài `worktree_root`.
+
+**Fix:** report it: the runner never creates worktrees outside its root
+
+### `confirm_expired`
+
+Xác nhận đã quá 10 phút.
+
+**Fix:** the confirmation expired (10 minutes): start the action again
+
+### `confirm_used`
+
+Xác nhận đã được áp dụng (mỗi xác nhận chỉ chạy một lần, kể cả khi thao tác lỗi).
+
+**Fix:** this confirmation was already applied: start the action again for a new one
+
+### `confirm_cancelled`
+
+Xác nhận đã bị huỷ.
+
+**Fix:** this confirmation was cancelled: start the action again
+
+### `confirm_tampered`
+
+Request đã lưu không khớp mã băm của xác nhận.
+
+**Fix:** the staged request does not match its confirmation: start the action again
+
+### `confirm_stale`
+
+(Chỉ phía ttm) request đổi giữa lúc xác nhận và áp dụng. Server không trả mã này: draft đổi thì route đích trả `draft-stale`/`upgrade-preview-stale`.
+
+**Fix:** the request changed since it was confirmed: start the action again
+
+### `bearer_required`
+
+Xác nhận hai bước chỉ nhận token Bearer (không cookie).
+
+**Fix:** confirmations need a token: use ttm or an MCP client, not the browser session
+
+### `not_confirmable`
+
+`(method, path)` không thuộc danh sách thao tác xác nhận được.
+
+**Fix:** this change cannot go through a confirmation: run it directly
+
+### `payload_too_large`
+
+Body > 256 KiB hoặc preview > 64 KiB.
+
+**Fix:** the request is too large: send a smaller change
+
+### `split-limit`
+
+Vượt giới hạn tách task con (`params.per_run`).
+
+**Fix:** split into fewer subtasks (see params.per_run)
+
+### `approval-required`
+
+Bước này cần người duyệt.
+
+**Fix:** a person must approve this step: ttm task approve <KEY>
+
+### `agent-own-runner`
+
+Agent quyền đầy đủ/tuỳ chỉnh chỉ chạy trên runner của người giao.
+
+**Fix:** this agent runs only on its delegator's runners: start one with ttm runner up
+
+### `too_many_blocks`
+
+Page quá dài cho một lần đọc.
+
+**Fix:** the page is too long for one call: read it by parts (--block)
+
+### `upgrade_required`
+
+`ttm` cũ hơn `min_cli` của server.
+
+**Fix:** update ttm: ttm self-update
+
+### `network`
+
+Lỗi mạng hoặc host sai.
+
+**Fix:** check the network and the host (ttm doctor)
+
+### `rate_limited`
+
+Gửi quá nhiều request (ví dụ > 30 xác nhận/phút).
+
+**Fix:** wait a little and retry
+
+### `conflict`
+
+Đối tượng đã đổi trong lúc bạn sửa.
+
+**Fix:** it changed meanwhile: fetch it again and retry
+
+### `bad_request`
+
+Dữ liệu đầu vào sai (xem `field`, `rule`).
+
+**Fix:** fix the input named in field
+
+### `authorization_pending`
+
+Đăng nhập thiết bị chưa được duyệt.
+
+**Fix:** finish signing in on the web page, then retry
+
+### `invalid_grant`
+
+Mã/refresh token hết hạn hoặc đã dùng.
+
+**Fix:** sign in again: ttm login

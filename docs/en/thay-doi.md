@@ -7,6 +7,41 @@ section: more
 
 `ttm` and `ttm-mcp` are released under the same version. Downloads: <https://github.com/toantranmei/ttm/releases>.
 
+## 0.2.0 (unreleased)
+
+### Breaking changes
+
+- **MCP:** list tools now return `structuredContent` as an object `{items: […], next_cursor?}` instead of an array (MCP
+  requires an object when a tool has an `outputSchema`). Tools that already returned an object keep their keys.
+- **Errors on stderr:** `error: <message>` became `✕ <summary>` / `rule:` / `Fix:` / `Help:` ([Error codes](ma-loi.md)).
+  `--json` is unchanged (keys only added). Exit code 2 now also covers `missing_flag`, `confirmation_required`,
+  `invalid_flag`, `unsupported_feature`.
+
+### ttm
+
+- One output style through `ttm-ui`: brand colours (truecolor → 256 → 16), tables cut with `…`, status glyphs, badges,
+  `Next:`; global flags `--plain` (`TTM_PLAIN`) and `-y/--yes`; `TTM_COLUMNS` ([Command line interface](giao-dien.md)).
+- `ttm project init` became a wizard (every question has a flag); new commands `workflow`, `automation`, `agent
+  create|edit|pause|resume|archive|skills|mcp`, `skill`, `mcp-server`, `cr`, `inbox [--watch]`, `template`, `workspace
+  members`.
+- `ttm sync` syncs `.ttm/workflow.yaml`, `rules/`, `agents/`, `skills/` as change requests by kind, checks YAML, blocks
+  secrets, checks skills ([Configuration as code](as-code.md)).
+- Mei-er badges in `whoami`/`login` (+ `meta.membership` in `--json`), `workspace members`, `task show`, `agent list`.
+- `ttm login` also asks for the `factory:admin` scope.
+
+### ttm-mcp
+
+- Every tool has an `outputSchema` and one Markdown shape; membership badges.
+- New read tools (workflows, Automation, agents, skills, templates, inbox) and an `admin` toolset with two-step
+  confirmations (`factory-confirm`, `factory-confirm-cancel`; elicitation over stdio). Agents running a job never see
+  `admin` ([MCP tools](mcp-cong-cu.md)).
+
+### ttm runner
+
+- The agent's git identity, a `commit-msg` hook that removes every Claude/Anthropic line in every job; reviewed skills
+  (SHA-256 checked); remote MCP through the gateway and local MCP `[mcp.local.*]`; isolation of teammates' jobs;
+  `features` announced to the server ([Runner](runner.md)).
+
 ## 0.1.6 (2026-11-04)
 
 ### ttm runner

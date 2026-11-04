@@ -33,6 +33,14 @@ Created project AUR (Aurora) and linked /Users/an/code/aurora.
 仓库提供方根据 URL 推断：`github.com` → `github`，包含 `gitlab` → `gitlab`，其他情况（或没有 remote）→ `local`。主分支取自
 `origin/HEAD`；没有的话，存在 `main` 就用 `main`，否则用 `master`。key 已被占用：`409 conflict`（`rule: key_taken`）。
 
+### 向导（0.2）
+
+在终端中不带标志运行 `ttm project init` 会依次询问：名称 → key（根据名称建议，符合 `^[A-Z][A-Z0-9]{1,9}$`）→ 工作区 → 仓库（默认
+`origin`）→ 工作流（`Professional — 9 statuses, 6 agents`、`Balanced — 5 statuses, 3 agents, about 40% fewer tokens` 或其他模板）→
+预设 agent（复用相同角色的 agent 或新建）→ runner（`this` 会把 `[repos] KEY = <目录>` 写入 `runner.toml`）。每个问题都有标志：
+`--name --key --workspace --repo --workflow professional|balanced|kanban|scrum|autopilot|<slug> --agents create|reuse|none --runner
+this|none`；`--yes` 采用默认值。不是终端且只有 `--key` 时与 0.1.6 行为相同。向导结束后 `ttm` 在 stderr 打印等价命令（`Equivalent: …`）。
+
 ### 关联到已有项目
 
 ```sh
@@ -348,3 +356,21 @@ epic、`ref`、sprint，初始状态为 `inbox`（如果工作流交给 agent，
 
 由 runner 运行的 agent 使用 `factory-*` MCP 工具（获取任务、上下文、报告进度、请求审批、创建子任务、附加 PR 或测试结果、读取规则、锁定代码区域）。见
 [Runner](runner.md) 和 [MCP 工具](mcp-cong-cu.md)。
+
+## Factory v2 命令（0.2）
+
+| 命令 | 作用 |
+| --- | --- |
+| `ttm workflow show\|validate\|simulate\|diff\|publish\|upgrade\|copy` | 查看、检查、模拟、比较、发布、升级、复制工作流 |
+| `ttm automation list\|show\|test\|enable\|disable\|runs` | 自动化规则：当/如果/则视图、在任务上试运行、历史 |
+| `ttm agent list\|show\|create\|edit\|pause\|resume\|archive`、`agent skills add\|rm`、`agent mcp add\|rm` | 管理 agent（handle、git 身份、skill、MCP） |
+| `ttm skill list\|push\|pull\|show\|review\|import` | Skill：确定性打包、推送版本、审核 |
+| `ttm mcp-server list\|add\|connect\|remove` | 工作区的远程 MCP 服务器（密钥由网关保存） |
+| `ttm cr list\|show\|approve\|reject` | 计划与配置的变更请求 |
+| `ttm inbox [--watch]`、`ttm inbox read` | 通知收件箱 |
+| `ttm template list\|publish\|install` | 模板库 |
+| `ttm workspace members` | 成员与徽章 |
+
+每个命令先检查服务器的 `discovery.features`；服务器没有该功能 → `This server does not support … yet`（`unsupported_feature`，退出码
+2）。完整语法：[命令参考](lenh.md)。`.ttm/` 中以文件形式存在的工作流、规则、agent 和 skill：[配置即代码](as-code.md)。输出约定：
+[命令行界面](giao-dien.md)。
