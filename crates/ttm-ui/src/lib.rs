@@ -1,17 +1,36 @@
 //! `ttm-ui`: the one place where ttm prints for people.
 //!
-//! Every command renders through [`Ui`] with the components of this crate, so the output looks the same everywhere:
+//! Every command renders through [`Ui`] with the components of this crate ([`Header`], [`Table`], [`Status`],
+//! [`Badge`], [`KeyValue`], [`Callout`], [`Diff`], [`ErrorView`], spinners), so the output looks the same everywhere:
 //! the result on the first line, details, then `Next: <command>`.
 //!
 //! Modes ([`Mode`]): brand colours (truecolor → 256 → 16) on a terminal; no colour when piped, with `NO_COLOR` or
 //! `TERM=dumb`; `--plain`/`TTM_PLAIN=1` drops frames, glyphs and emoji; `--json` keeps stdout for JSON only. Width:
 //! `TTM_COLUMNS` > `COLUMNS` > terminal > 80, clamped to 40..=200.
 
+pub mod badge;
+pub mod callout;
+pub mod diff;
+pub mod error;
+pub mod header;
+pub mod kv;
 pub mod mode;
+pub mod progress;
+pub mod status;
+pub mod table;
 pub mod theme;
 pub mod width;
 
+pub use badge::Badge;
+pub use callout::{Callout, Kind as CalloutKind, next_line};
+pub use diff::{Change, ChangeKind, Diff};
+pub use error::{ErrorView, UsageError, hint};
+pub use header::Header;
+pub use kv::KeyValue;
 pub use mode::{ColorLevel, Mode, Probe};
+pub use progress::{Progress, Spinner};
+pub use status::{Level, Status};
+pub use table::{Cell, Col, Table};
 pub use theme::{Token, paint};
 pub use ttm_api::vocab;
 pub use width::{Align, display_width, pad, strip_ansi, truncate};

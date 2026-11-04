@@ -1,0 +1,16 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+OK: Signed in as An
+  host: https://toantranmei.com
+Next: ttm project init
+
+WARNING: 2 conflicts with the server
+Next: ttm sync --resolve
+
+ERROR: Run failed
+  exit 1
+
+NOTE: No workspace chosen
+Next: ttm workspace switch <name>

@@ -1,0 +1,14 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+[2m╭─ [0m[1mAurora · rev 43[0m[2m ─────────────────────────────────╮[0m
+[2m│ [0m12 tasks · 3 in progress · 1 waiting for approval[2m │[0m
+[2m╰───────────────────────────────────────────────────╯[0m
+
+[2m╭─ [0m[1mDự án Cá nhân[0m[2m ─╮[0m
+[2m╰─────────────────╯[0m
+
+[2m╭─ [0m[1mVery long project name xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…[0m[2m ─╮[0m
+[2m│ [0mA summary that is far longer than the terminal yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…[2m │[0m
+[2m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[0m

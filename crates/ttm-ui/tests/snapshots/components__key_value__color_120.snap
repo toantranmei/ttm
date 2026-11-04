@@ -1,0 +1,9 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+[2m     user[0m  An <an@example.com>
+[2m     host[0m  https://toantranmei.com
+[2m  profile[0m  default
+[2mworkspace[0m  Team Aurora (w2) [1m[38;2;212;167;44m✦ Mei-er[0m
+[2m     note[0m  Một giá trị rất dài zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz…
