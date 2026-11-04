@@ -1,18 +1,8 @@
 name: Build matrix
 
-# Release builds of every target. Not on every push (CI already tests on Linux, macOS and Windows, and a release tag
-# builds all targets again): only when something that changes the build does, weekly, or by hand.
+# Release builds of every target. Not on pushes to main (CI already tests on Linux, macOS and Windows, and a release
+# tag builds all targets again): only on pull requests that change the build, weekly, or by hand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - Cargo.lock
-      - "**/Cargo.toml"
-      - rust-toolchain.toml
-      - dist-workspace.toml
-      - .github/build-setup.yml
-      - .github/workflows/build-matrix.yml
-      - .github/workflows/release.yml
   pull_request:
     paths:
       - Cargo.lock
