@@ -361,7 +361,20 @@ impl Executor {
             }
             finish.commit = git::head(&path).ok();
             if git::commits_ahead(&path, &base) > 0 && git::has_remote(&path) {
-                match git::push(&path, &job.branch, &git_env) {
+                // Whatever made the commits, none may carry an attribution line when pushed.
+                let pushed = identity::sanitize_history(&path, &base, &git_env)
+                    .inspect(|n| {
+                        if *n > 0 {
+                            let _ = events.send(RunEvent::now(
+                                "log",
+                                format!("removed attribution lines from {n} commit message(s)"),
+                                None,
+                            ));
+                        }
+                    })
+                    .and_then(|_| git::push(&path, &job.branch, &git_env).map_err(anyhow::Error::from));
+                finish.commit = git::head(&path).ok();
+                match pushed {
                     Ok(()) => {
                         let title = format!(
                             "{}: {}",
@@ -377,6 +390,7 @@ impl Executor {
                             job.run_id,
                             outcome.summary.as_deref().unwrap_or("")
                         );
+                        let (title, body) = pr_text(&title, &body);
                         finish.pr_url = git::open_pull_request(&path, &job.branch, &base, &title, &body);
                     }
                     Err(err) => {
@@ -404,6 +418,16 @@ impl Executor {
         };
         Ok((outcome, finish))
     }
+}
+
+/// Pull request title and body without attribution lines (the agent's summary may carry one).
+pub fn pr_text(title: &str, body: &str) -> (String, String) {
+    let title = if identity::is_attribution_line(title) {
+        "agent changes".to_string()
+    } else {
+        title.to_string()
+    };
+    (title, identity::strip_text(body))
 }
 
 /// Whether a finish `error` is a refusal code (already announced by the refusal line).
