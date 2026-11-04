@@ -163,7 +163,8 @@ pub enum NotesCommand {
         /// JSON file with `{"filter": …, "sorts": …}` or just the filter (`-` for stdin).
         #[arg(long, value_name = "FILE")]
         filter: Option<String>,
-        #[arg(long)]
+        /// Rows per page, 1 to 100 (server default 100).
+        #[arg(long, value_name = "N", value_parser = page_size)]
         page_size: Option<u32>,
         #[arg(long)]
         cursor: Option<String>,
@@ -545,5 +546,46 @@ mod tests {
         };
         assert_eq!(args.client, McpClient::ClaudeDesktop);
         assert!(Cli::try_parse_from(["ttm", "mcp", "install", "--client", "vim"]).is_err());
+    }
+}
+
+/// `--page-size`: a whole number from 1 to 100 (the server's bounds).
+fn page_size(value: &str) -> Result<u32, String> {
+    match value.trim().parse::<i64>() {
+        Ok(n @ 1..=100) => Ok(n as u32),
+        Ok(n) => Err(format!(
+            "{n} is out of range: --page-size takes 1 to 100 rows per page"
+        )),
+        Err(_) => Err(format!(
+            "`{value}` is not a number: --page-size takes 1 to 100 rows per page"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod page_size_tests {
+    use super::*;
+
+    #[test]
+    fn page_size_bounds() {
+        assert_eq!(page_size("1"), Ok(1));
+        assert_eq!(page_size("100"), Ok(100));
+        assert!(page_size("0").unwrap_err().contains("1 to 100"));
+        assert!(page_size("101").unwrap_err().contains("out of range"));
+        assert!(page_size("-5").is_err());
+        assert!(page_size("ten").unwrap_err().contains("not a number"));
+        let err = Cli::try_parse_from([
+            "ttm",
+            "notes",
+            "query",
+            "db1",
+            "--sql",
+            "SELECT 1",
+            "--page-size",
+            "500",
+        ])
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("--page-size takes 1 to 100"), "{err}");
     }
 }
