@@ -378,8 +378,10 @@ pub enum RunnerCommand {
     Status,
     /// Change runner settings.
     Config(RunnerConfigArgs),
-    /// Start the runner at login (launchd, systemd --user, Task Scheduler).
+    /// Start the runner at login (launchd, systemd --user, Task Scheduler), with this shell's PATH.
     InstallService,
+    /// Stop the runner service and remove it (plist, unit or scheduled task).
+    UninstallService,
 }
 
 #[derive(Debug, Args)]

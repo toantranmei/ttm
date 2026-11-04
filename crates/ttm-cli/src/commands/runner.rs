@@ -1,4 +1,4 @@
-//! `ttm runner up | down | status | config | install-service`.
+//! `ttm runner up | down | status | config | install-service | uninstall-service`.
 
 use crate::app::App;
 use crate::cli::{RunnerCommand, RunnerConfigArgs};
@@ -215,7 +215,7 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                     println!("Runner stopped.");
                 } else {
                     println!(
-                        "No running runner found (a service restarts it; uninstall the service to keep it off)."
+                        "No running runner found (a service restarts it; `ttm runner uninstall-service` keeps it off)."
                     );
                 }
             });
@@ -259,9 +259,19 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
             });
         }
         RunnerCommand::InstallService => {
-            let file = install_service(&app)?;
-            emit(app.json, &json!({ "installed": file }), || {
-                println!("Runner service installed: {file}")
+            let (file, path) = install_service(&app)?;
+            emit(app.json, &json!({ "installed": file, "path": path }), || {
+                println!("Runner service installed: {file}");
+                if let Some(path) = &path {
+                    println!("PATH of the service: {path}");
+                }
+            });
+        }
+        RunnerCommand::UninstallService => {
+            let removed = uninstall_service()?;
+            emit(app.json, &json!({ "removed": removed }), || match &removed {
+                Some(what) => println!("Runner service stopped and removed: {what}"),
+                None => println!("No runner service installed."),
             });
         }
     }
@@ -341,30 +351,73 @@ fn kill(pid: u32) -> bool {
     status.is_ok_and(|s| s.success())
 }
 
-fn install_service(app: &App) -> Result<String> {
+/// Writes and starts the service; returns what was installed and the `PATH` it carries (none on Windows, where the
+/// task runs with the user's environment).
+fn install_service(app: &App) -> Result<(String, Option<String>)> {
     let ttm = std::env::current_exe()?;
     let profile = app.profile_flag.then_some(app.ctx.profile_name.as_str());
     let home = ttm_core::paths::home_dir().context("no home directory")?;
+    let path_var = service::service_path(std::env::var_os("PATH").as_deref(), &home);
     if cfg!(target_os = "macos") {
-        let path = service::launchd_path(&home);
+        let file = service::launchd_path(&home);
         write(
-            &path,
-            &service::launchd_plist(&ttm, &app.ctx.paths.cache_dir, profile),
+            &file,
+            &service::launchd_plist(&ttm, &app.ctx.paths.cache_dir, profile, &path_var),
         )?;
-        run_quiet("launchctl", &["unload", &path.display().to_string()]);
-        run_checked("launchctl", &["load", "-w", &path.display().to_string()])?;
-        Ok(path.display().to_string())
+        run_quiet("launchctl", &["unload", &file.display().to_string()]);
+        run_checked("launchctl", &["load", "-w", &file.display().to_string()])?;
+        Ok((file.display().to_string(), Some(path_var)))
     } else if cfg!(windows) {
         let args = service::schtasks_args(&ttm, profile);
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         run_checked("schtasks", &refs)?;
-        Ok(format!("Task Scheduler: {}", service::WINDOWS_TASK))
+        Ok((format!("Task Scheduler: {}", service::WINDOWS_TASK), None))
     } else {
-        let path = service::systemd_path(&home);
-        write(&path, &service::systemd_unit(&ttm, profile))?;
+        let file = service::systemd_path(&home);
+        write(&file, &service::systemd_unit(&ttm, profile, &path_var))?;
         run_checked("systemctl", &["--user", "daemon-reload"])?;
         run_checked("systemctl", &["--user", "enable", "--now", service::SYSTEMD_UNIT])?;
-        Ok(path.display().to_string())
+        // `enable --now` does not restart a unit that was already running with the old definition.
+        run_quiet("systemctl", &["--user", "restart", service::SYSTEMD_UNIT]);
+        Ok((file.display().to_string(), Some(path_var)))
+    }
+}
+
+/// Stops and removes the service; `None` when none was installed.
+fn uninstall_service() -> Result<Option<String>> {
+    let home = ttm_core::paths::home_dir().context("no home directory")?;
+    if cfg!(target_os = "macos") {
+        let file = service::launchd_path(&home);
+        if !file.exists() {
+            return Ok(None);
+        }
+        run_quiet("launchctl", &["unload", "-w", &file.display().to_string()]);
+        std::fs::remove_file(&file).with_context(|| format!("removing {}", file.display()))?;
+        Ok(Some(file.display().to_string()))
+    } else if cfg!(windows) {
+        let query = std::process::Command::new("schtasks")
+            .args(["/Query", "/TN", service::WINDOWS_TASK])
+            .output();
+        if !query.is_ok_and(|o| o.status.success()) {
+            return Ok(None);
+        }
+        let end = service::schtasks_end_args();
+        run_quiet("schtasks", &end.iter().map(String::as_str).collect::<Vec<_>>());
+        let delete = service::schtasks_delete_args();
+        run_checked("schtasks", &delete.iter().map(String::as_str).collect::<Vec<_>>())?;
+        Ok(Some(format!("Task Scheduler: {}", service::WINDOWS_TASK)))
+    } else {
+        let file = service::systemd_path(&home);
+        if !file.exists() {
+            return Ok(None);
+        }
+        run_quiet(
+            "systemctl",
+            &["--user", "disable", "--now", service::SYSTEMD_UNIT],
+        );
+        std::fs::remove_file(&file).with_context(|| format!("removing {}", file.display()))?;
+        run_quiet("systemctl", &["--user", "daemon-reload"]);
+        Ok(Some(file.display().to_string()))
     }
 }
 
