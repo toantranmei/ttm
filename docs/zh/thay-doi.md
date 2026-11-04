@@ -7,7 +7,7 @@ section: more
 
 `ttm` 和 `ttm-mcp` 以相同版本发布。下载：<https://github.com/toantranmei/ttm/releases>。
 
-## 0.1.3（未发布）
+## 0.1.3（2026-11-04）
 
 ### 错误与错误码
 

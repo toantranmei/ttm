@@ -7,7 +7,7 @@ section: more
 
 `ttm` và `ttm-mcp` phát hành cùng phiên bản. Bản tải: <https://github.com/toantranmei/ttm/releases>.
 
-## 0.1.3 (chưa phát hành)
+## 0.1.3 (04/11/2026)
 
 ### Lỗi và mã lỗi
 

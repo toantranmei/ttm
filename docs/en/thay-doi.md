@@ -7,7 +7,7 @@ section: more
 
 `ttm` and `ttm-mcp` are released under the same version. Downloads: <https://github.com/toantranmei/ttm/releases>.
 
-## 0.1.3 (unreleased)
+## 0.1.3 (2026-11-04)
 
 ### Errors and error codes
 
