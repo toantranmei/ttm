@@ -77,6 +77,18 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
         }
         TaskCommand::Approve { key, reject } => {
             let decision = if reject { "reject" } else { "approve" };
+            // Step 1: show what is decided; step 2: confirm (`--yes` skips the question).
+            let current = client.task(&key).await?;
+            app.ui.eprint(&approval_preview(&app.ui, &current, reject));
+            let verb = if reject { "Reject" } else { "Approve" };
+            if !app
+                .wizard()
+                .confirm(&format!("{verb} the pending step of {}?", current.key()))?
+            {
+                app.ui
+                    .print(&Callout::info(format!("Nothing changed on {}", current.key())));
+                return Ok(ExitCode::FAILURE);
+            }
             let task = client.approve_task(&key, decision).await?;
             emit(&app, &task, |ui| {
                 ui.print(
@@ -116,6 +128,30 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// What `ttm task approve` is about to decide.
+fn approval_preview(ui: &Ui, task: &Task, reject: bool) -> KeyValue {
+    let pending = task
+        .extra
+        .get("pendingTransition")
+        .or_else(|| task.extra.get("approval"))
+        .and_then(|v| v.get("to").or_else(|| v.get("toState")))
+        .and_then(Value::as_str)
+        .map(String::from);
+    KeyValue::new()
+        .row("task", format!("{} · {}", task.key(), task.title))
+        .row(
+            "status",
+            format!(
+                "{} {}",
+                ui.render(&status_of(task)),
+                task.state.as_deref().unwrap_or("-")
+            ),
+        )
+        .opt("moves to", pending)
+        .row("assignee", member(ui, task.assignee_member.as_ref()))
+        .row("decision", if reject { "reject" } else { "approve" })
 }
 
 /// `approved` / `rejected`.

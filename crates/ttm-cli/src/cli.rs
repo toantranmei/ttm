@@ -364,7 +364,7 @@ pub enum TaskCommand {
     Done {
         key: String,
     },
-    /// Approve (or --reject) the pending transition of a task.
+    /// Approve (or --reject) the pending transition of a task, after a confirmation (`--yes` skips it).
     Approve {
         key: String,
         #[arg(long)]
