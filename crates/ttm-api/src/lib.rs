@@ -11,6 +11,7 @@ pub mod factory;
 pub mod notee;
 pub mod oauth;
 pub mod types;
+pub mod vocab;
 pub mod workspace;
 
 pub use client::{Client, user_agent};
