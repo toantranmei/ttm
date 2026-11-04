@@ -38,6 +38,19 @@ pub fn check_requires(job: &JobSpec, features: &[String]) -> Result<(), Refused>
     }
 }
 
+/// Refuses a teammate's job when this runner cannot isolate it (no Claude token saved for team jobs): it would run
+/// with this machine's own Claude settings, hooks, plugins and skills.
+pub fn check_team_isolation(job: &JobSpec, isolated: bool) -> Result<(), Refused> {
+    if job.team_job && !isolated {
+        Err(refuse(
+            UNSUPPORTED_FEATURE,
+            "team_isolation: this runner cannot isolate a teammate's job; save a token with `ttm runner config claude-token`",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 /// `https://user@GitHub.com/a/b.git/`, `git@github.com:a/b.git`, `ssh://git@github.com/a/b` → `github.com/a/b`.
 pub fn normalize_url(url: &str) -> String {
     let mut u = url.trim().to_string();
@@ -358,6 +371,20 @@ mod tests {
             check(&other, Some(&repo), none).unwrap_err().code,
             REPO_NOT_CONFIGURED
         );
+    }
+
+    #[test]
+    fn team_jobs_need_isolation() {
+        let mut job: JobSpec = serde_json::from_value(serde_json::json!({
+            "run_id": "r", "task_key": "A-1", "branch": "a-1", "prompt": "p", "team_job": true
+        }))
+        .unwrap();
+        let err = check_team_isolation(&job, false).unwrap_err();
+        assert_eq!(err.code, UNSUPPORTED_FEATURE);
+        assert!(err.message.starts_with("team_isolation"));
+        assert!(check_team_isolation(&job, true).is_ok());
+        job.team_job = false;
+        assert!(check_team_isolation(&job, false).is_ok());
     }
 
     #[test]

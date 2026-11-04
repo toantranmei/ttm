@@ -204,6 +204,9 @@ impl Executor {
         if let Err(refused) = guard::check_requires(job, &self.features()) {
             return Err(self.refuse(job, refused));
         }
+        if let Err(refused) = guard::check_team_isolation(job, self.team_claude_token.is_some()) {
+            return Err(self.refuse(job, refused));
+        }
         // Only the owner's configured clone, and only when it is the job's repository; never clone a URL.
         let repo = guard::check(
             job,
