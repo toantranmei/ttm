@@ -1,5 +1,6 @@
 # Release pipeline driven by cargo-dist. Push a tag `v0.1.0` to publish a GitHub Release with archives, checksums,
-# attestations, shell/PowerShell/MSI installers, the Homebrew formulae and the npm packages.
+# attestations, shell/PowerShell/MSI installers, the Claude Desktop bundles (`.mcpb`), the Homebrew formulae and the
+# npm packages.
 #
 # Kept close to what `dist generate` writes for cargo-dist 0.34; regenerate it after changing dist-workspace.toml.
 name: Release
@@ -142,8 +143,35 @@ jobs:
             ${{ steps.cargo-dist.outputs.paths }}
             ${{ env.BUILD_MANIFEST_NAME }}
 
+  # Claude Desktop bundles (`ttm-mcp-<os>.mcpb`) from the ttm-mcp archives built above (not part of dist). On macOS for
+  # `lipo` (universal darwin bundle). A failure here does not hold the release back: `host` uploads what exists.
+  build-mcpb:
+    needs: [plan, build-local-artifacts]
+    if: ${{ needs.plan.outputs.publishing == 'true' && needs.build-local-artifacts.result == 'success' }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch local artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-build-local-*
+          path: target/distrib/
+          merge-multiple: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Pack the bundles
+        shell: bash
+        run: |
+          tag="${{ needs.plan.outputs.tag }}"
+          mcpb/pack.sh "${tag#v}" target/distrib target/mcpb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcpb-bundles
+          path: target/mcpb/*
+
   host:
-    needs: [plan, build-local-artifacts, build-global-artifacts]
+    needs: [plan, build-local-artifacts, build-global-artifacts, build-mcpb]
     if: ${{ always() && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -183,6 +211,12 @@ jobs:
           pattern: artifacts-*
           path: artifacts
           merge-multiple: true
+      - name: Download the Claude Desktop bundles
+        if: ${{ needs.build-mcpb.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: mcpb-bundles
+          path: artifacts
       - name: Cleanup
         run: rm -f artifacts/*-dist-manifest.json
       - name: Create GitHub Release
