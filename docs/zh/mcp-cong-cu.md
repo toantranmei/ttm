@@ -6,7 +6,7 @@ section: reference
 ---
 
 本页同时适用于 `ttm-mcp`（stdio）和远程 MCP `https://toantranmei.com/api/v1/mcp`：工具名、参数和结果都相同。
-版本 **0.1.6**：3 个组共 26 个工具，以及 1 个 resource。
+版本 **0.2.0**：4 个组（`workspace`、`notee`、`factory`、`admin`）共 52 个工具，以及 1 个 resource。
 
 ## 约定
 
@@ -42,6 +42,30 @@ section: reference
 
 401 错误会附带提示 ``Sign in again with `ttm login`.``
 
+### 输出（0.2.0）
+
+- 每个工具都声明 **`outputSchema`**（`structuredContent` 的 JSON Schema），且 `structuredContent` **始终是对象**。
+- **破坏性变更（0.2.0）：** 以前可能返回数组（服务器原始值）的工具，现在包装为 `{"items": [...], "next_cursor"?: "..."}`；
+  新的列表类工具始终返回 `{items}`。原本就返回对象的工具保留原有键（`workspaces`、`users`、`results`、`threads`、`pages`、
+  `suggestions`）。读取顶层数组的 client 需要改为读取 `items`。
+- 文本是**同一种格式**的 Markdown，与 `ttm` CLI 一致：第一行加粗并带符号（`**✓ AUR-12 moved to Review**`），然后是表格或
+  `- **键:** 值` 列表，最后一行 `**Next:**` 给出下一步应调用的工具及原因。超过 200 个字符的表格单元以 `…` 截断。
+  `notee-fetch` 仍原样返回页面内容。
+- 状态符号：`○` todo、`●` 进行中、`◐` 审核/等待、`✓` 完成、`✕` 失败/被阻止、`⏸` 暂停（表格见[命令行界面](giao-dien.md)）。
+  徽章：`🤖` agent、`👤` 人、`✦ Mei-er`、`✦✦ Sponsor`、`· Supporter`。
+
+例如 `factory-agent-list` 的 Markdown：
+
+```markdown
+**🤖 1 agent(s)**
+
+| Agent | Handle | Role | Model | Skills | MCP | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 🤖 DEV · Code ✦✦ Sponsor | @dev | DEV | sonnet | ttm-tdd, ttm-pr ◐ | local:github-local | active |
+
+**Next:** `factory-agent-get` — one agent's profile
+```
+
 ## Resource
 
 | URI | 名称 | 类型 | 内容 |
@@ -68,6 +92,10 @@ section: reference
 ```
 
 当前工作区 = profile 的工作区（`ttm workspace switch`），或 token 被限定的工作区（远程 MCP），否则为个人工作区。
+
+从 0.2.0 起，当用户是 Mei-er 会员时结果还包含 `membership: {tier, since, until}`（`tier` = `supporter`、`mei-er`、
+`sponsor`），否则为 `null` 或不存在。`workspace-get-users`、`notee-get-comments` 和任务中的人带有 `membership: {tier}`；
+agent 带有 `owner_membership: {tier}`（工作区所有者的徽章）。Markdown 在名字旁加上 `✦`/`✦✦`/`·`。
 
 ### workspace-list
 
@@ -471,3 +499,128 @@ Markdown。
 
 结果：`{granted, expires_at, held_by, paths}`。区域正被其他 run 持有时：`granted: false`，`held_by` 指明持有者；
 请先做别的事，或等待后再次调用。
+
+---
+
+## factory 组：只读工具（0.2.0）
+
+属于 `factory` 组，只读（`readOnlyHint: true`）。Scope `factory:read`（`factory-inbox`：`workspace:read`）。
+不传 `project` → 本次运行的项目（`TTM_PROJECT`）；不传 `workspace_id` → 当前工作区。
+
+| 工具 | 作用 | 主要参数 |
+| --- | --- | --- |
+| `factory-workflow-get` | 项目的 workflow（或按 id）：状态及其类别、角色、自动分配；转换及其条件 | `workflow_id?`、`project?`、`version?`（版本号或 `draft`） |
+| `factory-workflow-validate` | 检查 workflow 定义（默认草稿），列出每个问题及其 `field` 和 `code` | `workflow_id?`、`project?`、`definition?` |
+| `factory-workflow-simulate` | 模拟任务经过各状态：每步是否允许、阻止的规则、审批关口、会触发的自动化规则 | `task`、`to`（状态数组）、`project?`、`workflow_id?`、`version?`、`roles?` |
+| `factory-workflow-upgrade-preview` | 将项目升级到新 workflow 版本会改变什么：差异以及任务移到哪里 | `project?`、`to?` |
+| `factory-automation-list` | 项目的自动化规则（当 … 如果 … 则 …）以及哪些已启用 | `project?` |
+| `factory-automation-get` | 一条规则：触发、条件、动作 | `rule`（id、slug 或名称）、`project?` |
+| `factory-automation-test` | 在某任务上试运行规则：是否匹配、每个动作会做什么。不做任何修改 | `rule`、`task`、`project?` |
+| `factory-agent-list` | 工作区的 agent：handle、角色、模型、技能（◐ = 待审核）、MCP、状态 | `workspace_id?` |
+| `factory-agent-get` | 一个 agent：资料、git 身份、技能、MCP | `agent`（handle、`@handle`、名称或 id）、`workspace_id?` |
+| `factory-skill-list` | 工作区的技能（`builtin: true` 时含内置技能）：生效版本、待审核版本 | `workspace_id?`、`query?`、`tag?`、`builtin?` |
+| `factory-skill-get` | 一个技能：各版本及审核状态，以及生效版本（或指定版本）的 `SKILL.md` | `skill`（slug 或 id）、`version?`、`workspace_id?` |
+| `factory-template-search` | 搜索公共模板库 | `kind?`（`workflow`、`agent`、`skill`、`rule_pack`、`bundle`，逗号分隔）、`query?` |
+| `factory-template-install-preview` | 安装模板会创建什么（状态、规则、agent、技能、"运行代码"标记）、是否需要购买 | `item`、`workspace_id?`、`version?` |
+| `factory-inbox` | 通知（收件箱） | `kind?`（`factory`、`mention`、`comment`…）、`unread?`、`since?`（RFC 3339） |
+
+列表类工具返回 `{items}`；单个对象的工具返回服务器的对象。工具错误：`no_project`、`no_workspace`、`no_workflow`（项目没有 v2
+workflow）、`unsupported_feature`（服务器没有该功能）。
+
+## admin 组：两步确认的配置修改
+
+`admin` 组让**人**从 Claude 或 ChatGPT 修改 Factory 配置。Scope **`factory:admin`**（`factory-task-approve`：`factory:write`）；
+服务器仍会检查工作区的 owner/admin 角色。正在运行任务的 agent **永远**看不到这个组（见下文）。
+
+该组的工具都不会直接生效。每个工具：
+
+1. 调用预览接口（差异、预览、校验）并生成摘要。
+2. 把修改登记为一个**确认**（`POST /api/v1/confirmations`），返回 `confirm_id`、过期时间、摘要和预览。
+3. 模型把摘要展示给用户，**只有用户同意后**才用该 `confirm_id` 调用 `factory-confirm`。
+
+| 工具 | 作用 | 主要参数 |
+| --- | --- | --- |
+| `factory-workflow-draft-update` | 替换 workflow 草稿（完整定义） | `definition`、`workflow_id?`、`project?`、`name?` |
+| `factory-workflow-publish` | 把草稿发布为新版本 | `note`（≤ 280）、`workflow_id?`、`project?` |
+| `factory-workflow-upgrade` | 将项目升级到新 workflow 版本（附任务迁移表） | `project?`、`to?` |
+| `factory-automation-draft` | 新建或修改自动化规则 | `rule?`（省略 = 新建）、`project?`、`name`、`trigger`、`conditions?`、`actions` |
+| `factory-automation-set-enabled` | 启用或停用规则 | `rule`、`enabled`、`project?` |
+| `factory-agent-draft` | 新建或修改 agent（资料、git 身份、预算、MCP） | `agent?`（省略 = 新建）、`workspace_id?`、`preset?`、`name?`、`handle?`、`role?`、`model?`、`bio?`、`git_name?`、`git_email?`、`instructions?`、`max_budget_tokens?`、`daily_budget_tokens?`、`max_turns?`、`mcp?` |
+| `factory-agent-set-status` | 暂停、恢复或归档 agent | `agent`、`status`（`active`、`paused`、`archived`）、`workspace_id?` |
+| `factory-skill-review` | 批准或拒绝某个技能版本 | `skill`、`version`、`decision`（`approve`、`reject`）、`note?`（拒绝时必填）、`workspace_id?` |
+| `factory-template-install` | 把模板安装到工作区 | `item`、`workspace_id?`、`version?`、`inputs?`、`agents?`（`<preset>`：`new`、`reuse:<agent_id>`、`skip`） |
+| `factory-task-approve` | 批准或拒绝任务的人工关口 | `task`、`decision`（`approve`、`reject`）、`note?` |
+| `factory-confirm` | 应用已登记的修改 | `confirm_id` |
+| `factory-confirm-cancel` | 取消已登记的修改（用户拒绝） | `confirm_id` |
+
+`factory-agent-draft` 不挂载技能（请用 `ttm agent skills add`）。
+
+admin 工具（第 1–2 步）的结果：
+
+```json
+{
+  "confirm_id": "0193…",
+  "expires_at": "2026-11-05T10:10:00Z",
+  "summary": "Publish Aurora workflow v4",
+  "preview": { "diff": { "states": { "added": [{ "id": "qc", "name": "QC" }] } } },
+  "action": { "method": "POST", "path": "/factory/workflows/0190…/publish" },
+  "status": "pending"
+}
+```
+
+```markdown
+**! Confirm: Publish Aurora workflow v4**
+
+| Change | Item |
+| --- | --- |
+| + | state QC |
+
+- **confirm_id:** 0193…
+- **expires:** 2026-11-05T10:10:00Z
+
+**Next:** `factory-confirm` — with confirm_id `0193…` only after the user agrees (expires in 10 minutes); `factory-confirm-cancel` to drop it
+```
+
+### 两步确认
+
+- 确认在 **10 分钟后过期**，且**只能执行一次**。只有创建者能应用或取消。
+- `factory-confirm` 调用 `POST /confirmations/{id}/apply`：服务器以调用者自己的授权原样重放登记的请求（scope、权限、限额检查
+  如同普通请求一样重新执行），并原样返回该操作的状态码和响应体。
+- 带有 **`X-Confirmation: applied`** 头的响应是**操作本身**的响应：此时的错误属于操作（例如 409 `draft-stale`、
+  `upgrade-preview-stale`、400 `issues`），且该确认已被用掉。没有该头的错误属于**确认步骤**。
+- 成功：Markdown `**✓ …**`，`structuredContent: {confirm_id, status: "applied", result}`。取消：`status: "cancelled"`。
+- 仅当服务器在 discovery 中列出 `confirmations` 功能时才使用；否则返回 `unsupported_feature`，不调用 `/confirmations`。
+
+| 代码 | 何时 | 怎么做 |
+| --- | --- | --- |
+| `confirm_expired`（410） | 超过 10 分钟 | 重新运行 admin 工具 |
+| `confirm_used`（409） | 已经应用过 | 需要新修改时重新运行 admin 工具 |
+| `confirm_cancelled`（409） | 已取消 | 重新运行 admin 工具 |
+| `confirm_tampered`（409） | 登记的请求不一致 | 重新运行 admin 工具 |
+| `not_found`（404） | 不存在或属于他人 | 检查 `confirm_id` |
+| `not_confirmable`（400） | 该修改不能走确认流程 | |
+| `bearer_required`（403） | 用浏览器 cookie 调用 | 使用 token（ttm-mcp、远程 MCP） |
+| `job_token_not_allowed`（403） | 任务（正在运行的 agent）的 token | 由用户自己操作 |
+| `token_not_allowed`、`insufficient_scope`（403） | 目标路由不对 token 开放 / token 缺少 `factory:admin` | 在网页上操作 / 重新 `ttm login` |
+| `payload_too_large`（413） | body > 256 KiB 或 preview > 64 KiB | 发送更小的修改 |
+| `rate_limited`（429） | 每分钟超过 30 个确认 | 稍后重试 |
+
+对于 `confirm_expired`、`confirm_used`、`confirm_cancelled`、`confirm_tampered`、`draft-stale`、`upgrade-preview-stale`、`stale`，
+结果带 `isError: true`，并有一行 `**Next:**` 建议重新运行 admin 工具以获得新的确认。
+
+### Elicitation（仅 `ttm-mcp` stdio）
+
+当 client 声明 `capabilities.elicitation`（表单模式）时，`ttm-mcp` 在第 2 步后立即询问用户（`elicitation/create`，消息 = 摘要，
+schema `{confirm: boolean}`）：**同意** → 应用并返回结果；**拒绝/取消** → 取消该确认并返回 `status: "cancelled"`。不支持该能力的
+client 照常拿到 `confirm_id`。远程 MCP 无法反向询问（不保存会话），因此总是返回 `confirm_id`。
+
+## 运行任务的 agent 能看到什么
+
+运行中的 agent（设置了 `TTM_RUN_ID`，或在远程 MCP 上使用任务 token）**永远**不会获得 `admin` 组：即使传了 `--toolsets`，
+`ttm-mcp` 也会去掉 `admin`（并记录警告），服务器只给任务 token `factory,notee` 组。在 `factory` 组中，任务只能看到 8 个运行工具
+（`factory-get-task`、`factory-get-context`、`factory-report-progress`、`factory-request-approval`、`factory-create-subtasks`、
+`factory-attach-artifact`、`factory-get-rules`、`factory-renew-lease`）以及 `factory-workflow-get`、`factory-skill-get`、
+`factory-automation-list`。调用其他工具会得到"未知工具"错误。
+
+服务器发给 client 的说明新增一句：*Configuration changes always return a preview and a confirm_id; call factory-confirm only
+after the user agrees.*

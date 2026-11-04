@@ -224,7 +224,7 @@ Usage: ttm-mcp [OPTIONS]
 | --- | --- | --- |
 | `--host <URL>` | `TTM_HOST` | Server |
 | `--profile <NAME>` | `TTM_PROFILE` | Profile in `config.toml` |
-| `--toolsets <LIST>` | `TTM_TOOLSETS` | Comma-separated toolsets to enable: `notee`, `factory`. `workspace` is always on. Unset = all. |
+| `--toolsets <LIST>` | `TTM_TOOLSETS` | Comma-separated toolsets to enable: `notee`, `factory`, `admin`. `workspace` is always on. Unset = all. Inside a run (`TTM_RUN_ID`) `admin` is always removed. |
 | `-v`, `-vv` | `TTM_LOG` | Log to stderr |
 | `-V`, `--version` | | Print the version |
 
@@ -237,7 +237,8 @@ unreachable, it uses the default endpoint `<host>/api/v1`.
 | --- | --- | --- |
 | `workspace` (always on) | `workspace-get-self`, `workspace-list`, `workspace-get-users` | `workspace:read` |
 | `notee` (alias `notes`) | `notee-search`, `notee-fetch`, `notee-query-database`, `notee-get-comments`, `notee-create-pages`, `notee-update-page`, `notee-move-pages`, `notee-duplicate-page`, `notee-create-database`, `notee-update-database`, `notee-upsert-rows`, `notee-delete-rows`, `notee-create-comment`, `notee-get-suggestions`, `notee-resolve-suggestion`; resource `notee://spec/markdown` | `notee:read` / `notee:comment` / `notee:write` |
-| `factory` | `factory-get-task`, `factory-get-context`, `factory-report-progress`, `factory-request-approval`, `factory-create-subtasks`, `factory-attach-artifact`, `factory-get-rules`, `factory-renew-lease` | `factory:read` / `factory:run` |
+| `factory` | The 8 run tools (`factory-get-task`, `factory-get-context`, `factory-report-progress`, `factory-request-approval`, `factory-create-subtasks`, `factory-attach-artifact`, `factory-get-rules`, `factory-renew-lease`) + the 0.2.0 read tools (`factory-workflow-*`, `factory-automation-list/get/test`, `factory-agent-list/get`, `factory-skill-list/get`, `factory-template-search`, `factory-template-install-preview`, `factory-inbox`) | `factory:read` / `factory:run` |
+| `admin` | Configuration tools with two-step confirmation (`factory-workflow-draft-update`, `factory-workflow-publish`, `factory-workflow-upgrade`, `factory-automation-draft`, `factory-automation-set-enabled`, `factory-agent-draft`, `factory-agent-set-status`, `factory-skill-review`, `factory-template-install`, `factory-task-approve`, `factory-confirm`, `factory-confirm-cancel`). Never inside an agent run | `factory:admin` (`factory-task-approve`: `factory:write`) |
 
 ```sh
 ttm-mcp --toolsets notee            # workspace + notee
@@ -246,6 +247,11 @@ ttm-mcp --toolsets ""               # workspace only
 
 Parameters, results and errors for each tool: [MCP tools](mcp-cong-cu.md). Fewer tools help the model pick the right
 one and use less context; enable `factory` mainly for agents running in a runner.
+
+`ttm mcp install --toolsets <LIST>` writes the same list into the client's configuration (for example
+`ttm mcp install --client claude-desktop --toolsets notee,factory,admin`). Leave `admin` out if you do not want to
+administer through MCP. Older tokens (signed in before 0.2.0) lack the `factory:admin` scope: admin tools return
+`insufficient_scope`; run `ttm login` again. See [MCP tools](mcp-cong-cu.md).
 
 The server introduces itself to the client as `ttm`, with the instructions: *Start with workspace-get-self to learn who
 the user is and which workspace is current.* The client app's name (for example `claude-code`) is recorded in the page
@@ -312,6 +318,12 @@ Tokens for remote apps last **1 hour**; an app gets a refresh token (90 days, ro
 
 Every tool call on the remote MCP goes through the same token, scope and permission checks as an API request. The remote
 MCP enables every toolset; Factory tools that need a run return `no_run` there.
+
+### Configuration changes through the remote MCP
+
+The remote MCP has the same `admin` toolset (user tokens with `factory:admin`). The remote server keeps no session, so it
+cannot ask back (elicitation): admin tools always return a `confirm_id`, and the model asks the user before calling
+`factory-confirm`. Job tokens only get the `factory,notee` toolsets.
 
 ## Limits
 

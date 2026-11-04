@@ -220,7 +220,7 @@ Usage: ttm-mcp [OPTIONS]
 | --- | --- | --- |
 | `--host <URL>` | `TTM_HOST` | 服务器 |
 | `--profile <NAME>` | `TTM_PROFILE` | `config.toml` 中的 profile |
-| `--toolsets <LIST>` | `TTM_TOOLSETS` | 启用的工具组，以逗号分隔：`notee`、`factory`。`workspace` 始终启用。不设置 = 全部。 |
+| `--toolsets <LIST>` | `TTM_TOOLSETS` | 启用的工具组，以逗号分隔：`notee`、`factory`、`admin`。`workspace` 始终启用。不设置 = 全部。在运行中（`TTM_RUN_ID`）总会去掉 `admin`。 |
 | `-v`、`-vv` | `TTM_LOG` | 日志输出到 stderr |
 | `-V`、`--version` | | 打印版本 |
 
@@ -233,7 +233,8 @@ Usage: ttm-mcp [OPTIONS]
 | --- | --- | --- |
 | `workspace`（始终启用） | `workspace-get-self`、`workspace-list`、`workspace-get-users` | `workspace:read` |
 | `notee`（别名 `notes`） | `notee-search`、`notee-fetch`、`notee-query-database`、`notee-get-comments`、`notee-create-pages`、`notee-update-page`、`notee-move-pages`、`notee-duplicate-page`、`notee-create-database`、`notee-update-database`、`notee-upsert-rows`、`notee-delete-rows`、`notee-create-comment`、`notee-get-suggestions`、`notee-resolve-suggestion`；resource `notee://spec/markdown` | `notee:read` / `notee:comment` / `notee:write` |
-| `factory` | `factory-get-task`、`factory-get-context`、`factory-report-progress`、`factory-request-approval`、`factory-create-subtasks`、`factory-attach-artifact`、`factory-get-rules`、`factory-renew-lease` | `factory:read` / `factory:run` |
+| `factory` | 8 个运行工具（`factory-get-task`、`factory-get-context`、`factory-report-progress`、`factory-request-approval`、`factory-create-subtasks`、`factory-attach-artifact`、`factory-get-rules`、`factory-renew-lease`）+ 0.2.0 只读工具（`factory-workflow-*`、`factory-automation-list/get/test`、`factory-agent-list/get`、`factory-skill-list/get`、`factory-template-search`、`factory-template-install-preview`、`factory-inbox`） | `factory:read` / `factory:run` |
+| `admin` | 两步确认的配置工具（`factory-workflow-draft-update`、`factory-workflow-publish`、`factory-workflow-upgrade`、`factory-automation-draft`、`factory-automation-set-enabled`、`factory-agent-draft`、`factory-agent-set-status`、`factory-skill-review`、`factory-template-install`、`factory-task-approve`、`factory-confirm`、`factory-confirm-cancel`）。agent 运行中永远不提供 | `factory:admin`（`factory-task-approve`：`factory:write`） |
 
 ```sh
 ttm-mcp --toolsets notee            # workspace + notee
@@ -242,6 +243,11 @@ ttm-mcp --toolsets ""               # 仅 workspace
 
 各工具的参数、结果和错误：[MCP 工具](mcp-cong-cu.md)。工具越少，模型越容易选对工具，占用的 context 也越少；`factory`
 主要为在 runner 中运行的 agent 启用。
+
+`ttm mcp install --toolsets <LIST>` 会把同样的列表写入 client 配置（例如
+`ttm mcp install --client claude-desktop --toolsets notee,factory,admin`）。不想通过 MCP 做管理就去掉 `admin`。旧 token
+（0.2.0 之前登录）缺少 `factory:admin` scope：admin 工具会返回 `insufficient_scope`，请重新 `ttm login`。参见
+[MCP 工具](mcp-cong-cu.md)。
 
 服务器向 client 介绍自己为 `ttm`，并附带说明：*Start with workspace-get-self to learn who the user is and which
 workspace is current.* 当工具修改页面时，client 应用的名称（例如 `claude-code`）会记录在页面历史中：“An (via
@@ -306,6 +312,11 @@ URL：**`https://toantranmei.com/api/v1/mcp`**（MCP Streamable HTTP，无会话
 
 远程 MCP 上的每次工具调用都会经过与 API 请求相同的 token、scope 和权限检查。远程 MCP 启用所有工具组；需要 run 的
 Factory 工具在这里返回 `no_run`。
+
+### 通过远程 MCP 修改配置
+
+远程 MCP 有相同的 `admin` 组（带 `factory:admin` 的用户 token）。远程服务器不保存会话，因此无法反向询问（elicitation）：admin
+工具总是返回 `confirm_id`，由模型询问用户后再调用 `factory-confirm`。任务 token 只有 `factory,notee` 组。
 
 ## 限制
 
