@@ -295,6 +295,8 @@ impl Executor {
             Some(0o600),
         )?;
         let mut env = git_env.clone();
+        // Lets `ttm hook pre-bash` know it runs inside a job (stricter rules).
+        env.push(("TTM_RUN_ID".into(), job.run_id.clone()));
         let mut team_dir = None;
         if job.team_job
             && let Some(token) = &self.team_claude_token
