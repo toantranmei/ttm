@@ -127,10 +127,11 @@ impl Executor {
             .base_branch
             .clone()
             .unwrap_or_else(|| ttm_core::worktree::default_branch(&repo));
-        let path = match &job.worktree_hint {
-            Some(hint) if Path::new(hint).is_absolute() => PathBuf::from(hint),
-            _ => worktree::worktree_path(&self.worktree_root, &key, &job.branch),
-        };
+        // Never a path from the server outside the configured root.
+        let path = guard::worktree_for(job, &self.worktree_root).inspect_err(|refused| {
+            tracing::error!("refusing run {} ({}): {refused}", job.run_id, job.task_key);
+            eprintln!("ttm runner: refused {}: {}", job.task_key, refused.message);
+        })?;
         let _ = events.send(RunEvent::now(
             "log",
             format!("worktree {} on {} from {base}", path.display(), job.branch),

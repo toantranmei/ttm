@@ -11,6 +11,8 @@ use ttm_api::factory::JobSpec;
 pub const REPO_NOT_CONFIGURED: &str = "repo_not_configured";
 /// Error code reported when the branch name is not a valid git branch.
 pub const INVALID_BRANCH: &str = "invalid_branch";
+/// Error code reported when the job's `worktree_hint` would put the worktree outside the runner's `worktree_root`.
+pub const INVALID_WORKTREE: &str = "invalid_worktree";
 
 /// `https://user@GitHub.com/a/b.git/`, `git@github.com:a/b.git`, `ssh://git@github.com/a/b` → `github.com/a/b`.
 pub fn normalize_url(url: &str) -> String {
@@ -146,6 +148,64 @@ pub fn check(
     }
 }
 
+/// Where the job's worktree goes. `worktree_hint` is only a suggestion relative to the runner's `root`
+/// (`<project key>/<branch>`): an absolute path, a drive or root prefix, or a `..` step is refused, and so is a hint
+/// whose existing part leads outside `root` through a symlink. Without a hint the runner picks
+/// `<root>/<project key>/<branch>`.
+pub fn worktree_for(job: &JobSpec, root: &Path) -> Result<PathBuf, Refused> {
+    use std::path::Component;
+    let Some(hint) = job
+        .worktree_hint
+        .as_deref()
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+    else {
+        return Ok(crate::worktree::worktree_path(
+            root,
+            &job.project_key(),
+            &job.branch,
+        ));
+    };
+    let bad = |why: &str| {
+        refuse(
+            INVALID_WORKTREE,
+            format!(
+                "the job's worktree_hint `{hint}` {why}; worktrees stay under the runner's worktree_root {}",
+                root.display()
+            ),
+        )
+    };
+    // `\` separates on Windows only; refuse it everywhere so a hint means the same on every runner.
+    if hint.contains('\\') || hint.contains(':') {
+        return Err(bad("contains `\\` or `:`"));
+    }
+    let mut path = root.to_path_buf();
+    let mut depth = 0;
+    for part in Path::new(hint).components() {
+        match part {
+            Component::Normal(name) => {
+                path.push(name);
+                depth += 1;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => return Err(bad("goes up with `..`")),
+            Component::RootDir | Component::Prefix(_) => return Err(bad("is an absolute path")),
+        }
+    }
+    if depth == 0 {
+        return Err(bad("names no directory"));
+    }
+    // A symlink inside the root must not lead elsewhere: compare the deepest existing ancestor.
+    let canon = |p: &Path| std::fs::canonicalize(p).ok();
+    if let Some(real_root) = canon(root) {
+        let existing = path.ancestors().find(|p| p.exists()).and_then(canon);
+        if existing.is_some_and(|real| !real.starts_with(&real_root)) {
+            return Err(bad("leads outside it through a symlink"));
+        }
+    }
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +278,48 @@ mod tests {
             .code,
             INVALID_BRANCH
         );
+    }
+
+    #[test]
+    fn worktree_hint_stays_under_the_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("worktrees");
+        std::fs::create_dir_all(&root).unwrap();
+        let with_hint = |hint: Option<&str>| {
+            let mut j = job(Some("https://github.com/a/b"), "github", "ttm/aur-1-login");
+            j.worktree_hint = hint.map(str::to_owned);
+            worktree_for(&j, &root)
+        };
+        assert_eq!(
+            with_hint(Some("aur/aur-1-login")).unwrap(),
+            root.join("aur").join("aur-1-login")
+        );
+        assert_eq!(with_hint(Some("./aur/x")).unwrap(), root.join("aur").join("x"));
+        assert_eq!(with_hint(None).unwrap(), root.join("AUR").join("ttm-aur-1-login"));
+        assert_eq!(
+            with_hint(Some("  ")).unwrap(),
+            root.join("AUR").join("ttm-aur-1-login")
+        );
+        for bad in [
+            "/etc/x",
+            "../outside",
+            "aur/../../x",
+            r"C:\x",
+            r"aur\..\x",
+            ".",
+            "~/../x/..",
+        ] {
+            let err = with_hint(Some(bad)).unwrap_err();
+            assert_eq!(err.code, INVALID_WORKTREE, "{bad}");
+            assert!(err.message.contains("worktree_root"), "{}", err.message);
+        }
+        #[cfg(unix)]
+        {
+            let outside = dir.path().join("elsewhere");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+            assert_eq!(with_hint(Some("link/x")).unwrap_err().code, INVALID_WORKTREE);
+        }
     }
 
     #[test]
