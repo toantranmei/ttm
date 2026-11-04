@@ -1,6 +1,9 @@
 //! Harness adapters: how a coding agent is started and how its output becomes run events.
 
 pub mod claude_code;
+/// Scripted fake harness for the end-to-end simulation; only with the `sim-harness` feature (never in releases).
+#[cfg(feature = "sim-harness")]
+pub mod sim;
 
 use async_trait::async_trait;
 use std::path::Path;
@@ -53,16 +56,26 @@ pub trait Harness: Send + Sync {
 
 /// Every harness this build knows.
 pub fn all() -> Vec<Box<dyn Harness>> {
-    vec![Box::new(claude_code::ClaudeCode::default())]
+    #[cfg_attr(not(feature = "sim-harness"), allow(unused_mut))]
+    let mut out: Vec<Box<dyn Harness>> = vec![Box::new(claude_code::ClaudeCode::default())];
+    #[cfg(feature = "sim-harness")]
+    out.push(Box::new(sim::SimHarness::default()));
+    out
 }
 
-/// Names of the installed harnesses.
+/// Names of the installed harnesses. A simulation build whose `ttm-sim` is set up announces only `ttm-sim`, so the
+/// server never routes a simulated job to a real agent on the same machine.
 pub fn installed() -> Vec<String> {
-    all()
+    let names: Vec<String> = all()
         .into_iter()
         .filter(|h| h.available())
         .map(|h| h.name().to_string())
-        .collect()
+        .collect();
+    #[cfg(feature = "sim-harness")]
+    if names.iter().any(|n| n == sim::NAME) {
+        return vec![sim::NAME.to_string()];
+    }
+    names
 }
 
 pub fn by_name(name: &str) -> Option<Box<dyn Harness>> {
