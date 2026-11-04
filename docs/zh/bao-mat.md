@@ -74,6 +74,29 @@ section: more
   沙箱：只为你信任的项目运行 runner，合并前审查 pull request，并考虑使用单独的操作系统
   账户或在虚拟机中运行 runner。
 - Kill switch：网页上的停止按钮或 `ttm agent stop <run>`；runner 会在 ≤ 20 秒内收到指令。
+- **提交中没有 Claude/Anthropic 行**：每个作业的 git 都经过该 run 专用的 `commit-msg` hook，它会删除 `Co-Authored-By: Claude…`、
+  `Generated with Claude…`、`noreply@anthropic.com` 等行；Claude Code 运行时关闭提交和 PR 中的署名。agent 的提交使用 agent 自己的
+  名字和邮箱（不是你的，也不是 Anthropic 的）。
+- **只使用在网页上审核过的 skill**，通过 10 分钟有效的签名 URL 下载，按 SHA-256 校验（不一致则拒绝作业），安全解压，从不提交
+  （`info/exclude`），run 结束后删除。
+- **本地 MCP 默认关闭**：只有 `allow` 中的 agent 可用，别人的作业仅在 `team_jobs = true` 时可用。服务器只知道名称、`allow` 和
+  `team_jobs`；命令、参数和环境变量（通过 `env:VAR` 的密钥）不离开本机。
+- **同事的作业看不到你的 Claude 配置**（`--setting-sources project,local`，用 `ttm runner config claude-token` 保存 token 后还会使用
+  空的 `CLAUDE_CONFIG_DIR`）。
+
+## MCP 服务器与密钥
+
+远程 MCP 服务器的密钥（OAuth token、密钥 header）**加密保存在服务器上**，只在服务器的 MCP 网关中使用。agent 用作业 token 调用网关；
+密钥永远不会到达 runner 所在机器，也不会进入 prompt。用 `ttm mcp-server add` 添加服务器时，密钥只能通过 `--secret-env 变量名` 或在
+终端中隐藏输入，绝不作为标志值（避免进入 shell 历史）。
+
+## 通过 MCP 管理：两步确认
+
+- 管理工具（修改工作流、自动化、agent，审核 skill，安装模板，批准任务的人工关卡）需要 `factory:admin` scope，位于 `admin` 工具组。
+- **运行作业的 agent 永远拿不到这些工具**：作业 token 没有 `factory:admin`，设置了 `TTM_RUN_ID` 时 `ttm-mcp` 去掉 `admin` 工具组，服务器
+  在所有确认端点拒绝作业 token（`job_token_not_allowed`）。
+- 每个管理工具只**预览并创建一个确认**（`confirm_id`，10 分钟有效）；只有你同意且客户端调用 `factory-confirm` 后才会生效。服务器
+  以你自己的权限原样重放预览过的请求，每个确认只执行一次，确认后被改动的请求会被拒绝（`confirm_tampered`）。
 
 ## 安全更新
 

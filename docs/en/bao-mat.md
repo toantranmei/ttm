@@ -84,6 +84,33 @@ toantranmei.com.
   a sandbox: run runners only for projects you trust, review pull requests before merging, and consider running the
   runner under a separate OS account or in a virtual machine.
 - Kill switch: the stop button on the web or `ttm agent stop <run>`; the runner picks up the command within ≤ 20 seconds.
+- **No Claude/Anthropic lines in commits**: every job runs git through the run's own `commit-msg` hook, which removes
+  `Co-Authored-By: Claude…`, `Generated with Claude…` and `noreply@anthropic.com` lines; Claude Code runs with commit and
+  PR attribution turned off. Agent commits carry the agent's own name and email (not yours, not Anthropic's).
+- **Only skills reviewed on the web**, downloaded from a signed URL valid 10 minutes, checked by SHA-256 (a mismatch
+  refuses the job), unpacked safely, never committed (`info/exclude`) and removed after the run.
+- **Local MCP is off by default**: only agents listed in `allow` may use it, someone else's jobs only with
+  `team_jobs = true`. The server only learns names, `allow` and `team_jobs`; commands, arguments and environment (secrets
+  through `env:VAR`) never leave the machine.
+- **Teammates' jobs don't see your Claude setup** (`--setting-sources project,local`, plus an empty `CLAUDE_CONFIG_DIR`
+  once a token is saved with `ttm runner config claude-token`).
+
+## MCP servers and secrets
+
+Secrets of remote MCP servers (OAuth tokens, secret headers) are stored **encrypted on the server** and only used by the
+server's MCP gateway. Agents call the gateway with the job token; secrets never reach the runner machine or a prompt.
+When adding a server with `ttm mcp-server add`, a secret only goes through `--secret-env VAR_NAME` or hidden typing in a
+terminal, never as a flag value (so it never lands in your shell history).
+
+## Administration over MCP: two-step confirmations
+
+- Admin tools (editing workflows, Automation, agents, reviewing skills, installing templates, approving a task's human
+  gate) need the `factory:admin` scope and live in the `admin` toolset.
+- **An agent running a job never gets them**: job tokens have no `factory:admin`, `ttm-mcp` drops the `admin` toolset
+  when `TTM_RUN_ID` is set, and the server refuses job tokens on every confirmation endpoint (`job_token_not_allowed`).
+- Each admin tool only **previews and creates a confirmation** (`confirm_id`, valid 10 minutes); the change applies only
+  when you agree and the client calls `factory-confirm`. The server replays exactly the previewed request with your own
+  permissions, each confirmation runs once, and a request changed after confirmation is refused (`confirm_tampered`).
 
 ## Safe updates
 
