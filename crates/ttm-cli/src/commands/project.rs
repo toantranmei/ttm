@@ -72,7 +72,7 @@ pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
                 })
                 .await?;
             let linked = link(&app, &client, &root, &project).await?;
-            emit(app.json, &linked.file, || {
+            emit(&app, &linked.file, |_ui| {
                 println!(
                     "Created project {} ({}) and linked {}.",
                     project.key,
@@ -91,7 +91,7 @@ pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
             let found = client.project(&found.id).await.unwrap_or(found);
             let root = repo_root()?;
             let linked = link(&app, &client, &root, &found).await?;
-            emit(app.json, &linked.file, || {
+            emit(&app, &linked.file, |_ui| {
                 println!(
                     "Linked {} to {} ({}), plan rev {}.",
                     root.display(),
@@ -108,11 +108,11 @@ pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
             let linked = linked()?;
             let url = format!("{}/factory?project={}", linked.file.host, linked.file.project_id);
             open_browser(&url, false);
-            emit(app.json, &serde_json::json!({ "url": url }), || {});
+            emit(&app, &serde_json::json!({ "url": url }), |_ui| {});
         }
         ProjectCommand::Status => {
             let linked = linked()?;
-            emit(app.json, &linked.file, || {
+            emit(&app, &linked.file, |_ui| {
                 println!("project: {} ({})", linked.file.key, linked.file.project_id);
                 println!("host:    {}", linked.file.host);
                 println!("rev:     {}", linked.file.synced_rev);

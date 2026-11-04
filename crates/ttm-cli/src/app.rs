@@ -4,10 +4,16 @@ use anyhow::{Context as _, Result, anyhow};
 use time::OffsetDateTime;
 use ttm_api::{Client, TokenResponse};
 use ttm_core::{Context, Discovery, Overrides, StoredToken, TokenSource};
+use ttm_ui::Ui;
 
 pub struct App {
     pub ctx: Context,
     pub json: bool,
+    /// Everything printed for people goes through here.
+    pub ui: Ui,
+    /// `-y/--yes`: confirm and take defaults without asking.
+    #[allow(dead_code)] // read by the wizard commands
+    pub yes: bool,
     /// `--host` was given explicitly (login then remembers it in the profile).
     pub host_flag: bool,
     /// `--profile` was given explicitly.
@@ -15,7 +21,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn load(global: &crate::cli::GlobalArgs) -> Result<Self> {
+    pub fn load(global: &crate::cli::GlobalArgs, ui: Ui) -> Result<Self> {
         let overrides = Overrides {
             host: global.host.clone(),
             profile: global.profile.clone(),
@@ -24,9 +30,17 @@ impl App {
         Ok(Self {
             ctx,
             json: global.json,
+            ui,
+            yes: global.yes,
             host_flag: global.host.is_some() || std::env::var_os("TTM_HOST").is_some(),
             profile_flag: global.profile.is_some(),
         })
+    }
+
+    /// A wizard for this command: questions only at a terminal, `--yes` takes the defaults.
+    #[allow(dead_code)] // used by the wizard commands
+    pub fn wizard(&self) -> ttm_ui::Wizard<'_> {
+        ttm_ui::Wizard::new(&self.ui, self.yes)
     }
 
     pub fn host(&self) -> &str {

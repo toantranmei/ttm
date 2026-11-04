@@ -2974,6 +2974,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "directories",
+ "insta",
  "open",
  "rand",
  "reqwest",
@@ -2991,6 +2992,7 @@ dependencies = [
  "ttm-api",
  "ttm-core",
  "ttm-runner",
+ "ttm-ui",
  "url",
  "wiremock",
 ]

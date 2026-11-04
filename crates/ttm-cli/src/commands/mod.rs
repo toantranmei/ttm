@@ -23,14 +23,14 @@ use crate::cli::{Cli, Command};
 use anyhow::Result;
 use std::process::ExitCode;
 
-pub async fn run(cli: Cli) -> Result<ExitCode> {
+pub async fn run(cli: Cli, ui: ttm_ui::Ui) -> Result<ExitCode> {
     // Needs no configuration, so it works even with a broken config file.
     if let Command::Completion { shell } = cli.command {
         let mut command = <Cli as clap::CommandFactory>::command();
         clap_complete::generate(shell, &mut command, "ttm", &mut std::io::stdout());
         return Ok(ExitCode::SUCCESS);
     }
-    let app = App::load(&cli.global)?;
+    let app = App::load(&cli.global, ui)?;
     match cli.command {
         Command::Login(args) => login::run(app, args).await,
         Command::Logout => logout::run(app).await,

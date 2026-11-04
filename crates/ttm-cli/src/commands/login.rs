@@ -75,7 +75,7 @@ pub async fn run(mut app: App, args: LoginArgs) -> Result<ExitCode> {
         stored_in,
         user: me.map(|m| m.user),
     };
-    emit(app.json, &out, || {
+    emit(&app, &out, |_ui| {
         match &out.user {
             Some(user) => println!("Signed in to {host} as {} <{}>.", user.name, user.email),
             None => println!("Token saved for {host}."),

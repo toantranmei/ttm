@@ -67,7 +67,7 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
         local_changes.is_empty() && server_changes.is_empty() && bundle.rev == linked.file.synced_rev;
 
     if args.check {
-        emit(app.json, &out, || print_check(&out));
+        emit(&app, &out, |_ui| print_check(&out));
         return Ok(if out.in_sync {
             ExitCode::SUCCESS
         } else {
@@ -108,7 +108,7 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
             ChangeRequestOutcome::Conflicts(conflicts) => {
                 if !args.resolve {
                     out.conflicts = conflicts;
-                    emit(app.json, &out, || {
+                    emit(&app, &out, |_ui| {
                         eprintln!("Conflicts with the server (both sides changed the same fields):");
                         for c in &out.conflicts {
                             eprintln!(
@@ -148,7 +148,7 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
     linked.file.synced_rev = bundle.rev;
     linked.save()?;
 
-    emit(app.json, &out, || {
+    emit(&app, &out, |_ui| {
         println!(
             "Plan at rev {} ({} file(s) updated from the server).",
             bundle.rev,

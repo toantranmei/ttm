@@ -27,7 +27,7 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
                 .filter(|t| state.as_deref().is_none_or(|s| matches_state(t, s)))
                 .filter(|t| me.as_deref().is_none_or(|id| t.assignee_id() == Some(id)))
                 .collect();
-            emit(app.json, &tasks, || {
+            emit(&app, &tasks, |_ui| {
                 for t in &tasks {
                     println!("{}", row(t));
                 }
@@ -35,7 +35,7 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
         }
         TaskCommand::Show { key } => {
             let task = client.task(&key).await?;
-            emit(app.json, &task, || {
+            emit(&app, &task, |_ui| {
                 println!("{}  {}", task.key(), task.title);
                 println!(
                     "state: {}  role: {}  assignee: {}",
@@ -55,11 +55,11 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
             let updated = client
                 .update_task(&task, &json!({ "assignee": { "kind": "user", "id": me.id } }))
                 .await?;
-            emit(app.json, &updated, || println!("{} is now yours.", updated.key()));
+            emit(&app, &updated, |_ui| println!("{} is now yours.", updated.key()));
         }
         TaskCommand::Done { key } => {
             let task = client.transition_task(&key, "done").await?;
-            emit(app.json, &task, || {
+            emit(&app, &task, |_ui| {
                 println!(
                     "{} is now {}.",
                     task.key(),
@@ -70,7 +70,7 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
         TaskCommand::Approve { key, reject } => {
             let decision = if reject { "reject" } else { "approve" };
             let task = client.approve_task(&key, decision).await?;
-            emit(app.json, &task, || {
+            emit(&app, &task, |_ui| {
                 println!(
                     "{} {}; state {}.",
                     task.key(),
@@ -85,7 +85,7 @@ pub async fn run(app: App, command: TaskCommand) -> Result<ExitCode> {
                 eprintln!("warning: {w}");
             }
             let result = client.create_subtasks(&key, &tasks, None).await?;
-            emit(app.json, &result, || {
+            emit(&app, &result, |_ui| {
                 let created = result["tasks"].as_array().map(Vec::len).unwrap_or(tasks.len());
                 println!("{created} subtask(s) created under {key}.");
                 for w in result["warnings"].as_array().into_iter().flatten() {

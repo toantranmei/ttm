@@ -210,7 +210,7 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 Some(pid) => kill(pid),
                 None => false,
             };
-            emit(app.json, &json!({ "stopped": stopped, "pid": pid }), || {
+            emit(&app, &json!({ "stopped": stopped, "pid": pid }), |_ui| {
                 if stopped {
                     println!("Runner stopped.");
                 } else {
@@ -236,7 +236,7 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 "repos": config.repos,
                 "worktree_root": config.worktree_root(app.ctx.config.worktree_root()),
             });
-            emit(app.json, &out, || {
+            emit(&app, &out, |_ui| {
                 println!(
                     "runner:    {} ({})",
                     config.name,
@@ -254,13 +254,13 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
             let mut config = RunnerConfig::load(&config_dir)?;
             apply_config(&mut config, args)?;
             config.save(&config_dir)?;
-            emit(app.json, &config, || {
+            emit(&app, &config, |_ui| {
                 println!("Saved {}", RunnerConfig::path(&config_dir).display())
             });
         }
         RunnerCommand::InstallService => {
             let (file, path) = install_service(&app)?;
-            emit(app.json, &json!({ "installed": file, "path": path }), || {
+            emit(&app, &json!({ "installed": file, "path": path }), |_ui| {
                 println!("Runner service installed: {file}");
                 if let Some(path) = &path {
                     println!("PATH of the service: {path}");
@@ -269,7 +269,7 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
         }
         RunnerCommand::UninstallService => {
             let removed = uninstall_service()?;
-            emit(app.json, &json!({ "removed": removed }), || match &removed {
+            emit(&app, &json!({ "removed": removed }), |_ui| match &removed {
                 Some(what) => println!("Runner service stopped and removed: {what}"),
                 None => println!("No runner service installed."),
             });

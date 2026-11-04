@@ -51,7 +51,7 @@ pub async fn run(app: App, args: SelfUpdateArgs) -> Result<ExitCode> {
         attestation: "skipped",
     };
     if args.check || (!newer && args.version.is_none()) {
-        emit(app.json, &out, || {
+        emit(&app, &out, |_ui| {
             if newer {
                 println!(
                     "ttm {latest} is available (this is {}). Run `ttm self-update`.",
@@ -105,7 +105,7 @@ pub async fn run(app: App, args: SelfUpdateArgs) -> Result<ExitCode> {
     } else {
         "skipped (install the gh CLI to verify)"
     };
-    emit(app.json, &out, || {
+    emit(&app, &out, |_ui| {
         println!("Updated to ttm {latest}: {}", out.updated.join(", "));
         println!("SHA-256 verified; attestation {}.", out.attestation);
     });

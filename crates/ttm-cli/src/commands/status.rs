@@ -65,7 +65,7 @@ pub async fn run(app: App) -> Result<ExitCode> {
         workspace: app.ctx.workspace(),
         server,
     };
-    emit(app.json, &out, || {
+    emit(&app, &out, |_ui| {
         println!("ttm {}", out.version);
         println!("host:      {}", out.host);
         println!("profile:   {} ({})", out.profile, out.config_file);

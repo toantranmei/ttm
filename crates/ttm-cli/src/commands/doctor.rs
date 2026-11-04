@@ -148,7 +148,7 @@ pub async fn run(app: App) -> Result<ExitCode> {
     });
 
     let failed = checks.iter().any(|c| c.level == Level::Fail);
-    emit(app.json, &checks, || {
+    emit(&app, &checks, |_ui| {
         for c in &checks {
             let mark = match c.level {
                 Level::Ok => "ok  ",

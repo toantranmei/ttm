@@ -29,7 +29,7 @@ pub async fn run(mut app: App, command: WorkspaceCommand) -> Result<ExitCode> {
                     current: current.as_deref() == Some(w.id.as_str()),
                 })
                 .collect();
-            emit(app.json, &rows, || {
+            emit(&app, &rows, |_ui| {
                 if rows.is_empty() {
                     println!("No workspaces.");
                 }
@@ -54,7 +54,7 @@ pub async fn run(mut app: App, command: WorkspaceCommand) -> Result<ExitCode> {
             let chosen = pick(&me.workspaces, &workspace)?.clone();
             app.ctx
                 .update_profile(|p| p.workspace = Some(chosen.id.clone()))?;
-            emit(app.json, &chosen, || {
+            emit(&app, &chosen, |_ui| {
                 println!(
                     "Current workspace for profile `{}`: {} ({})",
                     app.ctx.profile_name, chosen.name, chosen.id
@@ -73,7 +73,7 @@ pub async fn run(mut app: App, command: WorkspaceCommand) -> Result<ExitCode> {
                 _ => None,
             };
             let out = serde_json::json!({ "profile": app.ctx.profile_name, "workspace_id": id, "workspace": found });
-            emit(app.json, &out, || match (&id, &found) {
+            emit(&app, &out, |_ui| match (&id, &found) {
                 (_, Some(w)) => println!("{} ({})", w.name, w.id),
                 (Some(id), None) => println!("{id}"),
                 (None, _) => println!("No workspace chosen; run `ttm workspace switch <name>`."),

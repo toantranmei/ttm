@@ -46,7 +46,7 @@ pub async fn run(app: App) -> Result<ExitCode> {
         revoked,
         removed,
     };
-    emit(app.json, &out, || {
+    emit(&app, &out, |_ui| {
         if removed || revoked {
             println!("Signed out of {} (profile `{}`).", out.host, out.profile);
         } else {

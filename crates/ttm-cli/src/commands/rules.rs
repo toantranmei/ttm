@@ -28,9 +28,9 @@ pub async fn run(app: App, command: RulesCommand) -> Result<ExitCode> {
     let rules = client.rules(&linked.file.project_id).await?;
     let changed = apply(&linked.root, &linked.cache_dir(), &rules)?;
     emit(
-        app.json,
+        &app,
         &json!({ "changed": changed, "checks": rules.checks }),
-        || {
+        |_ui| {
             for f in &changed {
                 println!("updated {f}");
             }

@@ -35,7 +35,7 @@ pub async fn run(app: App, command: AgentCommand) -> Result<ExitCode> {
                 "worktree": outcome.worktree, "pr_url": outcome.pr_url, "paused_until": outcome.paused_until
             });
             let ok = outcome.status == "succeeded";
-            emit(app.json, &out, || {
+            emit(&app, &out, |_ui| {
                 println!("Run {}: {}", outcome.run_id, outcome.status);
                 if let Some(w) = &outcome.worktree {
                     println!("worktree: {}", w.display());
@@ -71,7 +71,7 @@ pub async fn run(app: App, command: AgentCommand) -> Result<ExitCode> {
         AgentCommand::Stop { run } => {
             let (client, _) = app.api().await?;
             client.stop_run(&run).await?;
-            emit(app.json, &json!({ "run_id": run, "stopping": true }), || {
+            emit(&app, &json!({ "run_id": run, "stopping": true }), |_ui| {
                 println!("Stop requested for run {run}.")
             });
         }

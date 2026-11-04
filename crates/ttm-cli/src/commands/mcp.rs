@@ -82,7 +82,7 @@ pub async fn run(app: App, command: McpCommand) -> Result<ExitCode> {
             }
         }
     }
-    emit(app.json, &out, || {
+    emit(&app, &out, |_ui| {
         if out.dry_run {
             println!("Dry run: nothing written.");
         } else if !out.changed {

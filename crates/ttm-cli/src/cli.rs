@@ -8,7 +8,9 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
     version,
     about = "Command line for toantranmei.com: sign in, workspaces, tokens, MCP setup",
     long_about = "Command line for toantranmei.com.\n\nHost order: --host > TTM_HOST > profile > https://toantranmei.com.\n\
-                  Token order: TTM_TOKEN > OS keyring > credentials.toml.\n\nDocs: https://toantranmei.com/help/ttm"
+                  Token order: TTM_TOKEN > OS keyring > credentials.toml.\n\n\
+                  Output: --json for scripts, --plain for logs, NO_COLOR respected.\n\n\
+                  Docs: https://toantranmei.com/help/ttm"
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -28,6 +30,12 @@ pub struct GlobalArgs {
     /// Machine-readable JSON on stdout.
     #[arg(long, global = true)]
     pub json: bool,
+    /// Plain text for logs: no colour, frames, glyphs or emoji (also TTM_PLAIN=1).
+    #[arg(long, global = true, env = "TTM_PLAIN")]
+    pub plain: bool,
+    /// Answer yes to confirmations and take defaults instead of asking (scripts, CI).
+    #[arg(short = 'y', long, global = true)]
+    pub yes: bool,
     /// More logs on stderr (-v, -vv).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -486,6 +494,8 @@ mod tests {
             Cli::try_parse_from(["ttm", "whoami", "--json", "--host", "http://localhost:3000"]).unwrap();
         assert!(cli.global.json);
         assert_eq!(cli.global.host.as_deref(), Some("http://localhost:3000"));
+        let cli = Cli::try_parse_from(["ttm", "task", "list", "--plain", "-y"]).unwrap();
+        assert!(cli.global.plain && cli.global.yes);
     }
 
     #[test]

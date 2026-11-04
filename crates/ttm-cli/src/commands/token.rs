@@ -34,7 +34,7 @@ pub async fn run(app: App, command: TokenCommand) -> Result<ExitCode> {
     };
     open_browser(&url, false);
     let out = serde_json::json!({ "url": url });
-    emit(app.json, &out, || {
+    emit(&app, &out, |_ui| {
         println!(
             "Tokens are managed on the web (the API does not accept a token here). Finish in the browser."
         );

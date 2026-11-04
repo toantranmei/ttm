@@ -23,7 +23,7 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
             let workspace = workspace.or_else(|| app.ctx.workspace());
             let mut hits = client.search(&query, workspace.as_deref()).await?;
             hits.truncate(limit);
-            emit(app.json, &hits, || {
+            emit(&app, &hits, |_ui| {
                 if hits.is_empty() {
                     println!("No pages found.");
                 }
@@ -47,7 +47,7 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
             };
             if summary_kind == "database" {
                 let schema = client.database_schema(&id).await?;
-                emit(app.json, &schema, || {
+                emit(&app, &schema, |_ui| {
                     println!("# {}", schema.title.as_deref().unwrap_or("(database)"));
                     for p in &schema.properties {
                         println!("- {} ({})", p.name, p.kind);
@@ -59,7 +59,7 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                     std::fs::write(path, &page.markdown)
                         .with_context(|| format!("writing {}", path.display()))?;
                 }
-                emit(app.json, &page, || {
+                emit(&app, &page, |_ui| {
                     if output.is_none() {
                         println!("{}", page.markdown);
                     } else {
@@ -100,7 +100,7 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                 request.sorts = sorts;
             }
             let result = client.query_database(&resource_id(&database), &request).await?;
-            emit(app.json, &result, || {
+            emit(&app, &result, |_ui| {
                 for row in &result.rows {
                     println!("{}  {}", row.id, Value::Object(row.values.clone()));
                 }
@@ -116,7 +116,7 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                 .into_iter()
                 .filter(|t| all || t.resolved_at.is_none())
                 .collect();
-            emit(app.json, &threads, || {
+            emit(&app, &threads, |_ui| {
                 if threads.is_empty() {
                     println!("No open comments.");
                 }
@@ -144,7 +144,7 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
                 .into_iter()
                 .filter(|s| all || s.status == "pending")
                 .collect();
-            emit(app.json, &list, || {
+            emit(&app, &list, |_ui| {
                 if list.is_empty() {
                     println!("No pending suggestions.");
                 }
@@ -185,7 +185,7 @@ pub async fn run(app: App, command: NotesCommand) -> Result<ExitCode> {
             } else {
                 client.reject_suggestion(&suggestion).await?
             };
-            emit(app.json, &result, || {
+            emit(&app, &result, |_ui| {
                 println!(
                     "Suggestion {suggestion}: {}",
                     result
@@ -224,7 +224,7 @@ async fn create(app: &App, client: &Client, args: NotesCreateArgs) -> Result<()>
         properties: None,
     };
     let created = client.create_page(&parent, &page).await?;
-    emit(app.json, &created, || {
+    emit(app, &created, |_ui| {
         println!(
             "Created {} ({})",
             created.title.as_deref().unwrap_or(&page.title),
@@ -285,7 +285,7 @@ async fn edit(app: &App, client: &Client, args: NotesEditArgs) -> Result<()> {
         update.update_content = Some(edits(&args.old, &args.new, args.replace_all)?);
     }
     let result = client.update_page(&resource_id(&args.page), &update).await?;
-    emit(app.json, &result, || {
+    emit(app, &result, |_ui| {
         match (&result.suggestion_id, result.applied) {
             (Some(id), _) => println!("Suggestion {id} created."),
             (None, true) => println!("Page updated."),
@@ -301,7 +301,7 @@ async fn edit(app: &App, client: &Client, args: NotesEditArgs) -> Result<()> {
 async fn comment(app: &App, client: &Client, args: NotesCommentArgs) -> Result<()> {
     if let Some(thread) = &args.thread {
         let reply = client.reply_comment(thread, &args.message).await?;
-        emit(app.json, &reply, || println!("Replied in thread {thread}."));
+        emit(app, &reply, |_ui| println!("Replied in thread {thread}."));
         return Ok(());
     }
     let anchor = match args.quote {
@@ -317,7 +317,7 @@ async fn comment(app: &App, client: &Client, args: NotesCommentArgs) -> Result<(
     let thread = client
         .create_comment(&resource_id(&args.page), &anchor, &args.message)
         .await?;
-    emit(app.json, &thread, || {
+    emit(app, &thread, |_ui| {
         println!("Comment thread {} created.", thread.id)
     });
     Ok(())
@@ -332,13 +332,13 @@ async fn rows(app: &App, client: &Client, command: RowsCommand) -> Result<()> {
                 bail!("give 1 to 100 rows per call");
             }
             let result = client.upsert_rows(&resource_id(&database), &rows).await?;
-            emit(app.json, &result, || {
+            emit(app, &result, |_ui| {
                 println!("{} row(s) saved: {}", result.ids.len(), result.ids.join(", "))
             });
         }
         RowsCommand::Delete { database, ids } => {
             let result = client.delete_rows(&resource_id(&database), &ids).await?;
-            emit(app.json, &result, || println!("{} row(s) deleted.", ids.len()));
+            emit(app, &result, |_ui| println!("{} row(s) deleted.", ids.len()));
         }
     }
     Ok(())

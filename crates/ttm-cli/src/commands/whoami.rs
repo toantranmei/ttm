@@ -25,7 +25,7 @@ pub async fn run(app: App) -> Result<ExitCode> {
         user: me.user,
         workspace,
     };
-    emit(app.json, &out, || {
+    emit(&app, &out, |_ui| {
         println!("{} <{}>", out.user.name, out.user.email);
         println!("host: {}  profile: {}", out.host, out.profile);
         if let Some(w) = &out.workspace {

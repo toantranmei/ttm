@@ -36,9 +36,11 @@ tracing-subscriber.workspace = true
 ttm-api.workspace = true
 ttm-core.workspace = true
 ttm-runner.workspace = true
+ttm-ui.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
 wiremock.workspace = true
 
 [lints]
