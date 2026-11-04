@@ -29,7 +29,12 @@ impl std::fmt::Display for UsageError {
 impl std::error::Error for UsageError {}
 
 /// Rules that exit with code 2 (usage) rather than 1.
-pub const USAGE_RULES: [&str; 3] = ["missing_flag", "confirmation_required", "unsupported_feature"];
+pub const USAGE_RULES: [&str; 4] = [
+    "missing_flag",
+    "confirmation_required",
+    "unsupported_feature",
+    "invalid_flag",
+];
 
 impl UsageError {
     pub fn new(rule: &'static str, message: impl Into<String>) -> Self {
@@ -123,6 +128,7 @@ pub fn hint(rule: &str) -> Option<&'static str> {
         "skill_hash_mismatch" => "the skill download is corrupt: run the job again",
         "missing_flag" => "pass the flag shown in field, or run in a terminal to be asked",
         "confirmation_required" => "confirm in a terminal, or pass --yes",
+        "invalid_flag" => "fix the value of the flag shown in field (ttm <command> --help lists the choices)",
         "split-limit" => "split into fewer subtasks (see params.per_run)",
         "approval-required" => "a person must approve this step: ttm task approve <KEY>",
         "agent-own-runner" => "this agent runs only on its delegator's runners: start one with ttm runner up",

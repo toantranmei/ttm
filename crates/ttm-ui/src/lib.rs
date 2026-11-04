@@ -1,7 +1,7 @@
 //! `ttm-ui`: the one place where ttm prints for people.
 //!
 //! Every command renders through [`Ui`] with the components of this crate ([`Header`], [`Table`], [`Status`],
-//! [`Badge`], [`KeyValue`], [`Callout`], [`Diff`], [`ErrorView`], spinners), so the output looks the same everywhere:
+//! [`Badge`], [`KeyValue`], [`Callout`], [`Diff`], [`ErrorView`], spinners and the flag-backed [`Wizard`]), so the output looks the same everywhere:
 //! the result on the first line, details, then `Next: <command>`.
 //!
 //! Modes ([`Mode`]): brand colours (truecolor → 256 → 16) on a terminal; no colour when piped, with `NO_COLOR` or
@@ -16,6 +16,7 @@ pub mod header;
 pub mod kv;
 pub mod mode;
 pub mod progress;
+pub mod prompt;
 pub mod status;
 pub mod table;
 pub mod theme;
@@ -29,6 +30,7 @@ pub use header::Header;
 pub use kv::KeyValue;
 pub use mode::{ColorLevel, Mode, Probe};
 pub use progress::{Progress, Spinner};
+pub use prompt::{Answer, Ask, Choice, InquireTerm, ScriptedTerm, Term, Wizard, shell_quote};
 pub use status::{Level, Status};
 pub use table::{Cell, Col, Table};
 pub use theme::{Token, paint};
