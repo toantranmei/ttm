@@ -33,9 +33,7 @@ pub async fn run(app: App, command: TokenCommand) -> Result<ExitCode> {
             page_url(app.host(), &params)?
         }
     };
-    if !app.json {
-        open_browser(&app.ui, &url, false);
-    }
+    open_browser(&app.ui, &url, false);
     let out = serde_json::json!({ "url": url });
     emit(&app, &out, |ui| {
         ui.print(

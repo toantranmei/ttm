@@ -112,9 +112,7 @@ pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
         ProjectCommand::Open => {
             let linked = linked()?;
             let url = format!("{}/factory?project={}", linked.file.host, linked.file.project_id);
-            if !app.json {
-                open_browser(&app.ui, &url, false);
-            }
+            open_browser(&app.ui, &url, false);
             emit(&app, &serde_json::json!({ "url": url }), |ui| {
                 ui.print(&Callout::success(format!(
                     "Opened {} on the web",
