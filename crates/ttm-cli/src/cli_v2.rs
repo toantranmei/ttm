@@ -50,6 +50,10 @@ pub struct ProjectInitArgs {
     /// Repository URL (default: git remote origin).
     #[arg(long = "repo", alias = "repo-url", value_name = "URL")]
     pub repo_url: Option<String>,
+    /// Provider of the repository: github, gitlab or local (default: from the URL's host). Needed for a GitHub
+    /// Enterprise or other self-hosted host the URL does not name.
+    #[arg(long, value_name = "PROVIDER", value_parser = ["github", "gitlab", "local"])]
+    pub provider: Option<String>,
     /// professional, balanced, kanban, scrum, autopilot or a template slug.
     #[arg(long)]
     pub workflow: Option<String>,
