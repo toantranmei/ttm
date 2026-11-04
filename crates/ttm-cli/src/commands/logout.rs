@@ -6,6 +6,11 @@ use anyhow::Result;
 use serde::Serialize;
 use std::process::ExitCode;
 use ttm_core::TokenSource;
+use ttm_ui::Callout;
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
+}
 
 #[derive(Serialize)]
 struct LogoutOutput {
@@ -46,12 +51,17 @@ pub async fn run(app: App) -> Result<ExitCode> {
         revoked,
         removed,
     };
-    emit(&app, &out, |_ui| {
-        if removed || revoked {
-            println!("Signed out of {} (profile `{}`).", out.host, out.profile);
+    emit(&app, &out, |ui| {
+        let callout = if removed || revoked {
+            Callout::success(format!("Signed out of {}", out.host)).detail(format!(
+                "profile {} · revoked on the server: {}",
+                out.profile,
+                yes_no(out.revoked)
+            ))
         } else {
-            println!("Not signed in to {} (profile `{}`).", out.host, out.profile);
-        }
+            Callout::info(format!("Not signed in to {}", out.host)).detail(format!("profile {}", out.profile))
+        };
+        ui.print(&callout.next("ttm login"));
     });
     Ok(ExitCode::SUCCESS)
 }

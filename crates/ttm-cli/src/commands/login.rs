@@ -2,7 +2,7 @@
 
 use crate::app::{App, stored_from};
 use crate::cli::LoginArgs;
-use crate::output::emit;
+use crate::output::{emit, waiting};
 use crate::util::open_browser;
 use anyhow::{Context as _, Result, anyhow, bail};
 use base64::Engine as _;
@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use ttm_api::{ApiError, Client};
 use ttm_core::{Discovery, StoredToken, TokenSource};
+use ttm_ui::{Callout, Header, Token};
 
 /// How long the browser has to come back to the loopback page.
 pub const LOOPBACK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -75,14 +76,31 @@ pub async fn run(mut app: App, args: LoginArgs) -> Result<ExitCode> {
         stored_in,
         user: me.map(|m| m.user),
     };
-    emit(&app, &out, |_ui| {
-        match &out.user {
-            Some(user) => println!("Signed in to {host} as {} <{}>.", user.name, user.email),
-            None => println!("Token saved for {host}."),
-        }
-        println!("Profile `{}`, token stored in {}.", out.profile, out.stored_in);
+    let next = next_after_login();
+    emit(&app, &out, |ui| {
+        let callout = match &out.user {
+            Some(user) => Callout::success(format!("Signed in as {} <{}>", user.name, user.email)),
+            None => Callout::success("Token saved (it cannot read your profile: no workspace:read scope)"),
+        };
+        ui.print(
+            &callout
+                .detail(format!(
+                    "host {host} · profile {} · token in {}",
+                    out.profile, out.stored_in
+                ))
+                .next(next),
+        );
     });
     Ok(ExitCode::SUCCESS)
+}
+
+/// `ttm project init` when this directory is not linked to a project yet, else `ttm whoami`.
+fn next_after_login() -> &'static str {
+    let linked = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| ttm_core::project_file::Linked::find(&cwd).ok().flatten())
+        .is_some();
+    if linked { "ttm whoami" } else { "ttm project init" }
 }
 
 /// `--token ttm_pat_…` or `--token -` (stdin).
@@ -160,13 +178,15 @@ async fn loopback(
         &state,
         scope,
     )?;
-    open_browser(&url, no_browser);
-    eprintln!(
-        "Waiting for the browser (5 minutes)… On a machine without a browser use `ttm login --device`."
+    open_browser(&app.ui, &url, no_browser);
+    let spinner = waiting(
+        &app.ui,
+        "Waiting for the browser (5 minutes)… Without a browser here, use `ttm login --device`.",
     );
     let code = tokio::time::timeout(LOOPBACK_TIMEOUT, wait_for_code(&listener, &state))
         .await
         .map_err(|_| anyhow!("timed out after 5 minutes waiting for the browser"))??;
+    spinner.clear();
     let response = client
         .exchange_code(
             &discovery.token_endpoint(app.host()),
@@ -273,13 +293,21 @@ async fn device_flow(app: &App, client: &Client, discovery: &Discovery, scope: &
         .device_authorization(&discovery.device_authorization_endpoint(app.host()), scope)
         .await
         .context("starting the device login")?;
-    eprintln!(
-        "\nOn any device, open {} and enter the code:\n\n    {}\n",
-        device.verification_uri, device.user_code
+    let ui = &app.ui;
+    // The URLs are printed whole on their own lines (never cut), so they can be copied.
+    ui.eprint(
+        &Header::new(format!("Code {}", device.user_code))
+            .summary("Open this URL on any device and enter the code"),
     );
+    ui.eline(&format!("  {}", ui.paint(Token::Blue, &device.verification_uri)));
     if let Some(complete) = &device.verification_uri_complete {
-        eprintln!("(or open {complete})\n");
+        ui.eline(&format!(
+            "  {} {}",
+            ui.paint(Token::Muted, "or"),
+            ui.paint(Token::Blue, complete)
+        ));
     }
+    let _spinner = waiting(ui, "Waiting for approval…");
     let token_endpoint = discovery.token_endpoint(app.host());
     let deadline = tokio::time::Instant::now() + Duration::from_secs(device.expires_in.max(1));
     let mut interval = Duration::from_secs(device.interval.max(1));

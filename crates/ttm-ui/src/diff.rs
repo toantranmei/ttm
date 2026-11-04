@@ -91,7 +91,12 @@ impl Render for Diff {
                     .to_string();
                 text.lines()
                     .map(|line| {
-                        let line = truncate(line, width);
+                        // File names are never cut; content lines are, like every other line.
+                        let line = if line.starts_with("+++") || line.starts_with("---") {
+                            line.to_string()
+                        } else {
+                            truncate(line, width)
+                        };
                         let token = if line.starts_with("+++") || line.starts_with("---") {
                             Some(Token::Ink)
                         } else if line.starts_with("@@") {

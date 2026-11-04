@@ -7,6 +7,7 @@ use anyhow::{Result, bail};
 use serde::Serialize;
 use std::process::ExitCode;
 use ttm_api::WorkspaceSummary;
+use ttm_ui::{Callout, Cell, Col, KeyValue, Table, Token, next_line};
 
 #[derive(Serialize)]
 struct Row<'a> {
@@ -29,22 +30,43 @@ pub async fn run(mut app: App, command: WorkspaceCommand) -> Result<ExitCode> {
                     current: current.as_deref() == Some(w.id.as_str()),
                 })
                 .collect();
-            emit(&app, &rows, |_ui| {
-                if rows.is_empty() {
-                    println!("No workspaces.");
-                }
+            emit(&app, &rows, |ui| {
+                let current = rows.iter().find(|r| r.current).map(|r| r.workspace.name.as_str());
+                ui.line(&match current {
+                    Some(name) => format!(
+                        "{} workspace(s), current: {}",
+                        rows.len(),
+                        ui.paint(Token::Ink, name)
+                    ),
+                    None => format!("{} workspace(s), none chosen", rows.len()),
+                });
+                let mut table = Table::new(&[
+                    Col::new(""),
+                    Col::new("NAME").flex(2).min(8),
+                    Col::new("SLUG").flex(1).min(4),
+                    Col::new("ROLE"),
+                    Col::new("KIND"),
+                    Col::new("ID").flex(1).min(6),
+                ])
+                .empty_text("No workspaces.");
                 for r in &rows {
-                    let mark = if r.current { "*" } else { " " };
-                    let slug = r
-                        .workspace
-                        .slug
-                        .as_deref()
-                        .map(|s| format!(" [{s}]"))
-                        .unwrap_or_default();
-                    println!(
-                        "{mark} {}{slug}  {} · {} · {}",
-                        r.workspace.name, r.workspace.kind, r.workspace.role, r.workspace.id
-                    );
+                    let mark = match (r.current, ui.mode().plain) {
+                        (true, true) => "*".to_string(),
+                        (true, false) => ui.paint(Token::Teal, "●"),
+                        (false, _) => String::new(),
+                    };
+                    table.push(vec![
+                        Cell::new(mark),
+                        Cell::new(r.workspace.name.as_str()),
+                        Cell::new(r.workspace.slug.as_deref().unwrap_or("-")),
+                        Cell::new(r.workspace.role.as_str()),
+                        Cell::new(r.workspace.kind.as_str()),
+                        Cell::token(r.workspace.id.as_str(), Token::Muted),
+                    ]);
+                }
+                ui.print(&table);
+                if current.is_none() && !rows.is_empty() {
+                    ui.line(&next_line(ui.mode(), "ttm workspace switch <name>"));
                 }
             });
         }
@@ -54,10 +76,11 @@ pub async fn run(mut app: App, command: WorkspaceCommand) -> Result<ExitCode> {
             let chosen = pick(&me.workspaces, &workspace)?.clone();
             app.ctx
                 .update_profile(|p| p.workspace = Some(chosen.id.clone()))?;
-            emit(&app, &chosen, |_ui| {
-                println!(
-                    "Current workspace for profile `{}`: {} ({})",
-                    app.ctx.profile_name, chosen.name, chosen.id
+            emit(&app, &chosen, |ui| {
+                ui.print(
+                    &Callout::success(format!("Current workspace: {}", chosen.name))
+                        .detail(format!("id {} · profile {}", chosen.id, app.ctx.profile_name))
+                        .next("ttm project init"),
                 )
             });
         }
@@ -73,10 +96,25 @@ pub async fn run(mut app: App, command: WorkspaceCommand) -> Result<ExitCode> {
                 _ => None,
             };
             let out = serde_json::json!({ "profile": app.ctx.profile_name, "workspace_id": id, "workspace": found });
-            emit(&app, &out, |_ui| match (&id, &found) {
-                (_, Some(w)) => println!("{} ({})", w.name, w.id),
-                (Some(id), None) => println!("{id}"),
-                (None, _) => println!("No workspace chosen; run `ttm workspace switch <name>`."),
+            emit(&app, &out, |ui| match (&id, &found) {
+                (_, Some(w)) => {
+                    ui.line(&ui.paint(Token::Ink, &w.name));
+                    ui.print(
+                        &KeyValue::new()
+                            .row("id", w.id.as_str())
+                            .opt("slug", w.slug.as_deref())
+                            .row("role", w.role.as_str())
+                            .row("kind", w.kind.as_str())
+                            .row("profile", app.ctx.profile_name.as_str()),
+                    );
+                }
+                (Some(id), None) => {
+                    ui.line(id);
+                    ui.print(&KeyValue::new().row("profile", app.ctx.profile_name.as_str()));
+                }
+                (None, _) => {
+                    ui.print(&Callout::info("No workspace chosen").next("ttm workspace switch <name>"))
+                }
             });
         }
     }

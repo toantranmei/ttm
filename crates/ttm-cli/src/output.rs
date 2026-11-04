@@ -22,6 +22,16 @@ pub fn emit_to<T: Serialize>(ui: &Ui, json: bool, value: &T, human: impl FnOnce(
     }
 }
 
+/// A spinner on stderr; when none can be drawn (not a terminal, `--plain`), the message is printed once instead so a
+/// person reading a log still sees what ttm waits for. Nothing with `--json`.
+pub fn waiting(ui: &Ui, message: &str) -> ttm_ui::Spinner {
+    let spinner = ui.spinner(message);
+    if !spinner.visible() && !ui.mode().json {
+        ui.eline(&ui.paint(ttm_ui::Token::Muted, message));
+    }
+    spinner
+}
+
 #[allow(dead_code)] // `agent logs -f`, `inbox --watch`
 /// One JSON value per line (`--json` streams: `agent logs -f`, `inbox --watch`).
 pub fn emit_line<T: Serialize>(ui: &Ui, value: &T) {

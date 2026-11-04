@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use ttm_ui::{Callout, Ui};
 
 /// Target triple this binary was built for.
 pub const TARGET: &str = env!("TTM_TARGET");
@@ -51,14 +52,20 @@ pub async fn run(app: App, args: SelfUpdateArgs) -> Result<ExitCode> {
         attestation: "skipped",
     };
     if args.check || (!newer && args.version.is_none()) {
-        emit(&app, &out, |_ui| {
+        emit(&app, &out, |ui| {
             if newer {
-                println!(
-                    "ttm {latest} is available (this is {}). Run `ttm self-update`.",
-                    ttm_core::VERSION
+                ui.print(
+                    &Callout::info(format!(
+                        "ttm {latest} is available (this is {})",
+                        ttm_core::VERSION
+                    ))
+                    .next("ttm self-update"),
                 );
             } else {
-                println!("ttm {} is up to date.", ttm_core::VERSION);
+                ui.print(&Callout::success(format!(
+                    "ttm {} is up to date",
+                    ttm_core::VERSION
+                )));
             }
         });
         return Ok(ExitCode::SUCCESS);
@@ -77,7 +84,8 @@ pub async fn run(app: App, args: SelfUpdateArgs) -> Result<ExitCode> {
         let archive_name = archive_name(package, TARGET);
         let asset = find_asset(&release, &archive_name)
             .ok_or_else(|| anyhow!("release {} has no {archive_name}", release.tag_name))?;
-        let bytes = download(&http, &asset.browser_download_url).await?;
+        let bytes =
+            download_with_progress(&app.ui, &http, &asset.browser_download_url, &archive_name).await?;
         let checksum = match find_asset(&release, &format!("{archive_name}.sha256")) {
             Some(sum) => {
                 String::from_utf8_lossy(&download(&http, &sum.browser_download_url).await?).to_string()
@@ -105,9 +113,13 @@ pub async fn run(app: App, args: SelfUpdateArgs) -> Result<ExitCode> {
     } else {
         "skipped (install the gh CLI to verify)"
     };
-    emit(&app, &out, |_ui| {
-        println!("Updated to ttm {latest}: {}", out.updated.join(", "));
-        println!("SHA-256 verified; attestation {}.", out.attestation);
+    emit(&app, &out, |ui| {
+        ui.print(
+            &Callout::success(format!("Updated ttm {} → {latest}", ttm_core::VERSION))
+                .details(out.updated.iter().map(|p| format!("replaced {p}")))
+                .detail(format!("SHA-256 verified · attestation {}", out.attestation))
+                .next("ttm --version"),
+        );
     });
     Ok(ExitCode::SUCCESS)
 }
@@ -129,6 +141,25 @@ async fn fetch_release(http: &reqwest::Client, repo: &str, version: Option<&str>
         bail!("GitHub answered {} for {url}", response.status());
     }
     Ok(response.json().await?)
+}
+
+/// Like [`download`], with a byte progress bar on stderr (hidden when not at a terminal).
+async fn download_with_progress(ui: &Ui, http: &reqwest::Client, url: &str, name: &str) -> Result<Vec<u8>> {
+    let mut response = http.get(url).send().await?;
+    if !response.status().is_success() {
+        bail!("download failed ({}) for {url}", response.status());
+    }
+    let progress = ui.bytes(
+        response.content_length().unwrap_or(0),
+        format!("Downloading {name}"),
+    );
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        progress.inc(chunk.len() as u64);
+        bytes.extend_from_slice(&chunk);
+    }
+    progress.clear();
+    Ok(bytes)
 }
 
 async fn download(http: &reqwest::Client, url: &str) -> Result<Vec<u8>> {

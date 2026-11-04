@@ -1,0 +1,4 @@
+[
+  {"id": "w1", "name": "Cá nhân", "kind": "personal", "role": "owner", "current": false},
+  {"id": "w2", "name": "Team Aurora", "kind": "team", "role": "member", "slug": "aurora", "current": true}
+]

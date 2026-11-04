@@ -6,6 +6,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::process::ExitCode;
 use time::OffsetDateTime;
+use ttm_ui::{Callout, KeyValue, Status, next_line};
 
 #[derive(Serialize)]
 struct StatusOutput {
@@ -65,36 +66,74 @@ pub async fn run(app: App) -> Result<ExitCode> {
         workspace: app.ctx.workspace(),
         server,
     };
-    emit(&app, &out, |_ui| {
-        println!("ttm {}", out.version);
-        println!("host:      {}", out.host);
-        println!("profile:   {} ({})", out.profile, out.config_file);
-        match &out.token {
-            Some(t) => {
-                let expiry = t.expires_at.map(|e| format!(", expires {e}")).unwrap_or_default();
-                let state = if t.expired { " EXPIRED" } else { "" };
-                println!("token:     {} from {}{expiry}{state}", t.masked, t.source);
-            }
-            None => println!("token:     none (run `ttm login`)"),
-        }
-        println!(
-            "workspace: {}",
-            out.workspace
-                .as_deref()
-                .unwrap_or("not chosen (ttm workspace switch)")
-        );
-        match &out.server {
-            Some(s) => println!(
-                "server:    API {} (min ttm {}), features: {}",
-                s.api_version.as_deref().unwrap_or("?"),
-                s.min_cli.as_deref().unwrap_or("-"),
-                if s.features.is_empty() {
-                    "-".to_string()
-                } else {
-                    s.features.join(", ")
+    let keyring = app.ctx.credentials.keyring_status();
+    emit(&app, &out, |ui| {
+        let mark = |status: Status| ui.render(&status);
+        let mut kv = KeyValue::new()
+            .row("version", format!("ttm {}", out.version))
+            .row("host", out.host.as_str())
+            .row("profile", format!("{} ({})", out.profile, out.config_file));
+        kv.push(
+            "token",
+            match &out.token {
+                Some(t) => {
+                    let expiry = t.expires_at.map(|e| format!(", expires {e}")).unwrap_or_default();
+                    let (status, state) = if t.expired {
+                        (Status::fail(), " · expired")
+                    } else {
+                        (Status::ok(), "")
+                    };
+                    format!("{} {} from {}{expiry}{state}", mark(status), t.masked, t.source)
                 }
-            ),
-            None => println!("server:    unreachable"),
+                None => format!("{} none", mark(Status::warn())),
+            },
+        );
+        kv.push(
+            "keyring",
+            match &keyring {
+                Ok(()) => format!("{} OS keyring", mark(Status::ok())),
+                Err(why) => format!("{} {why}", mark(Status::warn())),
+            },
+        );
+        kv.push(
+            "workspace",
+            out.workspace.as_deref().unwrap_or("not chosen").to_string(),
+        );
+        kv.push(
+            "server",
+            match &out.server {
+                Some(s) => format!(
+                    "{} API {} (min ttm {}), features: {}",
+                    mark(Status::ok()),
+                    s.api_version.as_deref().unwrap_or("?"),
+                    s.min_cli.as_deref().unwrap_or("-"),
+                    if s.features.is_empty() {
+                        "-".to_string()
+                    } else {
+                        s.features.join(", ")
+                    }
+                ),
+                None => format!("{} unreachable", mark(Status::fail())),
+            },
+        );
+        let headline = if out.signed_in {
+            Callout::success(format!("Signed in to {}", out.host))
+        } else {
+            Callout::warning(format!("Not signed in to {}", out.host))
+        };
+        let next = if !out.signed_in {
+            Some("ttm login")
+        } else if out.workspace.is_none() {
+            Some("ttm workspace switch <name>")
+        } else if out.server.is_none() {
+            Some("ttm doctor")
+        } else {
+            None
+        };
+        ui.print(&headline);
+        ui.print(&kv);
+        if let Some(next) = next {
+            ui.line(&next_line(ui.mode(), next));
         }
     });
     Ok(ExitCode::SUCCESS)

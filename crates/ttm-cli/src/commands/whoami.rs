@@ -5,6 +5,7 @@ use crate::output::emit;
 use anyhow::Result;
 use serde::Serialize;
 use std::process::ExitCode;
+use ttm_ui::{KeyValue, Token};
 
 #[derive(Serialize)]
 struct WhoamiOutput {
@@ -25,11 +26,27 @@ pub async fn run(app: App) -> Result<ExitCode> {
         user: me.user,
         workspace,
     };
-    emit(&app, &out, |_ui| {
-        println!("{} <{}>", out.user.name, out.user.email);
-        println!("host: {}  profile: {}", out.host, out.profile);
-        if let Some(w) = &out.workspace {
-            println!("workspace: {} ({})", w.name, w.id);
+    emit(&app, &out, |ui| {
+        ui.line(&format!(
+            "{} <{}>",
+            ui.paint(Token::Ink, &out.user.name),
+            out.user.email
+        ));
+        let kv = KeyValue::new()
+            .row("user", out.user.name.as_str())
+            .row("email", out.user.email.as_str())
+            .row("host", out.host.as_str())
+            .row("profile", out.profile.as_str())
+            .row(
+                "workspace",
+                out.workspace
+                    .as_ref()
+                    .map(|w| format!("{} ({})", w.name, w.id))
+                    .unwrap_or_else(|| "not chosen".into()),
+            );
+        ui.print(&kv);
+        if out.workspace.is_none() {
+            ui.line(&ttm_ui::next_line(ui.mode(), "ttm workspace switch <name>"));
         }
     });
     Ok(ExitCode::SUCCESS)

@@ -4,7 +4,6 @@
 use crate::Render;
 use crate::mode::Mode;
 use crate::theme::{Token, paint};
-use crate::width::truncate;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -116,9 +115,10 @@ impl Render for Callout {
             paint(mode, self.kind.token(), self.kind.glyph())
         };
         let mut lines = vec![format!("{lead} {}", self.message)];
+        // Details are never cut: they hold paths and URLs to copy.
         for d in &self.details {
             for part in d.lines() {
-                lines.push(format!("  {}", truncate(part, mode.width.saturating_sub(2))));
+                lines.push(format!("  {part}"));
             }
         }
         for cmd in &self.next {
