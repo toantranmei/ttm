@@ -4,8 +4,8 @@ mod app;
 mod ascode;
 mod cli;
 mod cli_v2;
-mod membership;
 mod commands;
+mod membership;
 mod output;
 mod util;
 

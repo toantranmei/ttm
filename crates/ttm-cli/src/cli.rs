@@ -1,7 +1,7 @@
 //! Command line definition (clap derive). Every command accepts `--json`.
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
 pub use crate::cli_v2::*;
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(
