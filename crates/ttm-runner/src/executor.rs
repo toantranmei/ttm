@@ -67,6 +67,14 @@ pub fn mcp_config(
             warnings.push(format!("MCP `{}` skipped: the name is taken", remote.name));
             continue;
         }
+        // The job token only ever goes to this server's own MCP gateway.
+        if !is_gateway_url(host, &remote.url) {
+            warnings.push(format!(
+                "MCP `{}` skipped: {} is not the MCP gateway of {host}",
+                remote.name, remote.url
+            ));
+            continue;
+        }
         servers.insert(
             remote.name.clone(),
             json!({
@@ -104,6 +112,22 @@ pub fn mcp_config(
 }
 
 /// MCP config handed to the harness: `ttm-mcp` with the job token and run context in its environment.
+/// Whether `url` is under `<host>/api/v1/mcp/gw/` (same scheme, host and port as the configured server), with no
+/// `..`, query or fragment.
+pub fn is_gateway_url(host: &str, url: &str) -> bool {
+    let prefix = format!("{}/api/v1/mcp/gw/", host.trim_end_matches('/'));
+    let lower_url = url.to_ascii_lowercase();
+    let lower_prefix = prefix.to_ascii_lowercase();
+    let Some(rest) = lower_url.strip_prefix(&lower_prefix) else {
+        return false;
+    };
+    !rest.is_empty()
+        && !rest.contains("..")
+        && !rest.contains('?')
+        && !rest.contains('#')
+        && !rest.contains('@')
+}
+
 pub fn ttm_mcp_config(job: &JobSpec, host: &str, ttm_mcp: &Path) -> serde_json::Value {
     let toolsets = if job.mcp.toolsets.is_empty() {
         "factory,notee".to_string()
@@ -556,10 +580,22 @@ mod tests {
             "run_id": "r1", "task_key": "AUR-12", "project_id": "p1", "branch": "aur-12", "prompt": "x",
             "agent": {"id": "a1", "handle": "dev", "name": "DEV"}, "team_job": team_job,
             "mcp": {"token": "ttm_job_abc", "toolsets": [],
-                    "remote": [{"name": "linear", "url": "https://h/api/v1/mcp/gw/linear"}, {"name": "ttm", "url": "https://evil"}],
+                    "remote": [{"name": "linear", "url": "https://h/api/v1/mcp/gw/linear"}, {"name": "ttm", "url": "https://evil"},
+                               {"name": "evil", "url": "https://evil.example/api/v1/mcp/gw/x"}],
                     "local": ["github-local", "notes", "secretless", "linear", "unknown"]}
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn gateway_urls_only() {
+        assert!(is_gateway_url("https://h", "https://h/api/v1/mcp/gw/linear"));
+        assert!(is_gateway_url("https://h/", "https://H/api/v1/mcp/gw/linear"));
+        assert!(!is_gateway_url("https://h", "https://h.evil/api/v1/mcp/gw/x"));
+        assert!(!is_gateway_url("https://h", "https://h/api/v1/mcp/gw/"));
+        assert!(!is_gateway_url("https://h", "https://h/api/v1/mcp/gw/../../me"));
+        assert!(!is_gateway_url("https://h", "http://h/api/v1/mcp/gw/x"));
+        assert!(!is_gateway_url("https://h", "https://h:8443/api/v1/mcp/gw/x"));
     }
 
     #[test]
@@ -582,7 +618,8 @@ mod tests {
         assert_eq!(s["github-local"]["env"]["GITHUB_TOKEN"], "ghp_x");
         assert!(s["notes"].is_object());
         assert!(s["secretless"].is_null(), "missing env var drops the server");
-        assert_eq!(warnings.len(), 4, "{warnings:?}");
+        assert!(s["evil"].is_null(), "the job token never leaves the gateway");
+        assert_eq!(warnings.len(), 5, "{warnings:?}");
         // A teammate's job only gets local servers with team_jobs.
         let (c, _) = mcp_config(
             &v2_job(true),
