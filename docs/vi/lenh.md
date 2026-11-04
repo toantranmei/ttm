@@ -9,7 +9,7 @@ section: reference
 ttm [OPTIONS] <COMMAND>
 ```
 
-`ttm --help` và `ttm <lệnh> --help` in trợ giúp gốc (tiếng Anh). Trang này theo phiên bản **0.1.6**.
+`ttm --help` và `ttm <lệnh> --help` in trợ giúp gốc (tiếng Anh). Trang này theo phiên bản **0.2.0**. Quy ước đầu ra (dòng kết quả, `Next:`, glyph, huy hiệu, màu): [Giao diện dòng lệnh](giao-dien.md).
 
 ## Cờ chung
 
@@ -19,10 +19,12 @@ Dùng được với mọi lệnh, đặt trước hay sau lệnh con đều đ�
 | --- | --- | --- |
 | `--host <URL>` | `TTM_HOST` | Máy chủ, ví dụ `http://localhost:3000` |
 | `--profile <NAME>` | `TTM_PROFILE` | Profile trong `config.toml` |
-| `--json` | | Kết quả dạng JSON trên stdout |
+| `--json` | | Kết quả dạng JSON trên stdout (hình dạng 0.1.6, chỉ thêm khoá mới) |
+| `--plain` | `TTM_PLAIN=1` | Chữ thuần cho log: không màu, khung, glyph, emoji |
+| `-y`, `--yes` | | Trả lời "có" mọi xác nhận và lấy giá trị mặc định thay vì hỏi (script, CI) |
 | `-v`, `--verbose` | `TTM_LOG` | Thêm log ra stderr (`-v` info, `-vv` debug) |
 | `-h`, `--help` | | Trợ giúp |
-| `-V`, `--version` | | Phiên bản (`ttm 0.1.6`; chỉ ở cấp gốc) |
+| `-V`, `--version` | | Phiên bản (`ttm 0.2.0`; chỉ ở cấp gốc) |
 
 ## Mã thoát
 
@@ -30,10 +32,33 @@ Dùng được với mọi lệnh, đặt trước hay sau lệnh con đều đ�
 | --- | --- |
 | `0` | Thành công |
 | `1` | Lỗi (mạng, xác thực, API, file…); `ttm doctor` có mục `FAIL`; `ttm sync --check` thấy lệch; `ttm sync` gặp xung đột; `ttm agent run` kết thúc khác `succeeded` |
-| `2` | Sai cú pháp dòng lệnh (cờ lạ, thiếu tham số). Với `ttm hook …`: hành động bị luật chặn |
+| `2` | Sai cú pháp dòng lệnh (cờ lạ, thiếu tham số); thiếu cờ khi không hỏi được (`missing_flag`); cần xác nhận mà không có terminal hay `--yes` (`confirmation_required`); server chưa có tính năng (`unsupported_feature`); giá trị cờ không hợp lệ (`invalid_flag`). Với `ttm hook …`: hành động bị luật chặn |
 
-Lỗi luôn in `error: <thông báo>` ra stderr; với `--json`, thêm `{"error": {"code", "message"}}` ra stdout (xem
-[Cấu hình](cau-hinh.md) và [Mã lỗi](ma-loi.md)).
+Lỗi in ra stderr theo một mẫu:
+
+```text
+✕ <tóm tắt>
+  rule: <rule>  field: <field>
+  Fix: <cách sửa>
+  Help: https://toantranmei.com/help/ttm/ma-loi#<rule>
+```
+
+Với `--plain`, dòng đầu là `ERROR: <tóm tắt>`. Với `--json`, thêm `{"error": {"code", "message", "status?", "rule?",
+"field?", "params?"}}` ra stdout (xem [Cấu hình](cau-hinh.md) và [Mã lỗi](ma-loi.md)).
+
+## Tính năng của server
+
+Lệnh mới chỉ gọi API khi `discovery.features` của server có chuỗi tương ứng; thiếu thì in
+`✕ This server does not support <x> yet` (rule `unsupported_feature`, thoát 2) và không gọi API.
+
+| Tính năng | Lệnh |
+| --- | --- |
+| `workflow_v2` | `project init` (mẫu, agent mẫu), `workflow`, `automation` |
+| `agent_v2` | `agent list/show/create/edit/pause/resume/archive/skills/mcp`, `skill`, `mcp-server` |
+| `ascode_v2` | `workflow validate --file`, `cr` (CR cấu hình), `sync` (thư mục `.ttm/` cấu hình) |
+| `templates` | `template` |
+| `membership` | dòng Mei-er của `whoami`/`login`, huy hiệu |
+| `confirmations` | xác nhận hai bước qua MCP (xem [Tool MCP](mcp-cong-cu.md)) |
 
 ## Tóm tắt
 
@@ -44,7 +69,7 @@ Lỗi luôn in `error: <thông báo>` ra stderr; với `--json`, thêm `{"error"
 | [`whoami`](#whoami) | Người dùng đang đăng nhập |
 | [`status`](#status) | Host, profile, token, workspace đang dùng |
 | [`doctor`](#doctor) | Kiểm tra môi trường |
-| [`workspace`](#workspace) | `list`, `switch`, `current` |
+| [`workspace`](#workspace) | `list`, `switch`, `current`, `members` |
 | [`token`](#token) | `list`, `create`, `revoke` (mở trang web) |
 | [`notes`](#notes) | `search`, `get`, `query`, `comments`, `create`, `edit`, `comment`, `rows`, `suggestions`, `resolve` |
 | [`project`](#project) | `init`, `link`, `open`, `status` |
@@ -52,8 +77,15 @@ Lỗi luôn in `error: <thông báo>` ra stderr; với `--json`, thêm `{"error"
 | [`task`](#task) | `list`, `show`, `claim`, `done`, `approve`, `split` |
 | [`rules`](#rules) | `apply` |
 | [`hook`](#hook) | `pre-bash`, `stop` (do agent gọi) |
-| [`runner`](#runner) | `up`, `down`, `status`, `config`, `install-service`, `uninstall-service` |
-| [`agent`](#agent) | `run`, `logs`, `stop` |
+| [`workflow`](#workflow) | `show`, `validate`, `simulate`, `diff`, `publish`, `upgrade`, `copy` |
+| [`automation`](#automation) | `list`, `show`, `test`, `enable`, `disable`, `runs` |
+| [`runner`](#runner) | `up`, `down`, `status`, `config` (+ `config mcp`, `config claude-token`), `install-service`, `uninstall-service` |
+| [`agent`](#agent) | `run`, `logs`, `stop`, `list`, `show`, `create`, `edit`, `pause`, `resume`, `archive`, `skills`, `mcp` |
+| [`skill`](#skill) | `list`, `push`, `pull`, `show`, `review`, `import` |
+| [`mcp-server`](#mcp-server) | `list`, `add`, `connect`, `remove` (MCP từ xa của workspace) |
+| [`cr`](#cr) | `list`, `show`, `approve`, `reject` |
+| [`inbox`](#inbox) | Hộp thư, `--watch`, `read` |
+| [`template`](#template) | `list`, `publish`, `install` |
 | [`mcp`](#mcp) | `install` |
 | [`self-update`](#self-update) | Cập nhật ttm |
 | [`completion`](#completion) | Script gợi ý lệnh |
@@ -73,7 +105,7 @@ Ghi host vào profile khi có `--host`/`TTM_HOST` hoặc profile chưa có host.
 | --- | --- | --- |
 | `--device` | | Device flow: in mã để nhập ở `<host>/activate`. Không dùng chung với `--token`. |
 | `--token <PAT>` | | Lưu một token có sẵn; `-` đọc từ stdin |
-| `--scope <SCOPE>` | `workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run offline_access` | Scope xin cấp, cách nhau bằng dấu cách (không áp cho `--token`) |
+| `--scope <SCOPE>` | `workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run factory:admin offline_access` | Scope xin cấp, cách nhau bằng dấu cách (không áp cho `--token`) |
 | `--no-browser` | | Không mở trình duyệt, chỉ in URL |
 
 ```sh
@@ -84,12 +116,18 @@ ttm --profile dev login --host http://localhost:3000 --scope "workspace:read not
 ```
 
 ```text
-Signed in to https://toantranmei.com as An Nguyễn <an@example.com>.
-Profile `default`, token stored in keyring.
+✓ Signed in as An Nguyễn <an@example.com>
+  host https://toantranmei.com · profile default · token in keyring
+✦ Mei-er since 2025-11  Thank you for being a Mei-er. You keep this going.
+Next: ttm project init
 ```
 
+Thành viên Mei-er có thêm một dòng vàng gold (hạng, tháng bắt đầu, lời cảm ơn theo hạng; đúng ngày kỷ niệm có lời chúc).
+`Next:` là `ttm project init` khi thư mục chưa liên kết project, ngược lại `ttm whoami`. Token cũ thiếu `factory:admin`
+vẫn dùng được; lệnh quản trị báo `insufficient_scope` và gợi ý `ttm login`.
+
 JSON: `host`, `profile`, `method` (`browser` | `device` | `token`), `stored_in` (`keyring` | `file` | `env`), `user`
-(hoặc `null` khi token thiếu `workspace:read`).
+(hoặc `null` khi token thiếu `workspace:read`), `meta.membership` (`{tier, status, since, until, badge}` hoặc `null`).
 
 ## logout
 
@@ -101,7 +139,9 @@ Thu hồi token truy cập và refresh token trên server, rồi xoá khỏi key
 không xác nhận. Không bỏ được `TTM_TOKEN` (chỉ cảnh báo).
 
 ```text
-Signed out of https://toantranmei.com (profile `default`).
+✓ Signed out of https://toantranmei.com
+  profile default · revoked on the server: yes
+Next: ttm login
 ```
 
 JSON: `host`, `profile`, `revoked` (server xác nhận), `removed` (có token bị xoá khỏi máy).
@@ -116,12 +156,19 @@ Gọi `/me` (cần `workspace:read`).
 
 ```text
 An Nguyễn <an@example.com>
-host: https://toantranmei.com  profile: default
-workspace: Team Aurora (0190f3a2-8d2f-7c66-8e1b-4d3c2f5a6b71)
+     user  An Nguyễn
+    email  an@example.com
+     host  https://toantranmei.com
+  profile  default
+workspace  Team Aurora (0190f3a2-8d2f-7c66-8e1b-4d3c2f5a6b71)
+✦ Mei-er since 2025-11  Thank you for being a Mei-er. You keep this going.
 ```
 
-JSON: `host`, `profile`, `user` (`id`, `email`, `name`, `avatar_url`, `locale`, `plan`), `workspace` (`id`, `name`,
-`kind`, `role`, `slug` hoặc `null`).
+Người chưa là thành viên thấy một dòng mờ `Support toantranmei → https://toantranmei.com/mei-er` (chỉ ở `whoami`, không
+lệnh nào khác nhắc). Với `--plain`: `user: An Nguyễn`… và huy hiệu `[Mei-er]`.
+
+JSON: `host`, `profile`, `user` (`id`, `email`, `name`, `avatar_url`, `locale`, `plan`, `membership?`), `workspace` (`id`,
+`name`, `kind`, `role`, `slug` hoặc `null`), `meta.membership`.
 
 ## status
 
@@ -132,12 +179,15 @@ ttm status
 Những gì máy này sẽ dùng; không cần đăng nhập hay mạng (luôn thoát 0).
 
 ```text
-ttm 0.1.6
-host:      https://toantranmei.com
-profile:   default (/Users/an/.config/ttm/config.toml)
-token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
-workspace: not chosen (ttm workspace switch)
-server:    API v1 (min ttm 0.1.0), features: notee, factory
+✓ Signed in to https://toantranmei.com
+  version  ttm 0.2.0
+     host  https://toantranmei.com
+  profile  default (/Users/an/.config/ttm/config.toml)
+    token  ✓ ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
+  keyring  ✓ OS keyring
+workspace  not chosen
+   server  ✓ API v1 (min ttm 0.1.0), features: notee, factory, workflow_v2, agent_v2
+Next: ttm workspace switch <name>
 ```
 
 JSON: `version`, `host`, `profile`, `config_file`, `signed_in`, `token` (`source`, `masked`, `expires_at`, `expired`,
@@ -153,15 +203,21 @@ Mỗi dòng một kiểm tra: `host`, `discovery` (tải mới, không dùng b�
 `/me`), `keyring`, `git`, `claude`, `ttm-mcp`. Mức `ok`, `warn`, `FAIL`. **Thoát 1 nếu có `FAIL`**.
 
 ```text
-[ok  ] host       https://toantranmei.com (profile default)
-[ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.6, server API v1
-[ok  ] token      ttm_oat_Ab12… (keyring) as an@example.com
-[ok  ] keyring    OS keyring available
-[ok  ] git        git version 2.50.1
-[warn] claude     Claude Code not found on PATH (needed by ttm runner)
-[ok  ] ttm-mcp    /Users/an/.cargo/bin/ttm-mcp
+! 1 warning(s), no failure
+CHECK      STATUS  DETAIL
+────────────────────────────────────────────────────────────────────────
+host       ✓       https://toantranmei.com (profile default)
+discovery  ✓       api_base https://toantranmei.com/api/v1
+version    ✓       ttm 0.2.0, server API v1
+token      ✓       ttm_oat_Ab12… (keyring) as an@example.com
+keyring    ✓       OS keyring available
+git        ✓       git version 2.50.1
+claude     !       Claude Code not found on PATH (needed by ttm runner)
+ttm-mcp    ✓       /Users/an/.cargo/bin/ttm-mcp
+Next: install Claude Code, then ttm doctor
 ```
+
+`--plain`: `ok`, `warn`, `FAIL` thay cho `✓`, `!`, `✕`, không có dòng kẻ dưới tiêu đề.
 
 JSON: mảng `{name, level, detail}`.
 
@@ -173,11 +229,14 @@ JSON: mảng `{name, level, detail}`.
 ttm workspace list
 ```
 
-Các workspace bạn là thành viên; `*` đánh dấu workspace hiện tại của profile.
+Các workspace bạn là thành viên; `●` (`--plain`: `*`) đánh dấu workspace hiện tại của profile.
 
 ```text
-* Cá nhân  personal · owner · 0190f3a2-7c1e-7b55-9d0a-3c2b1e4f5a60
-  Team Aurora [aurora]  team · member · 0190f3a2-8d2f-7c66-8e1b-4d3c2f5a6b71
+2 workspace(s), current: Team Aurora
+   NAME         SLUG    ROLE    KIND      ID
+────────────────────────────────────────────────────────────────────────
+   Cá nhân      -       owner   personal  0190f3a2-7c1e-7b55-9d0a-3c2b1e4f5a60
+●  Team Aurora  aurora  member  team      0190f3a2-8d2f-7c66-8e1b-4d3c2f5a6b71
 ```
 
 JSON: mảng `{id, name, kind, role, slug?, current}`.
@@ -192,7 +251,9 @@ ttm workspace switch <WORKSPACE>
 phần đầu tên nếu chỉ khớp một workspace. Khớp nhiều: `matches several workspaces (…); use the id`.
 
 ```text
-Current workspace for profile `default`: Team Aurora (0190f3a2-8d2f-7c66-8e1b-4d3c2f5a6b71)
+✓ Current workspace: Team Aurora
+  id 0190f3a2-8d2f-7c66-8e1b-4d3c2f5a6b71 · profile default
+Next: ttm project init
 ```
 
 ### workspace current
@@ -202,6 +263,22 @@ ttm workspace current
 ```
 
 In tên và id (tên chỉ khi server trả lời được). JSON: `profile`, `workspace_id`, `workspace`.
+
+### workspace members
+
+```text
+ttm workspace members [--workspace <ID>]
+```
+
+Thành viên của workspace (mặc định workspace hiện tại): tên kèm huy hiệu Mei-er, email, vai trò. Cần `workspace:read`.
+
+```text
+NAME                    EMAIL              ROLE
+An Nguyễn [Mei-er]      an@example.com     owner
+Lan                     lan@example.com    member
+```
+
+JSON: mảng `{user{id, name, email, avatar_url, membership?}, role, membership?}`.
 
 ## token
 
@@ -297,7 +374,10 @@ ttm notes create (--parent <PAGE> | --database <DATABASE> | --workspace <WORKSPA
 | `--icon <ICON>` | Emoji |
 
 ```text
-Created Ghi chú họp (https://toantranmei.com/notes/0190f3c4-…)
+✓ Created Ghi chú họp
+  id 0190f3c4-…
+  https://toantranmei.com/notes/0190f3c4-…
+Next: ttm notes get 0190f3c4-…
 ```
 
 JSON: `{id, title, url}`.
@@ -398,19 +478,38 @@ JSON: `id`, `status`, `stale_change_ids`.
 ### project init
 
 ```text
-ttm project init --key <KEY> [--name <NAME>] [--repo-url <URL>] [--workspace <ID>]
+ttm project init [--name <NAME>] [--key <KEY>] [--workspace <ID>] [--repo <URL>] [--workflow <W>]
+                 [--agents create|reuse|none] [--runner this|none] [--yes]
 ```
 
-Tạo project trên server cho repo hiện tại rồi liên kết (như `link`). Cần `factory:write`.
+Tạo project trên server cho repo hiện tại rồi liên kết (như `link`). Cần `factory:write`. Trong terminal là **wizard**: tên
+→ key (gợi ý từ tên, `^[A-Z][A-Z0-9]{1,9}$`) → workspace → repo → workflow → agent mẫu (xem trước từ
+`GET /factory/agent-presets`; agent cùng vai trò đã có thì hỏi dùng lại hay tạo mới) → runner → xác nhận. Mọi câu hỏi có
+cờ; `--yes` lấy mặc định. Xong wizard, stderr có dòng `Equivalent: ttm project init … --yes`. Tương thích 0.1.6: không
+phải terminal, có `--key` mà không có `--workflow`/`--agents`/`--runner` thì tạo ngay như cũ, không hỏi. Workflow, agent
+mẫu cần tính năng `workflow_v2`.
 
-| Cờ | Mặc định |
-| --- | --- |
-| `--key <KEY>` | (bắt buộc) tiền tố key task, được viết hoa |
-| `--name <NAME>` | tên thư mục gốc của repo |
-| `--repo-url <URL>` | `git remote get-url origin` |
-| `--workspace <ID>` | workspace hiện tại |
+| Cờ | Mặc định | Việc |
+| --- | --- | --- |
+| `--name <NAME>` | tên thư mục gốc của repo | Tên project |
+| `--key <KEY>` | gợi ý từ tên | Tiền tố key task (2–10 chữ hoa/số, bắt đầu bằng chữ) |
+| `--workspace <ID>` | workspace hiện tại | |
+| `--repo <URL>` (cũ: `--repo-url`) | `git remote get-url origin` | |
+| `--workflow <W>` | `balanced` | `professional` (9 trạng thái, 6 agent), `balanced` (5 trạng thái, 3 agent, ít token hơn khoảng 40%), `kanban`, `scrum`, `autopilot` hoặc slug mẫu |
+| `--agents <A>` | `create` | `create` tạo agent mẫu, `reuse` dùng lại agent cùng vai trò, `none` không agent |
+| `--runner <R>` | `this` | `this`: ghi `[repos] KEY = <thư mục này>` vào `runner.toml`; `none` |
 
-JSON: nội dung `project.toml`.
+```text
+OK: Created project WEB (Web todo)
+  linked /home/an/web-todo · plan rev 1 · workflow balanced
+AGENT              CODE   STATUS
+[agent] DEV · Code  dev    created
+[agent] QA · Test   qa     created
+[agent] Lead        lead   reused
+Next: ttm runner up
+```
+
+JSON: nội dung `project.toml` (+ `agents[{code, agent_id, created}]` khi có).
 
 ### project link
 
@@ -421,8 +520,10 @@ ttm project link <PROJECT>
 Liên kết repo với project có sẵn (key hoặc id), ghi `.ttm/project.toml`, `.ttm/plan`, `.ttm/base`, `.ttm/.gitignore`.
 
 ```text
-Linked /Users/an/code/aurora to AUR (Aurora), plan rev 42.
-Commit .ttm/project.toml and .ttm/plan; run `ttm rules apply` to install the project rules.
+✓ Linked /Users/an/code/aurora to AUR (Aurora)
+  plan rev 42
+  Commit .ttm/project.toml and .ttm/plan.
+Next: ttm rules apply
 ```
 
 ### project open
@@ -476,18 +577,34 @@ Chạy trong repo đã liên kết (trừ `show`, `claim`, `done`, `approve`, `s
 | `ttm task split <KEY> -f <FILE>` | `-f`, `--file` (bắt buộc; `-` = stdin) | Tạo task con từ JSON (khoá camelCase hoặc snake_case, xem [Factory](factory.md)) | `factory:write` |
 
 ```text
-AUR-12     doing          DEV       Dev bot          Đăng nhập bằng Google
+AUR · 2 task(s)
+   KEY     TITLE                          ROLE  ASSIGNEE            EST
+────────────────────────────────────────────────────────────────────────
+●  AUR-12  Đăng nhập bằng Google          DEV   🤖 Dev bot ✦ Mei-er   3
+◐  AUR-13  Trang hồ sơ                    QA    👤 Lan                2
+Next: ttm task show AUR-12
 ```
 
 ```text
-AUR-12  Đăng nhập bằng Google
-state: doing  role: DEV  assignee: Dev bot
+╭─ AUR-12 · Đăng nhập bằng Google ─╮
+│ ● doing                          │
+╰──────────────────────────────────╯
+   status  doing (in-progress)
+     role  DEV
+ assignee  🤖 Dev bot
+delegator  👤 An ✦ Mei-er
+
+Acceptance criteria
+  ✓ Google button shows
+  ○ Email is verified
 
 Cho phép đăng nhập bằng tài khoản Google.
+
+Next: ttm agent run AUR-12
 ```
 
-Đầu ra khác: `AUR-12 is now yours.`, `AUR-12 is now done.`, `AUR-12 approved; state done.`, `AUR-12 rejected; state doing.` (`--reject`),
-`2 subtask(s) created under AUR-12.` JSON: đối tượng task (camelCase, `id` là key), hoặc `{tasks, warnings}` cho `split`.
+Đầu ra khác: `✓ AUR-12 is now yours`, `✓ AUR-12 is now done`, `✓ AUR-12 approved`, `✓ AUR-12 rejected` (`--reject`),
+`✓ 2 subtask(s) created under AUR-12` JSON: đối tượng task (camelCase, `id` là key), hoặc `{tasks, warnings}` cho `split`.
 
 ## rules
 
@@ -498,7 +615,7 @@ ttm rules apply
 ```
 
 Ghi khối `<!-- ttm:begin -->…<!-- ttm:end -->` vào `AGENTS.md` và `CLAUDE.md`, gộp hook vào `.claude/settings.json`, lưu
-`.ttm/cache/rules.json`. In các file đã đổi hoặc `Rules already up to date.` JSON: `changed`, `checks`.
+`.ttm/cache/rules.json`. In các file đã đổi hoặc `✓ Rules already up to date` JSON: `changed`, `checks`.
 
 ## hook
 
@@ -533,8 +650,39 @@ Cờ của `runner config`:
 | `--name <NAME>` | tên máy | Tên hiện trên web |
 | `--auto-merge <true\|false>` | `false` | Tự merge đầu merge queue và push |
 
+### runner config mcp
+
+MCP local của máy này (bảng `[mcp.local.<name>]` trong `runner.toml`, xem [Runner](runner.md)). File được sửa giữ nguyên
+comment. Server chỉ được báo tên, `allow` và `team_jobs`, không bao giờ lệnh hay biến môi trường.
+
+| Lệnh | Cờ | Việc |
+| --- | --- | --- |
+| `ttm runner config mcp add <NAME> --command <CMD>` | `--arg <ARG>` (lặp), `--env K=env:VAR` hoặc `K=<giá trị không bí mật>` (lặp) | Thêm/thay một MCP local. Tên `^[a-z0-9][a-z0-9-]{0,31}$`, khác `ttm`. Giá trị trông như token bị từ chối: dùng `env:VAR` |
+| `ttm runner config mcp allow <AGENT>` | `--mcp <NAME>` (lặp; mặc định mọi MCP local) | Cho agent (handle) dùng |
+| `ttm runner config mcp deny <AGENT>` | `--mcp <NAME>` (lặp) | Bỏ quyền |
+| `ttm runner config mcp team-jobs <NAME> on\|off` | | Cho job của người khác giao dùng MCP này (mặc định `off`) |
+| `ttm runner config mcp remove <NAME>` | | Xoá |
+| `ttm runner config mcp list` | | Bảng tên, lệnh, `allow`, team jobs + dòng "Announced to the server: names and allowed agents only" |
+
+```sh
+ttm runner config mcp add github-local --command npx --arg -y --arg @modelcontextprotocol/server-github --env GITHUB_TOKEN=env:GITHUB_TOKEN
+ttm runner config mcp allow dev --mcp github-local
+```
+
+### runner config claude-token
+
+```text
+printf %s "$TOKEN" | ttm runner config claude-token
+ttm runner config claude-token --remove
+```
+
+Lưu (vào keyring) token OAuth Claude Code từ `claude setup-token`, đọc trên stdin, dùng cho job của đồng đội trong thư mục
+cấu hình Claude riêng mỗi run. Có token thì runner báo tính năng `team_isolation`. Xem [Runner](runner.md).
+
+`ttm runner status` có thêm `features` và bảng MCP local (tên, allow, team jobs).
+
 JSON của `status`: `runner_id`, `name`, `running`, `pid`, `capacity`, `accept_team_jobs`, `harnesses`, `repos`,
-`worktree_root`. Của `config`: nội dung `runner.toml`. Của `down`: `stopped`, `pid`. Của `install-service`: `installed`, `path` (`PATH` của dịch vụ; `null` trên Windows). Của
+`worktree_root`, `features`, `local_mcp`. Của `config`: nội dung `runner.toml`. Của `down`: `stopped`, `pid`. Của `install-service`: `installed`, `path` (`PATH` của dịch vụ; `null` trên Windows). Của
 `uninstall-service`: `removed` (`null` khi chưa cài).
 
 ## agent
@@ -546,7 +694,134 @@ JSON của `status`: `runner_id`, `name`, `running`, `pid`, `capacity`, `accept_
 | `ttm agent stop <RUN>` | | Kill switch |
 
 JSON của `run`: `run_id`, `status`, `branch`, `worktree`, `pr_url`, `paused_until`. `logs --json` in mỗi sự kiện một dòng
-JSON (`id`, `at`, `kind`, `message`, `data`).
+JSON (`id`, `at`, `kind`, `message`, `data`). `logs` dạng người đọc: `10:00:02 › edited src/login.rs` (glyph theo `kind`:
+`·` thought, `›` action, `◆` mcp_call, `✕` error, `NN%` progress).
+
+### Quản trị agent
+
+Cần tính năng `agent_v2`; mọi lệnh có `--workspace <ID>` (mặc định workspace hiện tại). `<AGENT>` là handle (`dev`,
+`@dev`), tên hoặc id. Đọc: `factory:read`; sửa: `factory:admin` (owner/admin của workspace).
+
+| Lệnh | Việc |
+| --- | --- |
+| `ttm agent list` | Bảng: 🤖 tên + huy hiệu chủ workspace, `@handle`, vai trò, model, skill (`◐` = có bản chờ duyệt), MCP, trạng thái |
+| `ttm agent show <AGENT>` | Header + danh tính git, hồ sơ, skill, MCP, dự án |
+| `ttm agent create [--preset <CODE>] [trường]` | Wizard trong terminal (preset hoặc từng câu); `--yes` + cờ cho script |
+| `ttm agent edit <AGENT> [trường] [--git-email <E>] [--git-name <N>] [--bio <TEXT>]` | Chỉ qua cờ; `""` = về mặc định |
+| `ttm agent pause\|resume\|archive <AGENT>` | Có xác nhận (`--yes`) |
+| `ttm agent skills add <AGENT> <SLUG>[@<V>]` / `skills rm <AGENT> <SLUG>` | Gắn (ghim phiên bản với `@V`) / gỡ skill |
+| `ttm agent mcp add <AGENT> <SERVER\|local:NAME> [--tools a,b\|*] [--required]` / `mcp rm <AGENT> <SERVER>` | Cấp / bỏ MCP; `--required` = chỉ chạy trên runner cấp được MCP local đó |
+
+Trường của `create`/`edit`: `--name`, `--handle`, `--role`, `--model` (`opus`, `sonnet`, `haiku` hoặc id), `--budget`
+(token mỗi run), `--daily-budget`, `--turns`, `--permission` (`read`, `edit`, `full`, `custom`), `--skills a,b`,
+`--instructions-file <FILE>` (`-` = stdin).
+
+```text
+3 agent(s)
+   NAME              HANDLE  ROLE  MODEL   SKILLS        MCP  STATUS
+🤖 DEV · Code ✦ Mei-er @dev  DEV   sonnet  ttm-tdd ◐     1    active
+```
+
+## workflow
+
+Cần `workflow_v2` (`validate --file` cần `ascode_v2`). `--project <KEY>` mặc định là project đã liên kết. Sửa cần
+`factory:admin`.
+
+| Lệnh | Việc |
+| --- | --- |
+| `ttm workflow show [--version <N\|draft>]` | Header (tên · vN · draft?), bảng trạng thái (glyph theo category, tên, vai trò, tự giao 🤖/👤, WIP), bảng chuyển (từ → tới, guard, ⚡ số luật) |
+| `ttm workflow validate [--file .ttm/workflow.yaml]` | Có `--file`: kiểm file as-code ở server; không: kiểm draft. Mỗi lỗi một dòng `✕ <rule\|code> <field>: <message>`; **thoát 1 khi có lỗi** |
+| `ttm workflow simulate <TASK> --to <STATUS> [--version <V>] [--roles a,b]` | Từng bước ✓/✕ + lý do; thoát 1 khi bị chặn |
+| `ttm workflow diff [<FROM> <TO>]` | Mặc định phiên bản của project và draft; `+`/`-`/`~` theo trạng thái, chuyển, luật |
+| `ttm workflow publish [--note <TEXT>]` | Hiện diff → xác nhận → phát hành draft thành phiên bản mới (`note` ≤ 280) |
+| `ttm workflow upgrade [--to <N>]` | Hiện preview (bảng task được chuyển trạng thái) → xác nhận → nâng project |
+| `ttm workflow copy [--name <NAME>]` | Chép thành workflow sửa được của workspace |
+
+```text
+OK: AUR-12 can move to qc
+  ok  doing -> qc  (transition t3, 1 rule)
+```
+
+## automation
+
+Luật Tự động hoá của project (cần `workflow_v2`; `--project <KEY>`). `enable`/`disable` cần `factory:admin`.
+
+| Lệnh | Việc |
+| --- | --- |
+| `ttm automation list` | Bảng: `●`/`⏸` bật/tắt, tên, trigger tóm tắt, số lượt 7 ngày |
+| `ttm automation show <RULE>` | Khi / Nếu / Thì dạng cây |
+| `ttm automation test <RULE> --task <KEY>` | Chạy thử (không đổi gì): mỗi hành động ✓ sẽ làm / ✕ bỏ qua + lý do |
+| `ttm automation enable\|disable <RULE>` | Bật / tắt |
+| `ttm automation runs [<RULE>] [--limit 20]` | Lượt chạy gần đây |
+
+`<RULE>`: id, slug hoặc tên.
+
+## skill
+
+Skill của workspace (cần `agent_v2`; `--workspace <ID>`). Xem [Runner](runner.md) cho cách runner cài skill.
+
+| Lệnh | Việc |
+| --- | --- |
+| `ttm skill list [--tag <T>] [--builtin]` | Bảng skill (`--builtin` kèm skill dựng sẵn) |
+| `ttm skill push <DIR> [--slug <S>] [--note <TEXT>]` | Kiểm cục bộ (SKILL.md + front matter, ≤ 5 MB, ≤ 200 file, đường dẫn an toàn), hiện manifest + sha256, tạo skill nếu chưa có (`--slug` mặc định tên thư mục), tải zip tất định lên → `v<N> pending review` hoặc `v<N> ready`. Không đổi gì → `No changes` |
+| `ttm skill pull <SLUG> [--version <V>] [--dir <DIR>]` | Tải, kiểm sha, giải nén (mặc định `.ttm/skills/<slug>` trong repo đã liên kết, ngược lại `./<slug>`) |
+| `ttm skill show <SLUG> [--version <V>]` | Phiên bản và trạng thái duyệt |
+| `ttm skill review list` | Hàng chờ duyệt |
+| `ttm skill review approve <SLUG>@<V> [--note <TEXT>]` | Hiện diff với bản hiện hành → xác nhận → duyệt |
+| `ttm skill review reject <SLUG>@<V> --note <TEXT>` | Từ chối (cần ghi chú) |
+| `ttm skill import --git <URL> --path <P> [--ref main] [--slug <S>]` | Nhập từ GitHub/GitLab |
+
+```text
+OK: ttm-tdd v3 pending review
+  sha256 3c9e7159… · 3 file(s) · 1.2 KB
+Next: ttm skill review approve ttm-tdd@3
+```
+
+## mcp-server
+
+MCP từ xa của workspace, agent dùng qua gateway của server (cần `agent_v2`; `--workspace <ID>`).
+
+| Lệnh | Việc |
+| --- | --- |
+| `ttm mcp-server list` | Bảng: tên, URL (cắt), auth, trạng thái, số tool, đã kết nối (workspace/me) |
+| `ttm mcp-server add [--name] [--url] [--transport http\|sse] [--auth none\|workspace\|delegator] [--secret-header <H>] [--secret-env <VAR>]` | Wizard; secret chỉ qua `--secret-env VAR` hoặc nhập ẩn trong terminal, không bao giờ là giá trị cờ |
+| `ttm mcp-server connect <NAME> [--for workspace\|me] [--no-browser]` | Mở trang OAuth (hoặc chỉ in URL), chờ tới khi kết nối (hỏi lại mỗi 2 giây, tối đa 5 phút) |
+| `ttm mcp-server remove <NAME>` | Xác nhận, cảnh báo agent đang dùng |
+
+## cr
+
+Change request: kế hoạch (từ `ttm sync`) và cấu hình (workflow, luật, agent, skill; cần `ascode_v2`).
+
+| Lệnh | Cờ | Việc |
+| --- | --- | --- |
+| `ttm cr list` | `--project <KEY>`, `--kind plan\|workflow\|rule\|agent\|skill`, `--status pending\|applied\|rejected\|all` (mặc định `pending`) | Bảng: id ngắn, loại, trạng thái, tác giả + huy hiệu, số file, tuổi |
+| `ttm cr show <ID>` | | Header + diff từng file |
+| `ttm cr approve <ID>` | | Xác nhận rồi áp dụng (409 `stale` khi server đã đổi) |
+| `ttm cr reject <ID>` | `--note <TEXT>` | Từ chối |
+
+## inbox
+
+```text
+ttm inbox [--unread] [--kind factory,…] [--watch] [--interval 5]
+ttm inbox read [<ID>… | --all]
+```
+
+Thông báo của bạn: bảng `●` chưa đọc, loại/lý do, nội dung (cắt), tuổi, link. `--watch` in danh sách rồi hỏi lại mỗi
+`--interval` giây (tối thiểu 2), mỗi thông báo mới một dòng; `Ctrl-C` thoát êm; với `--json` in NDJSON.
+
+```text
+● 14:02 skill_review  Skill ttm-tdd v3 waiting for review → https://toantranmei.com/factory/skills/…
+```
+
+## template
+
+Thư viện mẫu công khai (cần `templates`).
+
+| Lệnh | Việc |
+| --- | --- |
+| `ttm template list [--kind workflow\|agent\|skill\|rule-pack\|bundle] [--query <Q>]` | Tìm mẫu |
+| `ttm template publish --from workflow\|agent\|skill <SOURCE> [--slug] [--name] [--price <VND>] [--workspace]` | Xem trước khi xuất (hiện mục bị loại) → xác nhận → phát hành. Giá đặt trên web: lệnh in link `/me/items/<id>` |
+| `ttm template install <SLUG> [--workspace <ID>]` | Preview (sẽ tạo: trạng thái, luật, agent, skill + cờ "runs code") → xác nhận → cài; có skill chờ duyệt thì `Next: ttm skill review list` |
 
 ## mcp
 
