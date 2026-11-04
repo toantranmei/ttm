@@ -95,6 +95,41 @@ pub trait Asker: Send + Sync {
     async fn confirm(&self, message: &str) -> Option<bool>;
 }
 
+/// Lines of the preview shown in an elicitation question.
+pub const ELICIT_MAX_LINES: usize = 40;
+/// Characters of the preview shown in an elicitation question.
+pub const ELICIT_MAX_CHARS: usize = 4000;
+
+/// The question of an elicitation: the summary, the preview Markdown (several lines, cut to
+/// [`ELICIT_MAX_LINES`] / [`ELICIT_MAX_CHARS`], without its `Next:` line), then "Apply this change?".
+pub fn elicitation_message(summary: &str, preview_markdown: &str) -> String {
+    let mut lines: Vec<&str> = preview_markdown
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("**Next:**"))
+        .collect();
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    let mut cut = lines.len() > ELICIT_MAX_LINES;
+    lines.truncate(ELICIT_MAX_LINES);
+    let mut preview = lines.join("\n");
+    if preview.chars().count() > ELICIT_MAX_CHARS {
+        preview = preview.chars().take(ELICIT_MAX_CHARS).collect();
+        cut = true;
+    }
+    if cut {
+        preview.push_str("\n…");
+    }
+    let mut out = String::new();
+    if !summary.is_empty() {
+        out.push_str(summary.trim());
+        out.push_str("\n\n");
+    }
+    out.push_str(&preview);
+    out.push_str("\n\nApply this change?");
+    out
+}
+
 /// The answer of the elicitation form.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ConfirmAnswer {
@@ -264,8 +299,13 @@ impl<B: Backend> ToolSet<B> {
             .and_then(|c| c.as_text())
             .map(|t| t.text.clone())
             .unwrap_or_default();
-        let message = crate::md::cell(&preview_text);
-        let Some(yes) = asker.confirm(&format!("{message}\n\nApply this change?")).await else {
+        let summary = value
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let message = elicitation_message(&summary, &preview_text);
+        let Some(yes) = asker.confirm(&message).await else {
             return Ok(result);
         };
         let backend = self.backend.as_ref();
@@ -475,6 +515,22 @@ impl<B: Backend> ServerHandler for ToolSet<B> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn elicitation_keeps_lines_and_cuts_long_previews() {
+        let preview = "**! Confirm: Publish v3**\n\n| State | Change |\n| --- | --- |\n| qc | added |\n\n**Next:** `factory-confirm` with confirm_id c1\n";
+        let m = super::elicitation_message("Publish workflow Aurora v3", preview);
+        assert!(
+            m.starts_with("Publish workflow Aurora v3\n\n**! Confirm: Publish v3**"),
+            "{m}"
+        );
+        assert!(m.contains("| qc | added |\n"), "multi-line: {m}");
+        assert!(!m.contains("factory-confirm"), "{m}");
+        assert!(m.ends_with("Apply this change?"));
+        let long: String = (0..100).map(|i| format!("line {i}\n")).collect();
+        let m = super::elicitation_message("", &long);
+        assert!(m.contains("line 39\n…") && !m.contains("line 40"), "{m}");
+    }
+
     use super::*;
     use crate::{BackendError, SelfInfo};
     use async_trait::async_trait;
