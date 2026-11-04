@@ -18,7 +18,7 @@ Full documentation (Vietnamese, English, Chinese): <https://toantranmei.com/help
 | --- | --- |
 | Shell (macOS, Linux) | `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/toantranmei/ttm/releases/latest/download/ttm-cli-installer.sh \| sh` |
 | PowerShell (Windows) | `powershell -ExecutionPolicy Bypass -c "irm https://github.com/toantranmei/ttm/releases/latest/download/ttm-cli-installer.ps1 \| iex"` |
-| Homebrew (soon) | `brew install toantranmei/tap/ttm` |
+| Homebrew | `brew install toantranmei/tap/ttm` |
 | npm (soon) | `npm install -g @toantranmei/cli` (and `npx @toantranmei/mcp` for the MCP server) |
 | Cargo | `cargo install ttm-cli ttm-mcp` |
 

@@ -201,15 +201,16 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PLAN: ${{ needs.plan.outputs.val }}
-      GITHUB_USER: "axo bot"
-      GITHUB_EMAIL: "admin+bot@axo.dev"
-    # Off until the tap exists and HOMEBREW_TAP_TOKEN is set: repo variable PUBLISH_HOMEBREW=true turns it on.
+      GITHUB_USER: "ttm release"
+      GITHUB_EMAIL: "toantran.mei@gmail.com"
+    # Needs the HOMEBREW_TAP_DEPLOY_KEY secret; repo variable PUBLISH_HOMEBREW=true turns it on.
     if: ${{ vars.PUBLISH_HOMEBREW == 'true' && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
     steps:
       - uses: actions/checkout@v4
         with:
           repository: "toantranmei/homebrew-tap"
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # Write-only deploy key of the tap repo (no personal token involved).
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
       - name: Fetch homebrew formulae
         uses: actions/download-artifact@v4
         with:
