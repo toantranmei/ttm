@@ -220,21 +220,23 @@ pub fn task_role(prompt: &str) -> Option<String> {
     })
 }
 
-/// Whether `name` can be part of a script file name (no path separator, no `..`).
-fn safe_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+/// `name` reduced to `[A-Za-z0-9_-]` for a script file name (`UI/UX` → `UIUX`; no path separator, no `..`);
+/// `None` when nothing is left.
+pub fn file_part(name: &str) -> Option<String> {
+    let kept: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    (!kept.is_empty()).then_some(kept)
 }
 
 /// Script files tried for a job, in order.
 pub fn candidates(vars: &Vars) -> Vec<String> {
     let mut out = Vec::new();
-    if safe_name(&vars.task_key) {
-        out.push(format!("{}.json", vars.task_key));
+    if let Some(key) = file_part(&vars.task_key) {
+        out.push(format!("{key}.json"));
     }
-    if let Some(role) = vars.task_role.as_deref().filter(|r| safe_name(r)) {
+    if let Some(role) = vars.task_role.as_deref().and_then(file_part) {
         out.push(format!("role-{role}.json"));
     }
     out.push("default.json".into());
@@ -652,10 +654,16 @@ mod tests {
         assert!(find_script(dir.path(), &v).unwrap().ends_with("TODO-3.json"));
         let odd = Vars {
             task_key: "../x".into(),
-            task_role: Some("a/b".into()),
+            task_role: Some("UI/UX".into()),
+            ..v.clone()
+        };
+        assert_eq!(candidates(&odd), ["x.json", "role-UIUX.json", "default.json"]);
+        let empty = Vars {
+            task_key: "/..".into(),
+            task_role: Some("//".into()),
             ..v
         };
-        assert_eq!(candidates(&odd), ["default.json"]);
+        assert_eq!(candidates(&empty), ["default.json"]);
     }
 
     #[test]
