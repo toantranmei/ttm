@@ -122,6 +122,23 @@ Lệnh chạy `claude mcp add --scope user ttm -- /Users/an/.cargo/bin/ttm-mcp`.
 Claude gọi `notee-search` rồi `notee-fetch` bằng token của bạn. Ứng dụng khác (Claude Desktop, Cursor, Codex, VS Code) và
 MCP từ xa: xem [Kết nối MCP](mcp.md).
 
+## 7. Tạo dự án Factory (tuỳ chọn)
+
+Trong repo của bạn:
+
+```sh
+ttm project init
+```
+
+Wizard hỏi tên, key, workspace, repo, workflow, agent mẫu và runner; mọi câu có cờ. Trong script hoặc CI, truyền đủ cờ và
+`--yes`:
+
+```sh
+ttm project init --name "Web todo" --key WEB --workflow balanced --agents create --runner this --yes
+```
+
+Xong: `ttm runner up` để máy này nhận job của agent. Xem [Factory](factory.md) và [Giao diện dòng lệnh](giao-dien.md).
+
 ## Tiếp theo
 
 - [Notee](notee.md): sửa page, đề xuất sửa, truy vấn database, comment.

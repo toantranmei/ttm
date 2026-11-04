@@ -1,17 +1,17 @@
 //! Git steps of a job (thin wrappers over the `git` and `gh` CLIs).
 
 use std::path::Path;
-use ttm_core::worktree::{GitError, git};
+use ttm_core::worktree::{GitError, git, git_env};
 
 /// Whether the worktree has uncommitted changes.
 pub fn is_dirty(dir: &Path) -> Result<bool, GitError> {
     Ok(!git(dir, &["status", "--porcelain"])?.is_empty())
 }
 
-/// Commits everything left uncommitted by the agent.
-pub fn commit_all(dir: &Path, message: &str) -> Result<(), GitError> {
-    git(dir, &["add", "-A"])?;
-    git(dir, &["commit", "-q", "-m", message]).map(drop)
+/// Commits everything left uncommitted by the agent, with the job's identity and hooks (`env`).
+pub fn commit_all(dir: &Path, message: &str, env: &[(String, String)]) -> Result<(), GitError> {
+    git_env(dir, &["add", "-A"], env)?;
+    git_env(dir, &["commit", "-q", "-m", message], env).map(drop)
 }
 
 pub fn head(dir: &Path) -> Result<String, GitError> {
@@ -31,8 +31,9 @@ pub fn has_remote(dir: &Path) -> bool {
     git(dir, &["remote", "get-url", "origin"]).is_ok()
 }
 
-pub fn push(dir: &Path, branch: &str) -> Result<(), GitError> {
-    git(dir, &["push", "-u", "origin", branch]).map(drop)
+/// Pushes with the job's environment (its hooks, e.g. `pre-push`, are chained).
+pub fn push(dir: &Path, branch: &str, env: &[(String, String)]) -> Result<(), GitError> {
+    git_env(dir, &["push", "-u", "origin", branch], env).map(drop)
 }
 
 /// Opens a pull request with the `gh` CLI when available; returns its URL.

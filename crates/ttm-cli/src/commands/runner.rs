@@ -1,7 +1,7 @@
 //! `ttm runner up | down | status | config | install-service | uninstall-service`.
 
 use crate::app::App;
-use crate::cli::{RunnerCommand, RunnerConfigArgs};
+use crate::cli::{RunnerCommand, RunnerConfigArgs, RunnerConfigSub, RunnerMcpCommand};
 use crate::output::emit;
 use crate::util::which;
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -15,6 +15,8 @@ use ttm_api::factory::RegisterRunner;
 use ttm_core::{CredentialStore, StoredToken};
 use ttm_runner::connection::MergeSetup;
 use ttm_runner::{Executor, Runner, RunnerConfig, SharedClient, capacity, harness, service};
+use ttm_ui::vocab::Phase;
+use ttm_ui::{Callout, Cell, Col, KeyValue, Status, Table, Token, next_line};
 
 /// The runner's own token is stored apart from the user's (`<profile>#runner@<host>`), and never read from TTM_TOKEN.
 fn runner_store(app: &App) -> (CredentialStore, String) {
@@ -23,6 +25,29 @@ fn runner_store(app: &App) -> (CredentialStore, String) {
         CredentialStore::new(&app.ctx.paths, use_keyring, None),
         format!("{}#runner", app.ctx.profile_name),
     )
+}
+
+/// Where the Claude Code OAuth token for teammates' jobs is kept (`<profile>#claude-team`, keyring or
+/// credentials.toml), never read from TTM_TOKEN.
+const CLAUDE_TEAM_HOST: &str = "https://claude.ai";
+
+fn claude_team_store(app: &App) -> (CredentialStore, String) {
+    let use_keyring = std::env::var("TTM_NO_KEYRING").map_or(true, |v| v.is_empty() || v == "0");
+    (
+        CredentialStore::new(&app.ctx.paths, use_keyring, None),
+        format!("{}#claude-team", app.ctx.profile_name),
+    )
+}
+
+/// The saved Claude Code token for teammates' jobs.
+pub fn team_claude_token(app: &App) -> Option<String> {
+    let (store, account) = claude_team_store(app);
+    store
+        .load(&account, CLAUDE_TEAM_HOST)
+        .ok()
+        .flatten()
+        .map(|(t, _)| t.access_token)
+        .filter(|t| !t.is_empty())
 }
 
 /// Everything needed to (re)register this machine, detached from `App` so the runner loop can renew its token.
@@ -104,6 +129,8 @@ pub async fn ensure_registered(
             harnesses: harness::installed(),
             max_parallel: capacity::effective(config.max_parallel),
             accept_team_jobs: config.accept_team_jobs,
+            features: ttm_runner::features(team_claude_token(app).is_some()),
+            local_mcp: ttm_runner::local_mcp::announce(&config.mcp),
         },
     };
     let fresh =
@@ -145,6 +172,9 @@ pub fn executor(app: &App, client: SharedClient, config: RunnerConfig, echo: boo
         ttm_exe: std::env::current_exe()?,
         ttm_mcp_exe: ttm_mcp_path(),
         echo,
+        ui: app.ui.clone(),
+        config_dir: Some(app.ctx.paths.config_dir.clone()),
+        team_claude_token: team_claude_token(app),
     })
 }
 
@@ -182,7 +212,10 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
             let executor = Arc::new(executor(&app, shared.clone(), config, false)?);
             std::fs::create_dir_all(&app.ctx.paths.cache_dir)?;
             std::fs::write(pid_file(&app), std::process::id().to_string())?;
-            eprintln!("Runner {runner_id} up: {capacity} agent(s) at once. Ctrl-C to stop.");
+            app.ui.eprint(
+                &Callout::success(format!("Runner {runner_id} up: {capacity} agent(s) at once"))
+                    .detail("Ctrl-C to stop. Each run prints one line when it starts and when it ends."),
+            );
             let (tx, rx) = tokio::sync::watch::channel(false);
             tokio::spawn(async move {
                 wait_for_signal().await;
@@ -196,6 +229,7 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 token_expires,
                 renew: Some(registrar.renew()),
                 merge,
+                config_file: Some(RunnerConfig::path(&config_dir)),
             }
             .run(rx)
             .await;
@@ -210,12 +244,14 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 Some(pid) => kill(pid),
                 None => false,
             };
-            emit(app.json, &json!({ "stopped": stopped, "pid": pid }), || {
+            emit(&app, &json!({ "stopped": stopped, "pid": pid }), |ui| {
                 if stopped {
-                    println!("Runner stopped.");
+                    ui.print(&Callout::success("Runner stopped"));
                 } else {
-                    println!(
-                        "No running runner found (a service restarts it; `ttm runner uninstall-service` keeps it off)."
+                    ui.print(
+                        &Callout::info("No running runner found")
+                            .detail("A service restarts it; uninstalling the service keeps it off.")
+                            .next("ttm runner uninstall-service"),
                     );
                 }
             });
@@ -235,46 +271,340 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 "harnesses": harness::installed(),
                 "repos": config.repos,
                 "worktree_root": config.worktree_root(app.ctx.config.worktree_root()),
+                "features": ttm_runner::features(team_claude_token(&app).is_some()),
+                "local_mcp": ttm_runner::local_mcp::announce(&config.mcp),
             });
-            emit(app.json, &out, || {
-                println!(
-                    "runner:    {} ({})",
-                    config.name,
-                    config.runner_id.as_deref().unwrap_or("not registered")
-                );
-                println!("running:   {}", if pid.is_some_and(alive) { "yes" } else { "no" });
-                println!("capacity:  {}", capacity::effective(config.max_parallel));
-                println!("harnesses: {}", harness::installed().join(", "));
+            let features = ttm_runner::features(team_claude_token(&app).is_some());
+            emit(&app, &out, |ui| {
+                let running = pid.is_some_and(alive);
+                ui.line(&format!(
+                    "{} {} {}",
+                    ui.render(&if running {
+                        Status::phase(Phase::Doing)
+                    } else {
+                        Status::phase(Phase::Paused)
+                    }),
+                    ui.paint(Token::Ink, &config.name),
+                    if running { "running" } else { "not running" }
+                ));
+                let harnesses = harness::installed();
+                let kv = KeyValue::new()
+                    .row("runner", config.runner_id.as_deref().unwrap_or("not registered"))
+                    .opt("pid", pid.filter(|_| running).map(|p| p.to_string()))
+                    .row("capacity", capacity::effective(config.max_parallel).to_string())
+                    .row("team jobs", if config.accept_team_jobs { "yes" } else { "no" })
+                    .row(
+                        "harnesses",
+                        if harnesses.is_empty() {
+                            "none".to_string()
+                        } else {
+                            harnesses.join(", ")
+                        },
+                    )
+                    .opt(
+                        "worktrees",
+                        config
+                            .worktree_root(app.ctx.config.worktree_root())
+                            .map(|p| p.display().to_string()),
+                    )
+                    .row("features", features.join(", "));
+                ui.print(&kv);
+                if !features.iter().any(|f| f == ttm_runner::TEAM_ISOLATION) && config.accept_team_jobs {
+                    ui.print(
+                        &Callout::warning("Teammates' jobs run without isolation")
+                            .detail("They get no skills or MCP servers until a Claude token is saved.")
+                            .next("ttm runner config claude-token"),
+                    );
+                }
+                ui.blank();
+                ui.print(&mcp_table(&config.mcp));
+                let mut repos = Table::new(&[Col::new("PROJECT"), Col::new("CLONE").flex(1).min(10)])
+                    .empty_text("No local clones configured.");
                 for (k, v) in &config.repos {
-                    println!("repo:      {k} = {}", v.display());
+                    repos.push(vec![
+                        Cell::token(k.as_str(), Token::Ink),
+                        Cell::new(v.display().to_string()),
+                    ]);
+                }
+                ui.blank();
+                ui.print(&repos);
+                let next = if config.repos.is_empty() {
+                    Some("ttm runner config --repo <KEY>=<path>")
+                } else if !running {
+                    Some("ttm runner up")
+                } else {
+                    None
+                };
+                if let Some(next) = next {
+                    ui.line(&next_line(ui.mode(), next));
                 }
             });
         }
-        RunnerCommand::Config(args) => {
+        RunnerCommand::Config(cmd) if cmd.sub.is_some() => match cmd.sub.expect("checked") {
+            RunnerConfigSub::Mcp(sub) => return mcp_command(&app, &config_dir, sub),
+            RunnerConfigSub::ClaudeToken { remove } => return claude_token(&app, remove),
+        },
+        RunnerCommand::Config(cmd) => {
+            let args = cmd.args;
             let mut config = RunnerConfig::load(&config_dir)?;
             apply_config(&mut config, args)?;
             config.save(&config_dir)?;
-            emit(app.json, &config, || {
-                println!("Saved {}", RunnerConfig::path(&config_dir).display())
+            emit(&app, &config, |ui| {
+                ui.print(&Callout::success(format!(
+                    "Saved {}",
+                    RunnerConfig::path(&config_dir).display()
+                )));
+                let kv = KeyValue::new()
+                    .row("name", config.name.as_str())
+                    .row(
+                        "max parallel",
+                        config
+                            .max_parallel
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| "auto".into()),
+                    )
+                    .row("team jobs", if config.accept_team_jobs { "yes" } else { "no" })
+                    .row("auto merge", if config.auto_merge { "yes" } else { "no" })
+                    .row("keep days", config.keep_days.to_string())
+                    .row("repos", config.repos.len().to_string());
+                ui.print(&kv);
             });
         }
         RunnerCommand::InstallService => {
             let (file, path) = install_service(&app)?;
-            emit(app.json, &json!({ "installed": file, "path": path }), || {
-                println!("Runner service installed: {file}");
-                if let Some(path) = &path {
-                    println!("PATH of the service: {path}");
-                }
+            emit(&app, &json!({ "installed": file, "path": path }), |ui| {
+                ui.print(
+                    &Callout::success("Runner service installed: it starts at login")
+                        .detail(format!("file {file}"))
+                        .details(path.iter().map(|p| format!("PATH of the service: {p}")))
+                        .next("ttm runner status"),
+                );
             });
         }
         RunnerCommand::UninstallService => {
             let removed = uninstall_service()?;
-            emit(app.json, &json!({ "removed": removed }), || match &removed {
-                Some(what) => println!("Runner service stopped and removed: {what}"),
-                None => println!("No runner service installed."),
+            emit(&app, &json!({ "removed": removed }), |ui| match &removed {
+                Some(what) => {
+                    ui.print(&Callout::success("Runner service stopped and removed").detail(what.as_str()))
+                }
+                None => ui.print(&Callout::info("No runner service installed")),
             });
         }
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `NAME  COMMAND  ALLOW  TEAM JOBS` of the local MCP servers.
+fn mcp_table(section: &ttm_runner::local_mcp::McpSection) -> Table {
+    let mut table = Table::new(&[
+        Col::new("LOCAL MCP"),
+        Col::new("COMMAND").flex(2).min(8),
+        Col::new("ALLOW").flex(1).min(6),
+        Col::new("TEAM JOBS"),
+    ])
+    .empty_text("No local MCP servers (ttm runner config mcp add <name> --command <cmd>).");
+    for (name, m) in &section.local {
+        let command = std::iter::once(m.command.as_str())
+            .chain(m.args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ");
+        table.push(vec![
+            Cell::token(name.as_str(), Token::Ink),
+            Cell::new(command),
+            Cell::new(if m.allow.is_empty() {
+                "-".to_string()
+            } else {
+                m.allow.join(", ")
+            }),
+            Cell::new(if m.team_jobs { "yes" } else { "no" }),
+        ]);
+    }
+    table
+}
+
+/// `K=env:VAR` / `K=value` pairs of `--env`.
+pub fn parse_env(pairs: &[String]) -> Result<Vec<(String, String)>> {
+    pairs
+        .iter()
+        .map(|p| {
+            let (k, v) = p
+                .split_once('=')
+                .ok_or_else(|| anyhow!("--env takes K=env:VAR or K=value, got `{p}`"))?;
+            let k = k.trim();
+            if k.is_empty() || !k.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
+                bail!("`{k}` is not an environment variable name");
+            }
+            Ok((k.to_string(), v.to_string()))
+        })
+        .collect()
+}
+
+/// `ttm runner config mcp …`: edits runner.toml with `toml_edit` (comments stay).
+fn mcp_command(app: &App, config_dir: &Path, sub: RunnerMcpCommand) -> Result<ExitCode> {
+    use ttm_runner::local_mcp::edit;
+    let file = RunnerConfig::path(config_dir);
+    let text = match std::fs::read_to_string(&file) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e.into()),
+    };
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .with_context(|| format!("reading {}", file.display()))?;
+    let pick = |doc: &toml_edit::DocumentMut, names: &[String]| -> Vec<String> {
+        if names.is_empty() {
+            edit::names(doc)
+        } else {
+            names.to_vec()
+        }
+    };
+    let (message, next_hint) = match sub {
+        RunnerMcpCommand::List => {
+            let config = RunnerConfig::load(config_dir)?;
+            let out = json!({ "local_mcp": config.mcp.local });
+            emit(app, &out, |ui| {
+                ui.line(&format!("{} local MCP server(s)", config.mcp.local.len()));
+                ui.print(&mcp_table(&config.mcp));
+                ui.line(&ui.paint(
+                    Token::Muted,
+                    "Announced to the server: names and allowed agents only (never commands or environment).",
+                ));
+                if config.mcp.local.is_empty() {
+                    ui.line(&next_line(
+                        ui.mode(),
+                        "ttm runner config mcp add <name> --command <cmd>",
+                    ));
+                }
+            });
+            return Ok(ExitCode::SUCCESS);
+        }
+        RunnerMcpCommand::Add {
+            name,
+            command,
+            args,
+            env,
+        } => {
+            let env = parse_env(&env)?;
+            if env.iter().any(|(_, v)| !v.starts_with("env:") && looks_secret(v)) {
+                bail!(
+                    "put secrets in the environment and pass --env K=env:VAR; runner.toml never holds them"
+                );
+            }
+            edit::add(&mut doc, &name, &command, &args, &env)?;
+            (
+                format!("Local MCP server `{name}` added"),
+                Some(format!("ttm runner config mcp allow <agent> --mcp {name}")),
+            )
+        }
+        RunnerMcpCommand::Allow { agent, mcp } => {
+            let names = pick(&doc, &mcp);
+            for n in &names {
+                edit::allow(&mut doc, n, std::slice::from_ref(&agent))?;
+            }
+            (
+                format!("@{} may use {}", agent.trim_start_matches('@'), names.join(", ")),
+                None,
+            )
+        }
+        RunnerMcpCommand::Deny { agent, mcp } => {
+            let names = pick(&doc, &mcp);
+            for n in &names {
+                edit::deny(&mut doc, n, std::slice::from_ref(&agent))?;
+            }
+            (
+                format!(
+                    "@{} may no longer use {}",
+                    agent.trim_start_matches('@'),
+                    names.join(", ")
+                ),
+                None,
+            )
+        }
+        RunnerMcpCommand::TeamJobs { name, state } => {
+            edit::team_jobs(&mut doc, &name, state == "on")?;
+            (
+                format!(
+                    "Teammates' jobs {} `{name}`",
+                    if state == "on" { "may use" } else { "may not use" }
+                ),
+                None,
+            )
+        }
+        RunnerMcpCommand::Remove { name } => {
+            edit::remove(&mut doc, &name)?;
+            (format!("Local MCP server `{name}` removed"), None)
+        }
+    };
+    ttm_core::paths::write_atomic(&file, doc.to_string().as_bytes(), Some(0o644))?;
+    let config = RunnerConfig::load(config_dir)?;
+    emit(app, &json!({ "local_mcp": config.mcp.local }), |ui| {
+        let mut callout = Callout::success(message).detail(format!(
+            "{} · a running runner announces it at its next heartbeat",
+            file.display()
+        ));
+        if let Some(next) = next_hint.clone().or_else(|| next_of(&config)) {
+            callout = callout.next(next);
+        }
+        ui.print(&callout);
+    });
+    Ok(ExitCode::SUCCESS)
+}
+
+fn next_of(config: &RunnerConfig) -> Option<String> {
+    config
+        .mcp
+        .local
+        .iter()
+        .find(|(_, m)| m.allow.is_empty())
+        .map(|(n, _)| format!("ttm runner config mcp allow <agent> --mcp {n}"))
+}
+
+/// A literal `--env` value that looks like a token (long, no spaces, mixed letters and digits).
+fn looks_secret(value: &str) -> bool {
+    let v = value.trim();
+    v.len() >= 20
+        && !v.contains(' ')
+        && v.chars().any(|c| c.is_ascii_digit())
+        && v.chars().any(|c| c.is_ascii_alphabetic())
+}
+
+/// `ttm runner config claude-token`: reads the token from stdin and keeps it in the keyring.
+fn claude_token(app: &App, remove: bool) -> Result<ExitCode> {
+    let (store, account) = claude_team_store(app);
+    if remove {
+        let removed = store.delete(&account, CLAUDE_TEAM_HOST)?;
+        emit(app, &json!({ "removed": removed }), |ui| {
+            ui.print(&Callout::success(if removed {
+                "Claude token removed"
+            } else {
+                "No Claude token was saved"
+            }))
+        });
+        return Ok(ExitCode::SUCCESS);
+    }
+    // At a terminal the token is typed hidden; piped, it is read from stdin.
+    let token = if app.ui.mode().interactive && !app.json {
+        use ttm_ui::Term as _;
+        ttm_ui::InquireTerm::for_mode(app.ui.mode()).secret("Token printed by `claude setup-token`:")?
+    } else {
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        line
+    };
+    let token = token.trim();
+    if token.is_empty() {
+        bail!("no token on stdin; run `claude setup-token` and pipe or paste its token");
+    }
+    let source = store.save(&account, CLAUDE_TEAM_HOST, &StoredToken::bare(token))?;
+    emit(app, &json!({ "saved": true, "stored_in": source }), |ui| {
+        ui.print(
+            &Callout::success("Claude token saved for teammates' jobs")
+                .detail(format!(
+                    "stored in {source} · teammates' jobs run with an empty CLAUDE_CONFIG_DIR and this token"
+                ))
+                .next("ttm runner up"),
+        )
+    });
     Ok(ExitCode::SUCCESS)
 }
 
@@ -479,5 +809,15 @@ mod tests {
             auto_merge: None,
         };
         assert!(apply_config(&mut c, bad).is_err());
+    }
+
+    #[test]
+    fn env_pairs_and_secrets() {
+        let ok = parse_env(&["GITHUB_TOKEN=env:GITHUB_TOKEN".into(), "MODE=ro".into()]).unwrap();
+        assert_eq!(ok[0], ("GITHUB_TOKEN".into(), "env:GITHUB_TOKEN".into()));
+        assert!(parse_env(&["nokey".into()]).is_err());
+        assert!(parse_env(&["BAD-NAME=x".into()]).is_err());
+        assert!(looks_secret("ghp_1234567890abcdefghijklmnop"));
+        assert!(!looks_secret("ro") && !looks_secret("read only mode 12345678901"));
     }
 }

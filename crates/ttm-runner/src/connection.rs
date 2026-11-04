@@ -52,6 +52,29 @@ pub struct Runner {
     pub token_expires: Option<OffsetDateTime>,
     pub renew: Option<Renew>,
     pub merge: Option<MergeSetup>,
+    /// `runner.toml`: when its modification time changes, the next heartbeat announces the local MCP servers again
+    /// (names, allowed agents, `team_jobs`; never commands or environment).
+    pub config_file: Option<PathBuf>,
+}
+
+/// Modification time of a file, if any.
+pub fn mtime(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// The local MCP announce to send now: `Some` when `runner.toml` changed since `seen` (updated in place).
+pub fn local_mcp_changed(
+    config_file: Option<&std::path::Path>,
+    seen: &mut Option<std::time::SystemTime>,
+) -> Option<Vec<ttm_api::factory::LocalMcpAnnounce>> {
+    let file = config_file?;
+    let now = mtime(file);
+    if now == *seen {
+        return None;
+    }
+    *seen = now;
+    let dir = file.parent()?;
+    Some(crate::local_mcp::announce(&crate::RunnerConfig::load_mcp(dir)))
 }
 
 /// Whether the token should be renewed now.
@@ -73,6 +96,8 @@ impl Runner {
         // The long-poll in flight. It lives across loop turns: a heartbeat or a finished run must not drop a poll
         // the server may already have answered with a claimed job.
         let mut poll: Option<PollFuture> = None;
+        // Registration already announced the current file.
+        let mut config_seen = self.config_file.as_deref().and_then(mtime);
         tracing::info!(runner = %self.runner_id, capacity = self.capacity, "runner up");
         loop {
             if paused_until
@@ -102,6 +127,7 @@ impl Runner {
                         running: running.keys().cloned().collect(),
                         capacity: self.capacity,
                         paused_until: paused_until.as_ref().map(|(s, _)| s.clone()),
+                        local_mcp: local_mcp_changed(self.config_file.as_deref(), &mut config_seen),
                     };
                     match self.client.get().heartbeat(&self.runner_id, &beat).await {
                         Ok(reply) => {
@@ -344,5 +370,22 @@ mod tests {
         assert!(!needs_renewal(Some(now + time::Duration::hours(2)), now));
         assert!(needs_renewal(Some(now + time::Duration::minutes(10)), now));
         assert!(needs_renewal(Some(now - time::Duration::minutes(1)), now));
+    }
+
+    #[test]
+    fn local_mcp_is_announced_again_when_the_file_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("runner.toml");
+        std::fs::write(
+            &file,
+            "[mcp.local.notes]\ncommand = \"notes\"\nallow = [\"dev\"]\n",
+        )
+        .unwrap();
+        let mut seen = mtime(&file);
+        assert!(local_mcp_changed(Some(&file), &mut seen).is_none(), "unchanged");
+        let mut seen = None;
+        let sent = local_mcp_changed(Some(&file), &mut seen).unwrap();
+        assert_eq!(sent[0].name, "notes");
+        assert!(local_mcp_changed(None, &mut seen).is_none());
     }
 }

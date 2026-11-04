@@ -70,6 +70,17 @@ If you don't use a terminal, you don't need to install anything: paste the **rem
 | `ttm-cli` | The `ttm` binary |
 | `ttm-mcp` | The `ttm-mcp` binary |
 
+## New in 0.2
+
+- **One output style**: brand colours, tables, status glyphs, `Next:` lines; `--plain` for logs, `--json` for scripts
+  ([Command line interface](giao-dien.md)).
+- **Wizards with flags**: `ttm project init`, `ttm agent create`, `ttm mcp-server add`… ask in a terminal, `--yes` for CI.
+- **Factory v2 in the CLI**: workflows, Automation, agents, skills, MCP servers, change requests, inbox, templates
+  ([Factory](factory.md)); configuration as files in `.ttm/` ([Configuration as code](as-code.md)).
+- **MCP v2**: `outputSchema`, one Markdown shape, admin tools with two-step confirmations ([MCP tools](mcp-cong-cu.md)).
+- **Runner**: commits carry the agent's identity (never Claude/Anthropic lines), reviewed skills, MCP through the gateway
+  and local MCP ([Runner](runner.md)).
+
 ## Next steps
 
 - [Installation](cai-dat.md), then [Quickstart](bat-dau-nhanh.md) (5 minutes).

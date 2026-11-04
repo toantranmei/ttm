@@ -102,10 +102,11 @@ ttm token revoke                                          # 打开页面以撤�
 | `factory:read` | 查看项目、任务、计划（导出）、变更请求（change request）、规则、run 的事件；提交规则结果（`rule_check`） | |
 | `factory:write` | 创建项目、编辑任务、变更状态、审批、提交变更请求、创建子任务 | `factory:read` |
 | `factory:run` | 注册并运行 runner、领取作业（job）、发送事件、结束 run、`ttm agent run`、为当前 run 创建子任务 | `factory:read` |
+| `factory:admin` | 用 token 管理 Factory 配置：工作流、自动化、agent、skill、MCP 服务器、安装模板；从 MCP 调用时始终经过**两步确认**。作业 token（正在运行的 agent）**永远**没有此 scope | `factory:write` |
 | `offline_access` | 签发 refresh token（保持登录） | |
 
 `ttm login` 默认申请**全部** scope：`workspace:read notee:read notee:write notee:comment factory:read factory:write
-factory:run offline_access`。可以用 `--scope` 缩小范围，例如只读 Notee：
+factory:run factory:admin offline_access`。可以用 `--scope` 缩小范围，例如只读 Notee：
 
 ```sh
 ttm login --scope "workspace:read notee:read"
@@ -154,7 +155,7 @@ agent。用 token 调用这些操作会返回 `403 token_not_allowed`。缺少 s
 access_token = "ttm_oat_…"
 refresh_token = "ttm_ort_…"
 expires_at = "2026-12-04T05:00:00Z"
-scope = "workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run offline_access"
+scope = "workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run factory:admin offline_access"
 ```
 
 `ttm status` 会显示 token 的来源，并且只显示开头几个字符：
@@ -205,6 +206,29 @@ Signed out of https://toantranmei.com (profile `default`).
 - **Runner** 标签页：正在运行 `ttm runner` 的机器。
 
 撤销立即生效：之后的所有请求都会返回 `401 invalid_token`。
+
+## 旧 token 与 `factory:admin`
+
+从 0.2.0 起，`ttm login` 还会申请 `factory:admin`（`ttm agent`、`ttm skill review`、`ttm workflow publish` 等）。之前创建的 token
+缺少它：管理类命令返回 `insufficient_scope`，`Fix:` 建议重新登录。运行一次 `ttm login` 即可。
+
+## Mei-er 徽章
+
+如果你是 Mei-er 会员，`ttm login` 和 `ttm whoami` 会多打印一行金色文字：
+
+```text
+✦ Mei-er since 2026-11  Thank you for being a Mei-er. You keep this going.
+```
+
+| 等级 | 感谢语 |
+| --- | --- |
+| Supporter（`· Supporter`） | `Thank you for supporting toantranmei.` |
+| Mei-er（`✦ Mei-er`） | `Thank you for being a Mei-er. You keep this going.` |
+| Sponsor（`✦✦ Sponsor`） | `Thank you, Sponsor. This work exists because of you.` |
+
+加入纪念日（同月同日，从第一年起）会再加一行 `Happy <n>-year Mei-er anniversary!`。使用 `--plain` 时徽章为 `[Mei-er]`。使用
+`--json` 时，`whoami` 和 `login` 增加 `meta.membership` 键（`{tier, status, since, until, badge}` 或 `null`）。非会员**只**在
+`ttm whoami` 中看到一行淡色的 `Support toantranmei → https://toantranmei.com/mei-er`；其他命令都不会提及。
 
 ## 多账号、多服务器
 

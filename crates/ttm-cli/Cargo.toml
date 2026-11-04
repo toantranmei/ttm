@@ -25,6 +25,7 @@ reqwest = { workspace = true, features = ["json", "rustls", "form", "stream"] }
 semver.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
+serde_yaml_ng.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 time.workspace = true
@@ -36,9 +37,11 @@ tracing-subscriber.workspace = true
 ttm-api.workspace = true
 ttm-core.workspace = true
 ttm-runner.workspace = true
+ttm-ui.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
 wiremock.workspace = true
 
 [lints]

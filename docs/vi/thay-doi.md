@@ -7,6 +7,40 @@ section: more
 
 `ttm` và `ttm-mcp` phát hành cùng phiên bản. Bản tải: <https://github.com/toantranmei/ttm/releases>.
 
+## 0.2.0 (chưa phát hành)
+
+### Thay đổi phá vỡ
+
+- **MCP:** tool trả danh sách giờ trả `structuredContent` là object `{items: […], next_cursor?}` thay vì mảng (MCP yêu cầu
+  object khi tool có `outputSchema`). Tool vốn trả object giữ nguyên khoá cũ.
+- **Lỗi trên stderr:** `error: <message>` thành mẫu `✕ <tóm tắt>` / `rule:` / `Fix:` / `Help:` ([Mã lỗi](ma-loi.md)).
+  `--json` không đổi (chỉ thêm khoá). Mã thoát 2 thêm cho `missing_flag`, `confirmation_required`, `invalid_flag`,
+  `unsupported_feature`.
+
+### ttm
+
+- Đầu ra thống nhất qua `ttm-ui`: màu brand (truecolor → 256 → 16), bảng cắt `…`, glyph trạng thái, huy hiệu, `Next:`;
+  cờ toàn cục `--plain` (`TTM_PLAIN`) và `-y/--yes`; `TTM_COLUMNS` ([Giao diện dòng lệnh](giao-dien.md)).
+- `ttm project init` thành wizard (mọi câu có cờ); lệnh mới `workflow`, `automation`, `agent create|edit|pause|resume|
+  archive|skills|mcp`, `skill`, `mcp-server`, `cr`, `inbox [--watch]`, `template`, `workspace members`.
+- `ttm sync` đồng bộ `.ttm/workflow.yaml`, `rules/`, `agents/`, `skills/` thành change request theo loại, kiểm YAML,
+  chặn secret, kiểm skill ([Cấu hình dạng code](as-code.md)).
+- Huy hiệu Mei-er ở `whoami`/`login` (+ `meta.membership` trong `--json`), `workspace members`, `task show`, `agent list`.
+- `ttm login` xin thêm scope `factory:admin`.
+
+### ttm-mcp
+
+- Mọi tool có `outputSchema` và Markdown một mẫu; huy hiệu thành viên.
+- Tool đọc mới (workflow, Tự động hoá, agent, skill, mẫu, hộp thư) và toolset `admin` với xác nhận hai bước
+  (`factory-confirm`, `factory-confirm-cancel`; elicitation ở stdio). Agent đang chạy job không bao giờ thấy `admin`
+  ([Tool MCP](mcp-cong-cu.md)).
+
+### ttm runner
+
+- Danh tính git của agent, hook `commit-msg` xoá mọi dòng Claude/Anthropic ở mọi job; skill đã duyệt (kiểm SHA-256); MCP
+  từ xa qua gateway và MCP local `[mcp.local.*]`; cô lập job của đồng đội; báo `features` lên server
+  ([Runner](runner.md)).
+
 ## 0.1.6 (04/11/2026)
 
 ### ttm runner

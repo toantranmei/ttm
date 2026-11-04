@@ -7,6 +7,37 @@ section: more
 
 `ttm` 和 `ttm-mcp` 以相同版本发布。下载：<https://github.com/toantranmei/ttm/releases>。
 
+## 0.2.0（未发布）
+
+### 不兼容变更
+
+- **MCP：** 返回列表的工具现在以对象 `{items: […], next_cursor?}` 作为 `structuredContent`，不再是数组（工具有 `outputSchema` 时
+  MCP 要求对象）。原本返回对象的工具保留原有键。
+- **stderr 上的错误：** `error: <message>` 改为 `✕ <摘要>` / `rule:` / `Fix:` / `Help:`（[错误码](ma-loi.md)）。`--json` 不变（只新增键）。
+  退出码 2 现在也用于 `missing_flag`、`confirmation_required`、`invalid_flag`、`unsupported_feature`。
+
+### ttm
+
+- 通过 `ttm-ui` 统一输出：品牌色（真彩色 → 256 → 16）、以 `…` 截断的表格、状态符号、徽章、`Next:`；全局标志 `--plain`（`TTM_PLAIN`）
+  和 `-y/--yes`；`TTM_COLUMNS`（[命令行界面](giao-dien.md)）。
+- `ttm project init` 改为向导（每个问题都有标志）；新命令 `workflow`、`automation`、`agent create|edit|pause|resume|archive|skills|mcp`、
+  `skill`、`mcp-server`、`cr`、`inbox [--watch]`、`template`、`workspace members`。
+- `ttm sync` 将 `.ttm/workflow.yaml`、`rules/`、`agents/`、`skills/` 按类型同步为变更请求，检查 YAML、阻止密钥、检查 skill
+  （[配置即代码](as-code.md)）。
+- `whoami`/`login`（`--json` 中加 `meta.membership`）、`workspace members`、`task show`、`agent list` 显示 Mei-er 徽章。
+- `ttm login` 额外申请 `factory:admin` scope。
+
+### ttm-mcp
+
+- 每个工具都有 `outputSchema` 和统一的 Markdown 格式；会员徽章。
+- 新的只读工具（工作流、自动化、agent、skill、模板、收件箱）以及带两步确认的 `admin` 工具集（`factory-confirm`、
+  `factory-confirm-cancel`；stdio 下支持 elicitation）。正在运行作业的 agent 永远看不到 `admin`（[MCP 工具](mcp-cong-cu.md)）。
+
+### ttm runner
+
+- agent 的 git 身份，`commit-msg` 钩子在每个作业中删除所有 Claude/Anthropic 行；经审核的 skill（校验 SHA-256）；经网关的远程 MCP
+  和本地 MCP `[mcp.local.*]`；隔离队友的作业；向服务器报告 `features`（[Runner](runner.md)）。
+
 ## 0.1.6（2026-11-04）
 
 ### ttm runner

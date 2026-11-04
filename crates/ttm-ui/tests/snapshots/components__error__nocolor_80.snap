@@ -1,0 +1,21 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+✕ updating AUR-12: AUR-12 changed since rev 4.
+  rule: rev-conflict  field: rev
+  Fix: someone changed it meanwhile: fetch it again (ttm sync) and redo the change
+  Help: https://toantranmei.com/help/ttm/ma-loi#rev-conflict
+
+✕ missing --workflow
+  rule: missing_flag  field: --workflow
+  Fix: pass --workflow or run in a terminal
+  Help: https://toantranmei.com/help/ttm/ma-loi#missing_flag
+
+✕ Publishing the workflow needs a confirmation
+  rule: confirmation_required
+  Fix: confirm in a terminal, or pass --yes
+  Help: https://toantranmei.com/help/ttm/ma-loi#confirmation_required
+Next: rerun with --yes
+
+✕ cannot read .ttm/project.toml

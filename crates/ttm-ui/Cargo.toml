@@ -1,0 +1,32 @@
+[package]
+name = "ttm-ui"
+description = "Terminal output of ttm: brand colours, tables, headers, callouts, diffs, spinners and flag-backed wizards"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+anstream.workspace = true
+anstyle.workspace = true
+anstyle-lossy.workspace = true
+anyhow.workspace = true
+indicatif.workspace = true
+inquire.workspace = true
+serde_json.workspace = true
+similar.workspace = true
+terminal_size.workspace = true
+ttm-api.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.dist]
+dist = false

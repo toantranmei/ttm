@@ -41,7 +41,11 @@ pub async fn run(app: App, command: HookCommand) -> Result<ExitCode> {
             let command = hook["tool_input"]["command"].as_str().unwrap_or_default();
             let branch = worktree::current_branch(&cwd).ok();
             let protected = protected_branches(&rules, linked.file.default_branch.as_deref());
-            check_command(command, branch.as_deref(), &rules, &protected)
+            let mut verdicts = check_command(command, branch.as_deref(), &rules, &protected);
+            if std::env::var("TTM_RUN_ID").is_ok_and(|v| !v.is_empty()) {
+                verdicts.extend(check_job_command(command));
+            }
+            verdicts
         }
         HookCommand::Stop => {
             if hook["stop_hook_active"].as_bool() == Some(true) {
@@ -56,7 +60,12 @@ pub async fn run(app: App, command: HookCommand) -> Result<ExitCode> {
     report(&app, &linked, &verdicts).await;
     match verdicts.iter().find(|v| !v.passed) {
         Some(blocked) => {
-            eprintln!("Blocked by project rule `{}`: {}", blocked.rule, blocked.message);
+            // Always plain, whatever the terminal: the coding agent reads this text back.
+            let ui = ttm_ui::Ui::stdio(ttm_ui::Mode::fixed(ttm_ui::ColorLevel::None, true, 120));
+            ui.eline(&format!(
+                "Blocked by project rule `{}`: {}",
+                blocked.rule, blocked.message
+            ));
             Ok(ExitCode::from(2))
         }
         None => Ok(ExitCode::SUCCESS),
@@ -163,6 +172,17 @@ pub fn shell_words(line: &str) -> Vec<String> {
 
 /// The `git` invocations of a command line: the words after `git` (global `-C x` / `-c k=v` skipped).
 fn git_calls(line: &str) -> Vec<Vec<String>> {
+    git_calls_full(line).into_iter().map(|c| c.args).collect()
+}
+
+/// One `git` invocation: global `-c` values, the words before `git` (env assignments) and the arguments.
+struct GitCall {
+    configs: Vec<String>,
+    prefix: Vec<String>,
+    args: Vec<String>,
+}
+
+fn git_calls_full(line: &str) -> Vec<GitCall> {
     let words = shell_words(line);
     let mut calls = Vec::new();
     for segment in words.split(|w| matches!(w.as_str(), "&&" | "||" | ";" | "|" | "&")) {
@@ -171,16 +191,76 @@ fn git_calls(line: &str) -> Vec<Vec<String>> {
         };
         let mut rest = segment[pos + 1..].iter().cloned().peekable();
         let mut args = Vec::new();
+        let mut configs = Vec::new();
         while let Some(w) = rest.next() {
             if args.is_empty() && (w == "-C" || w == "-c") {
-                rest.next();
+                if let Some(v) = rest.next()
+                    && w == "-c"
+                {
+                    configs.push(v);
+                }
+                continue;
+            }
+            if args.is_empty()
+                && let Some(v) = w.strip_prefix("--config-env=").or_else(|| w.strip_prefix("-c"))
+            {
+                configs.push(v.to_string());
                 continue;
             }
             args.push(w);
         }
-        calls.push(args);
+        calls.push(GitCall {
+            configs,
+            prefix: segment[..pos].to_vec(),
+            args,
+        });
     }
     calls
+}
+
+/// Rule reported when a job tries to get around its git hooks.
+pub const JOB_HOOKS: &str = "job_hooks";
+
+/// Inside a job (`TTM_RUN_ID`): `--no-verify` is always blocked (whatever the project rules), and so is anything that
+/// points git at other hooks (`-c core.hooksPath=…`, `git config core.hooksPath`, `GIT_CONFIG_*` assignments).
+fn check_job_command(line: &str) -> Vec<RuleCheckReport> {
+    let mut out = Vec::new();
+    let lower = line.to_lowercase();
+    for call in git_calls_full(line) {
+        let sub = call.args.first().map(String::as_str).unwrap_or("");
+        let no_verify = call.args.iter().any(|a| a == "--no-verify")
+            || (sub == "commit" && call.args.iter().any(|a| a == "-n"));
+        let hooks_override = call
+            .configs
+            .iter()
+            .any(|c| c.to_lowercase().starts_with("core.hookspath"))
+            || (sub == "config" && call.args.iter().any(|a| a.eq_ignore_ascii_case("core.hooksPath")))
+            || call.prefix.iter().any(|w| {
+                w.starts_with("GIT_CONFIG") || w.starts_with("GIT_DIR=") || w.contains("core.hooksPath")
+            });
+        if no_verify {
+            out.push(verdict(
+                NO_VERIFY,
+                false,
+                "agents running a job cannot skip git hooks (--no-verify)",
+            ));
+        }
+        if hooks_override {
+            out.push(verdict(
+                JOB_HOOKS,
+                false,
+                "agents running a job cannot change core.hooksPath or the git configuration of the run",
+            ));
+        }
+    }
+    if out.is_empty() && (lower.contains("export git_config") || lower.contains("core.hookspath")) {
+        out.push(verdict(
+            JOB_HOOKS,
+            false,
+            "agents running a job cannot change core.hooksPath or the git configuration of the run",
+        ));
+    }
+    out
 }
 
 /// Evaluates the Bash rules for one command.
@@ -332,6 +412,23 @@ async fn report(app: &App, linked: &Linked, verdicts: &[RuleCheckReport]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jobs_cannot_get_around_their_hooks() {
+        let blocked = |line: &str| check_job_command(line).iter().any(|v| !v.passed);
+        assert!(blocked("git commit --no-verify -m x"));
+        assert!(blocked("git commit -n -m x"));
+        assert!(blocked("git -c core.hooksPath=/dev/null commit -m x"));
+        assert!(blocked("git -c CORE.HOOKSPATH=/tmp/h commit -m x"));
+        assert!(blocked("git config core.hooksPath .nohooks"));
+        assert!(blocked(
+            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath git commit -m x"
+        ));
+        assert!(blocked("export GIT_CONFIG_COUNT=0 && git commit -m x"));
+        assert!(!blocked("git commit -m 'Fix login'"));
+        assert!(!blocked("git -C sub status"));
+        assert!(!blocked("cargo test"));
+    }
 
     fn blocked(line: &str, branch: Option<&str>) -> Vec<String> {
         let rules = default_rules();

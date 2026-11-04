@@ -1,0 +1,10 @@
+{
+  "version": "0.1.6",
+  "host": "http://127.0.0.1:1",
+  "profile": "default",
+  "config_file": "/tmp/config/config.toml",
+  "signed_in": true,
+  "token": {"source": "file", "masked": "ttm_pat_…good", "expires_at": null, "expired": false, "scope": null},
+  "workspace": "w2",
+  "server": {"api_version": "v1", "min_cli": "0.0.1", "features": ["notee"]}
+}

@@ -126,6 +126,9 @@ pub struct CommentAuthor {
     pub name: String,
     #[serde(default)]
     pub avatar_url: Option<String>,
+    /// Mei-er membership (`{tier}`), when the server sends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership: Option<crate::types::TierRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

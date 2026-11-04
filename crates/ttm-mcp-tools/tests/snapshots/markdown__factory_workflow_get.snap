@@ -1,0 +1,17 @@
+---
+source: crates/ttm-mcp-tools/tests/markdown.rs
+expression: "md(\"factory-workflow-get\", json!({})).await"
+---
+**○ Workflow Professional · v2 (draft pending)**
+
+| Status | Id | Category | Role | Assign | WIP |
+| --- | --- | --- | --- | --- | --- |
+| ○ Ready | ready | ready | PM | 👤 |  |
+| ● Doing | doing | in-progress | DEV | 🤖 | 3 |
+| ◐ QC | qc | qc | QC | 👤 |  |
+
+| Transition | Guard | Rules |
+| --- | --- | --- |
+| ready → doing |  | ⚡ 1 |
+
+**Next:** `factory-workflow-simulate` — check a move before doing it

@@ -10,7 +10,7 @@
 //!
 //! A usage-limit message (`… usage limit reached|<unix time>`) ends the run as `paused` until that time.
 
-use super::{Harness, HarnessOutcome};
+use super::{Harness, HarnessOutcome, RunContext};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -69,8 +69,9 @@ pub fn is_test_command(command: &str) -> bool {
     .any(|t| c.contains(t))
 }
 
-/// Arguments of the `claude` command for a job.
-pub fn command_args(job: &JobSpec, mcp_config: &Path) -> Vec<String> {
+/// Arguments of the `claude` command for a job. Every job gets `--settings` (no Claude attribution in commits or
+/// PRs); a teammate's job also gets `--setting-sources project,local` (never this machine's user settings).
+pub fn command_args(job: &JobSpec, mcp_config: &Path, ctx: &RunContext) -> Vec<String> {
     let mut args = vec![
         "-p".to_string(),
         job.prompt.clone(),
@@ -91,6 +92,12 @@ pub fn command_args(job: &JobSpec, mcp_config: &Path) -> Vec<String> {
     }
     if !job.allowed_tools.is_empty() {
         args.extend(["--allowedTools".into(), job.allowed_tools.join(",")]);
+    }
+    if let Some(settings) = &ctx.settings {
+        args.extend(["--settings".into(), settings.display().to_string()]);
+    }
+    if job.team_job {
+        args.extend(["--setting-sources".into(), "project,local".into()]);
     }
     args
 }
@@ -241,6 +248,7 @@ impl Harness for ClaudeCode {
         job: &JobSpec,
         worktree: &Path,
         mcp_config: &Path,
+        ctx: &RunContext,
         events: mpsc::UnboundedSender<RunEvent>,
         mut cancel: watch::Receiver<bool>,
     ) -> anyhow::Result<HarnessOutcome> {
@@ -250,7 +258,8 @@ impl Harness for ClaudeCode {
             .or_else(|| find_on_path("claude"))
             .ok_or_else(|| anyhow::anyhow!("`claude` is not installed"))?;
         let mut child = tokio::process::Command::new(program)
-            .args(command_args(job, mcp_config))
+            .args(command_args(job, mcp_config, ctx))
+            .envs(ctx.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .current_dir(worktree)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -346,7 +355,20 @@ mod tests {
 
     #[test]
     fn args() {
-        let a = command_args(&job(), Path::new("/tmp/mcp.json"));
+        let ctx = RunContext {
+            env: vec![],
+            settings: Some("/c/settings-r1.json".into()),
+        };
+        let a = command_args(&job(), Path::new("/tmp/mcp.json"), &ctx);
+        assert!(a.windows(2).any(|w| w == ["--settings", "/c/settings-r1.json"]));
+        assert!(
+            !a.iter().any(|x| x == "--setting-sources"),
+            "own job keeps the user's settings"
+        );
+        let mut team = job();
+        team.team_job = true;
+        let t = command_args(&team, Path::new("/tmp/mcp.json"), &ctx);
+        assert!(t.windows(2).any(|w| w == ["--setting-sources", "project,local"]));
         assert_eq!(&a[..2], ["-p", "Fix login"]);
         assert!(a.windows(2).any(|w| w == ["--output-format", "stream-json"]));
         assert!(a.iter().any(|x| x == "--strict-mcp-config"));

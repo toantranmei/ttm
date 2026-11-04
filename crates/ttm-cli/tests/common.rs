@@ -19,6 +19,23 @@ pub fn me_body() -> serde_json::Value {
 
 /// A server with discovery and `/me` accepting `ttm_pat_good`.
 pub async fn server() -> MockServer {
+    server_with(&["notee"], me_body()).await
+}
+
+/// Every v2 feature of the server (S0 Hợp đồng §11).
+pub const V2_FEATURES: &[&str] = &[
+    "notee",
+    "factory",
+    "workflow_v2",
+    "agent_v2",
+    "ascode_v2",
+    "templates",
+    "membership",
+    "confirmations",
+];
+
+/// A server with these discovery `features` and this `/me` body.
+pub async fn server_with(features: &[&str], me: serde_json::Value) -> MockServer {
     let server = MockServer::start().await;
     let base = server.uri();
     Mock::given(method("GET"))
@@ -32,14 +49,14 @@ pub async fn server() -> MockServer {
             "verification_uri": format!("{base}/activate"),
             "api_version": "v1",
             "min_cli": "0.0.1",
-            "features": ["notee"]
+            "features": features
         })))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v1/me"))
         .and(wiremock::matchers::header("authorization", "Bearer ttm_pat_good"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(me_body()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(me))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -65,6 +82,19 @@ pub async fn ttm_with_stdin(root: &Path, host: &str, args: &[&str], stdin: Optio
 
 /// Runs `ttm` with `cwd` as the working directory.
 pub async fn ttm_in(root: &Path, cwd: &Path, host: &str, args: &[&str], stdin: Option<&str>) -> Output {
+    ttm_env(root, cwd, host, args, stdin, &[]).await
+}
+
+/// Runs `ttm` with extra environment variables. Output is always deterministic: no colour (`NO_COLOR`, and stdout is
+/// a pipe), 80 columns, not plain unless `TTM_PLAIN` is passed.
+pub async fn ttm_env(
+    root: &Path,
+    cwd: &Path,
+    host: &str,
+    args: &[&str],
+    stdin: Option<&str>,
+    envs: &[(&str, &str)],
+) -> Output {
     use tokio::io::AsyncWriteExt;
     let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_ttm"));
     cmd.current_dir(cwd);
@@ -79,6 +109,12 @@ pub async fn ttm_in(root: &Path, cwd: &Path, host: &str, args: &[&str], stdin: O
         .env_remove("TTM_TOKEN")
         .env_remove("TTM_HOST")
         .env_remove("TTM_PROFILE")
+        .env_remove("TTM_PLAIN")
+        .env_remove("CLICOLOR_FORCE")
+        .env_remove("COLUMNS")
+        .env("NO_COLOR", "1")
+        .env("TTM_COLUMNS", "80")
+        .envs(envs.iter().copied())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -105,4 +141,74 @@ pub fn json(output: &Output) -> serde_json::Value {
             String::from_utf8_lossy(&output.stderr)
         )
     })
+}
+
+/// stdout with the mock host and the temporary root replaced by `[HOST]` and `[ROOT]`, for snapshots.
+pub fn human(output: &Output, root: &Path, host: &str) -> String {
+    normalize(&String::from_utf8_lossy(&output.stdout), root, host)
+}
+
+/// stderr, normalized like [`human`].
+pub fn human_err(output: &Output, root: &Path, host: &str) -> String {
+    normalize(&String::from_utf8_lossy(&output.stderr), root, host)
+}
+
+pub fn normalize(text: &str, root: &Path, host: &str) -> String {
+    let mut out = text.replace(host, "[HOST]");
+    let mut roots = vec![root.display().to_string()];
+    if let Ok(canonical) = root.canonicalize() {
+        roots.push(canonical.display().to_string());
+    }
+    roots.sort_by_key(|r| std::cmp::Reverse(r.len()));
+    for r in roots {
+        out = out.replace(&r, "[ROOT]");
+    }
+    out
+}
+
+/// Key paths of a JSON value: `a`, `a.b`, `list[]`, `list[].c` (arrays through their first element).
+pub fn key_paths(value: &serde_json::Value) -> std::collections::BTreeSet<String> {
+    fn walk(v: &serde_json::Value, prefix: &str, out: &mut std::collections::BTreeSet<String>) {
+        match v {
+            serde_json::Value::Object(map) => {
+                for (k, child) in map {
+                    let path = if prefix.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{prefix}.{k}")
+                    };
+                    out.insert(path.clone());
+                    walk(child, &path, out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                let path = format!("{prefix}[]");
+                out.insert(path.clone());
+                if let Some(first) = items.first() {
+                    walk(first, &path, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    walk(value, "", &mut out);
+    out
+}
+
+/// Fails unless every key of the 0.1.6 fixture `tests/fixtures/json/<name>.json` is still in `actual`
+/// (new keys may be added, none removed or renamed).
+pub fn assert_json_contract(name: &str, actual: &serde_json::Value) {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/json/{name}.json"));
+    let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    let fixture: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let have = key_paths(actual);
+    let missing: Vec<_> = key_paths(&fixture)
+        .into_iter()
+        .filter(|k| !have.contains(k))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "`{name}` --json lost keys {missing:?}:\n{actual:#}"
+    );
 }

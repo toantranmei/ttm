@@ -26,6 +26,9 @@ section: guides
 | `discovery-<host>.json` | 缓存 | Host 的 discovery，1 小时内复用；host 无响应时仍使用旧副本 |
 | `deprecations` | 缓存 | 当天已显示过的“endpoint 即将移除”警告 |
 | `runner.pid`、`runner.log`、`runner-worktrees.json` | 缓存 | Runner 的进程、日志（macOS 服务）和 worktree 登记簿 |
+| `skills/<sha256>.zip` | 缓存 | runner 下载的 skill，按 SHA-256 复用 |
+| `mcp-<run>.json`、`settings-<run>.json`、`hooks/<run>/`、`claude-team/<run>/` | 缓存 | 单次 run 的临时文件（0600），run 结束后删除 |
+| `.ttm/workflow.yaml`、`.ttm/rules/`、`.ttm/agents/`、`.ttm/skills/` | 仓库内 | 项目的 as-code 配置（见 [As-code](as-code.md)） |
 | `.ttm/project.toml` | 仓库内 | 将仓库关联到 Factory 项目（见 [Factory](factory.md)） |
 
 `ttm status` 会打印当前使用的 `config.toml` 路径。
@@ -117,8 +120,29 @@ server:    API v1 (min ttm 0.1.0), features: notee, factory
 | `TTM_TOKEN` | Token，优先于 keyring 和文件 |
 | `TTM_NO_KEYRING=1` | 不使用 keyring，只使用 `credentials.toml` |
 | `TTM_LOG` | 日志级别（`tracing` 语法），例如 `debug` |
+| `TTM_PLAIN=1` | 纯文本输出（同 `--plain`） |
+| `TTM_COLUMNS` | 输出宽度（40–200） |
+| `NO_COLOR` | 关闭颜色 |
 
 完整列表（包括 `ttm-mcp` 和 runner 的变量）：[环境变量](bien-moi-truong.md)。
+
+## 面向人的输出
+
+不带 `--json` 时，`ttm` 按同一模式输出：第一行是结果，然后是详情，最后是 `Next: <建议的命令>`。在管道中、`NO_COLOR` 非空或
+`TERM=dumb` 时自动关闭颜色；`--plain`（或 `TTM_PLAIN=1`）还会去掉边框、符号和 emoji，适合日志。宽度：`TTM_COLUMNS` > `COLUMNS` >
+终端大小 > 80，限制在 40–200。表格不换行，过长的单元格以 `…` 截断。详情、符号和徽章见[命令行界面](giao-dien.md)。
+
+错误按以下模式输出到 **stderr**：
+
+```text
+✕ <摘要>
+  rule: <rule>  field: <field>
+  Fix: <修复方法>
+  Help: https://toantranmei.com/help/ttm/ma-loi#<rule>
+```
+
+退出码：`0` 成功，`1` 错误，`2` 用法错误（未知标志、缺少标志 `missing_flag`、需要 `--yes` 的 `confirmation_required`、服务器缺少
+功能 `unsupported_feature`、标志值无效 `invalid_flag`）。
 
 ## JSON 输出
 
@@ -145,7 +169,7 @@ ttm whoami --json
 }
 ```
 
-出错时，`--json` 会额外向 stdout 输出一个错误对象（并向 stderr 输出 `error: …` 行），退出码非 0：
+出错时，`--json` 会额外向 stdout 输出一个错误对象（并向 stderr 输出 `✕ …` 错误块），退出码非 0：
 
 ```json
 {
@@ -161,7 +185,8 @@ ttm whoami --json
 来自服务器的错误还带有 `status`，以及服务器发送时的 `rule`（例如 `split-limit`、`rev-conflict`）、`field` 和 `params`。
 `code` 是服务器的稳定错误码（见 [错误码](ma-loi.md)）、OAuth 错误码（`access_denied`、`invalid_grant`…），或本地错误码：
 `network`（无法连接）、`decode`（响应格式异常）、`upgrade_required`（ttm 版本过旧）、`invalid_url`、`error`（其他错误，
-如未登录、文件无法读取）。
+如未登录、文件无法读取），以及用法错误码 `missing_flag`、`confirmation_required`、`unsupported_feature`、`invalid_flag`（带 `rule`
+和 `field`）。JSON 结构保持 0.1.6 的样子；0.2.0 只新增键（例如 `whoami`/`login` 的 `meta.membership`）。
 
 在脚本中使用的示例：
 
@@ -169,6 +194,22 @@ ttm whoami --json
 ttm notes search "OKR" --json | jq -r '.[].id'
 ttm notes query "$DB" --sql 'SELECT "Name" FROM rows' --json | jq '.rows[].values'
 ```
+
+## runner.toml：本地 MCP
+
+从 0.2.0 起，`runner.toml` 新增本地 MCP 段，用 `ttm runner config mcp …` 修改（保留注释）：
+
+```toml
+[mcp.local.github-local]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "env:GITHUB_TOKEN" }   # "env:VAR" = 运行时读取 runner 的环境变量
+allow = ["dev", "reviewer"]                    # 允许使用的 agent handle
+team_jobs = false                              # 别人委派的作业是否可用
+```
+
+名称符合 `^[a-z0-9][a-z0-9-]{0,31}$` 且不能是 `ttm`。服务器只会收到名称、`allow` 和 `team_jobs`。见
+[Runner](runner.md#本地-mcpttm-runner-config-mcp)。
 
 ## 日志
 

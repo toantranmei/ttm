@@ -11,8 +11,13 @@
 //!
 //! [repos]                    # project key → local clone
 //! AUR = "/Users/me/code/aurora"
+//!
+//! [mcp.local.github-local]   # local MCP servers (see `local_mcp`)
+//! command = "npx"
+//! allow = ["dev"]
 //! ```
 
+use crate::local_mcp::McpSection;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -38,6 +43,9 @@ pub struct RunnerConfig {
     pub auto_merge: bool,
     #[serde(default)]
     pub repos: BTreeMap<String, PathBuf>,
+    /// Local MCP servers (`[mcp.local.<name>]`).
+    #[serde(default, skip_serializing_if = "McpSection::is_empty")]
+    pub mcp: McpSection,
 }
 
 fn three() -> u32 {
@@ -71,6 +79,7 @@ impl Default for RunnerConfig {
             runner_id: None,
             auto_merge: false,
             repos: BTreeMap::new(),
+            mcp: McpSection::default(),
         }
     }
 }
@@ -86,6 +95,11 @@ impl RunnerConfig {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(err) => Err(err.into()),
         }
+    }
+
+    /// Only the `[mcp]` section of `runner.toml` (fresh from disk: jobs see edits without a restart).
+    pub fn load_mcp(config_dir: &Path) -> McpSection {
+        Self::load(config_dir).map(|c| c.mcp).unwrap_or_default()
     }
 
     pub fn save(&self, config_dir: &Path) -> anyhow::Result<()> {

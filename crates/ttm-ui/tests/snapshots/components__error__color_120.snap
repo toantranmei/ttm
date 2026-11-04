@@ -1,0 +1,21 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+[38;2;233;121;98m✕[0m updating AUR-12: AUR-12 changed since rev 4.
+  [2mrule:[0m rev-conflict  [2mfield:[0m rev
+  [2mFix:[0m someone changed it meanwhile: fetch it again (ttm sync) and redo the change
+  [2mHelp:[0m [38;2;85;164;207mhttps://toantranmei.com/help/ttm/ma-loi#rev-conflict[0m
+
+[38;2;233;121;98m✕[0m missing --workflow
+  [2mrule:[0m missing_flag  [2mfield:[0m --workflow
+  [2mFix:[0m pass --workflow or run in a terminal
+  [2mHelp:[0m [38;2;85;164;207mhttps://toantranmei.com/help/ttm/ma-loi#missing_flag[0m
+
+[38;2;233;121;98m✕[0m Publishing the workflow needs a confirmation
+  [2mrule:[0m confirmation_required
+  [2mFix:[0m confirm in a terminal, or pass --yes
+  [2mHelp:[0m [38;2;85;164;207mhttps://toantranmei.com/help/ttm/ma-loi#confirmation_required[0m
+[2mNext:[0m [38;2;85;164;207mrerun with --yes[0m
+
+[38;2;233;121;98m✕[0m cannot read .ttm/project.toml

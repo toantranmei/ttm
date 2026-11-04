@@ -70,6 +70,17 @@ Claude.ai hoặc ChatGPT (xem [Kết nối MCP](mcp.md)).
 | `ttm-cli` | Binary `ttm` |
 | `ttm-mcp` | Binary `ttm-mcp` |
 
+## Mới ở 0.2
+
+- **Đầu ra thống nhất**: màu brand, bảng, glyph trạng thái, dòng `Next:`; `--plain` cho log, `--json` cho script
+  ([Giao diện dòng lệnh](giao-dien.md)).
+- **Wizard có cờ**: `ttm project init`, `ttm agent create`, `ttm mcp-server add`… hỏi trong terminal, `--yes` cho CI.
+- **Factory v2 trong CLI**: workflow, Tự động hoá, agent, skill, MCP server, change request, hộp thư, mẫu
+  ([Factory](factory.md)); cấu hình dạng file trong `.ttm/` ([Cấu hình dạng code](as-code.md)).
+- **MCP v2**: `outputSchema`, Markdown một mẫu, tool quản trị với xác nhận hai bước ([Tool MCP](mcp-cong-cu.md)).
+- **Runner**: commit mang danh tính của agent (không bao giờ dòng Claude/Anthropic), skill đã duyệt, MCP qua gateway và MCP
+  local ([Runner](runner.md)).
+
 ## Đọc tiếp
 
 - [Cài đặt](cai-dat.md) rồi [Bắt đầu nhanh](bat-dau-nhanh.md) (5 phút).

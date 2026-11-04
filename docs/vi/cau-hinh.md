@@ -26,6 +26,9 @@ file dưới đây được tạo khi bạn đăng nhập, đổi workspace hay 
 | `discovery-<host>.json` | bộ đệm | Discovery của host, dùng lại trong 1 giờ; vẫn dùng bản cũ khi host không trả lời |
 | `deprecations` | bộ đệm | Cảnh báo endpoint sắp gỡ đã hiện trong ngày |
 | `runner.pid`, `runner.log`, `runner-worktrees.json` | bộ đệm | Tiến trình, log (dịch vụ macOS) và sổ worktree của runner |
+| `skills/<sha256>.zip` | bộ đệm | Skill đã tải của runner, dùng lại theo SHA-256 |
+| `mcp-<run>.json`, `settings-<run>.json`, `hooks/<run>/`, `claude-team/<run>/` | bộ đệm | File tạm của một run (0600), xoá khi run xong |
+| `.ttm/workflow.yaml`, `.ttm/rules/`, `.ttm/agents/`, `.ttm/skills/` | trong repo | Cấu hình as-code của dự án (xem [As-code](as-code.md)) |
 | `.ttm/project.toml` | trong repo | Liên kết repo với dự án Factory (xem [Factory](factory.md)) |
 
 `ttm status` in đường dẫn `config.toml` đang dùng.
@@ -117,8 +120,30 @@ Các biến hay dùng nhất:
 | `TTM_TOKEN` | Token, thắng keyring và file |
 | `TTM_NO_KEYRING=1` | Không dùng keyring, chỉ dùng `credentials.toml` |
 | `TTM_LOG` | Mức log (cú pháp `tracing`), ví dụ `debug` |
+| `TTM_PLAIN=1` | Đầu ra thuần chữ (như `--plain`) |
+| `TTM_COLUMNS` | Bề ngang đầu ra (40–200) |
+| `NO_COLOR` | Tắt màu |
 
 Danh sách đầy đủ (kể cả biến của `ttm-mcp` và runner): [Biến môi trường](bien-moi-truong.md).
+
+## Đầu ra cho người đọc
+
+Không có `--json`, `ttm` in cho người đọc theo một mẫu: dòng đầu là kết quả, rồi chi tiết, cuối cùng `Next: <lệnh gợi
+ý>`. Màu tự tắt khi pipe, khi `NO_COLOR` khác rỗng hoặc `TERM=dumb`; `--plain` (hoặc `TTM_PLAIN=1`) bỏ cả khung, glyph và
+emoji, hợp để ghi log. Bề ngang: `TTM_COLUMNS` > `COLUMNS` > kích thước terminal > 80, kẹp 40–200. Bảng không xuống dòng,
+ô dài bị cắt bằng `…`. Chi tiết, bảng glyph và huy hiệu: [Giao diện dòng lệnh](giao-dien.md).
+
+Lỗi đi ra **stderr** theo mẫu:
+
+```text
+✕ <tóm tắt>
+  rule: <rule>  field: <field>
+  Fix: <cách sửa>
+  Help: https://toantranmei.com/help/ttm/ma-loi#<rule>
+```
+
+Mã thoát: `0` thành công, `1` lỗi, `2` dùng sai lệnh (cờ lạ, thiếu cờ `missing_flag`, cần `--yes`
+`confirmation_required`, server chưa có tính năng `unsupported_feature`, giá trị cờ sai `invalid_flag`).
 
 ## Đầu ra JSON
 
@@ -145,7 +170,7 @@ ttm whoami --json
 }
 ```
 
-Khi lỗi, `--json` in thêm một đối tượng lỗi ra stdout (và dòng `error: …` ra stderr), mã thoát khác 0:
+Khi lỗi, `--json` in thêm một đối tượng lỗi ra stdout (và khối lỗi `✕ …` ra stderr), mã thoát khác 0:
 
 ```json
 {
@@ -161,7 +186,9 @@ Khi lỗi, `--json` in thêm một đối tượng lỗi ra stdout (và dòng `e
 Lỗi từ server có thêm `status` và, khi server gửi, `rule` (ví dụ `split-limit`, `rev-conflict`), `field`, `params`.
 `code` là mã ổn định của server (xem [Mã lỗi](ma-loi.md)), mã OAuth (`access_denied`, `invalid_grant`…), hoặc mã cục bộ:
 `network` (không kết nối được), `decode` (phản hồi lạ), `upgrade_required` (ttm quá cũ), `invalid_url`, `error` (lỗi khác
-như chưa đăng nhập, file không đọc được).
+như chưa đăng nhập, file không đọc được), và các mã dùng sai lệnh `missing_flag`, `confirmation_required`,
+`unsupported_feature`, `invalid_flag` (kèm `rule`, `field`). Hình dạng JSON giữ như 0.1.6; 0.2.0 chỉ thêm khoá mới (ví dụ
+`meta.membership` của `whoami`/`login`).
 
 Ví dụ dùng trong script:
 
@@ -169,6 +196,22 @@ Ví dụ dùng trong script:
 ttm notes search "OKR" --json | jq -r '.[].id'
 ttm notes query "$DB" --sql 'SELECT "Name" FROM rows' --json | jq '.rows[].values'
 ```
+
+## runner.toml: MCP local
+
+Từ 0.2.0, `runner.toml` có thêm mục MCP local, sửa bằng `ttm runner config mcp …` (comment được giữ):
+
+```toml
+[mcp.local.github-local]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "env:GITHUB_TOKEN" }   # "env:VAR" = đọc biến môi trường của runner lúc chạy
+allow = ["dev", "reviewer"]                    # handle agent được dùng
+team_jobs = false                              # cho job do người khác giao dùng
+```
+
+Tên theo `^[a-z0-9][a-z0-9-]{0,31}$` và khác `ttm`. Server chỉ được báo tên, `allow` và `team_jobs`. Xem
+[Runner](runner.md#mcp-local-ttm-runner-config-mcp).
 
 ## Log
 

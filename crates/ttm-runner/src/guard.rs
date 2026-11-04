@@ -14,6 +14,43 @@ pub const INVALID_BRANCH: &str = "invalid_branch";
 /// Error code reported when the job's `worktree_hint` would put the worktree outside the runner's `worktree_root`.
 pub const INVALID_WORKTREE: &str = "invalid_worktree";
 
+/// Error code reported when a job needs a runner feature this runner does not have.
+pub const UNSUPPORTED_FEATURE: &str = "unsupported_feature";
+
+/// Refuses a job whose `requires` names a feature outside `features` (the server should not send one).
+pub fn check_requires(job: &JobSpec, features: &[String]) -> Result<(), Refused> {
+    let missing: Vec<&str> = job
+        .requires
+        .iter()
+        .filter(|r| !features.iter().any(|f| f == *r))
+        .map(String::as_str)
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(refuse(
+            UNSUPPORTED_FEATURE,
+            format!(
+                "this runner lacks {}; update ttm (ttm self-update)",
+                missing.join(", ")
+            ),
+        ))
+    }
+}
+
+/// Refuses a teammate's job when this runner cannot isolate it (no Claude token saved for team jobs): it would run
+/// with this machine's own Claude settings, hooks, plugins and skills.
+pub fn check_team_isolation(job: &JobSpec, isolated: bool) -> Result<(), Refused> {
+    if job.team_job && !isolated {
+        Err(refuse(
+            UNSUPPORTED_FEATURE,
+            "team_isolation: this runner cannot isolate a teammate's job; save a token with `ttm runner config claude-token`",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 /// `https://user@GitHub.com/a/b.git/`, `git@github.com:a/b.git`, `ssh://git@github.com/a/b` → `github.com/a/b`.
 pub fn normalize_url(url: &str) -> String {
     let mut u = url.trim().to_string();
@@ -334,5 +371,30 @@ mod tests {
             check(&other, Some(&repo), none).unwrap_err().code,
             REPO_NOT_CONFIGURED
         );
+    }
+
+    #[test]
+    fn team_jobs_need_isolation() {
+        let mut job: JobSpec = serde_json::from_value(serde_json::json!({
+            "run_id": "r", "task_key": "A-1", "branch": "a-1", "prompt": "p", "team_job": true
+        }))
+        .unwrap();
+        let err = check_team_isolation(&job, false).unwrap_err();
+        assert_eq!(err.code, UNSUPPORTED_FEATURE);
+        assert!(err.message.starts_with("team_isolation"));
+        assert!(check_team_isolation(&job, true).is_ok());
+        job.team_job = false;
+        assert!(check_team_isolation(&job, false).is_ok());
+    }
+
+    #[test]
+    fn requires_must_be_features() {
+        let job: JobSpec = serde_json::from_value(serde_json::json!({
+            "run_id": "r", "task_key": "A-1", "branch": "a-1", "prompt": "p", "requires": ["skills", "teleport"]
+        }))
+        .unwrap();
+        let err = check_requires(&job, &crate::features(false)).unwrap_err();
+        assert_eq!(err.code, UNSUPPORTED_FEATURE);
+        assert!(err.message.contains("teleport") && !err.message.contains("skills,"));
     }
 }

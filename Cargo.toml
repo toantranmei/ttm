@@ -18,13 +18,20 @@ ttm-api = { path = "crates/ttm-api", version = "0.1.6" }
 ttm-core = { path = "crates/ttm-core", version = "0.1.6" }
 ttm-mcp-tools = { path = "crates/ttm-mcp-tools", version = "0.1.6" }
 ttm-runner = { path = "crates/ttm-runner", version = "0.1.6" }
+ttm-ui = { path = "crates/ttm-ui", version = "0.1.6" }
 
+anstream = "1"
+anstyle = "1"
+anstyle-lossy = "1"
 anyhow = "1.0.104"
 async-trait = "0.1.92"
 base64 = "0.23.1"
 clap = { version = "4.6.7", features = ["derive", "env", "wrap_help"] }
 clap_complete = "4.6.11"
 directories = "6.0.0"
+indicatif = "0.18"
+inquire = "0.9"
+insta = "1"
 keyring = "4.2.0"
 open = "5.4.5"
 rand = "0.10.3"
@@ -34,8 +41,11 @@ schemars = "1.2.3"
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+serde_yaml_ng = "0.10"
 sha2 = "0.11.1"
+similar = "2"
 tempfile = "3.27.0"
+terminal_size = "0.4"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "io-util", "io-std", "time", "sync", "signal", "fs", "process"] }
@@ -43,8 +53,10 @@ toml = "1.1.8"
 toml_edit = "0.25.17"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+unicode-width = "0.2"
 url = "2.5.8"
 wiremock = "0.6.5"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

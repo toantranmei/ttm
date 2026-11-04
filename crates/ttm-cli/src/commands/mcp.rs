@@ -19,6 +19,7 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use ttm_ui::{Callout, Diff, next_line};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServerEntry {
@@ -49,11 +50,14 @@ pub async fn run(app: App, command: McpCommand) -> Result<ExitCode> {
         dry_run: args.dry_run,
         entry: entry.clone(),
     };
+    // Dry run: what would be run or written, shown after the result line.
+    let mut would_run: Option<String> = None;
+    let mut preview: Option<Diff> = None;
     match args.client {
         McpClient::ClaudeCode => {
             let cmd = claude_code_command(&entry);
             if args.dry_run {
-                eprintln!("would run: claude {}", cmd.join(" "));
+                would_run = Some(format!("claude {}", cmd.join(" ")));
             } else {
                 run_claude(&cmd, &entry.name)?;
                 out.changed = true;
@@ -78,33 +82,65 @@ pub async fn run(app: App, command: McpCommand) -> Result<ExitCode> {
                 }
                 write(&file, &merged)?;
             } else if args.dry_run {
-                eprintln!("--- {} (dry run)\n{merged}", file.display());
+                preview = Some(Diff::text(
+                    current.as_deref().unwrap_or(""),
+                    &merged,
+                    file.display().to_string(),
+                ));
             }
         }
     }
-    emit(app.json, &out, || {
+    emit(&app, &out, |ui| {
         if out.dry_run {
-            println!("Dry run: nothing written.");
+            let mut callout = Callout::info(format!("Dry run for {}: nothing written", out.client));
+            if let Some(cmd) = &would_run {
+                callout = callout.detail(format!("would run: {cmd}"));
+            }
+            ui.print(&callout);
+            if let Some(diff) = &preview {
+                ui.print(diff);
+            }
+            ui.line(&next_line(ui.mode(), &rerun_without_dry_run(&args)));
         } else if !out.changed {
-            println!(
-                "{} already uses {} for `{}`.",
-                out.client, out.entry.command, out.entry.name
+            ui.print(
+                &Callout::success(format!(
+                    "{} already uses {} for `{}`",
+                    out.client, out.entry.command, out.entry.name
+                ))
+                .details(out.file.iter().map(|f| format!("file {f}"))),
             );
         } else {
-            println!(
-                "{} now starts `{}` as MCP server `{}`.",
-                out.client, out.entry.command, out.entry.name
+            ui.print(
+                &Callout::success(format!(
+                    "{} now starts `{}` as MCP server `{}`",
+                    out.client, out.entry.command, out.entry.name
+                ))
+                .details(out.file.iter().map(|f| format!("updated {f}")))
+                .details(out.backup.iter().map(|b| format!("backup {b}")))
+                .detail("Sign in first with `ttm login` if you have not.")
+                .next(format!("restart {}", out.client)),
             );
-            if let Some(file) = &out.file {
-                println!("Updated {file}");
-            }
-            if let Some(backup) = &out.backup {
-                println!("Backup: {backup}");
-            }
-            println!("Restart the client to load it. Sign in first with `ttm login` if you have not.");
         }
     });
     Ok(ExitCode::SUCCESS)
+}
+
+/// The same `ttm mcp install` without `--dry-run`.
+fn rerun_without_dry_run(args: &McpInstallArgs) -> String {
+    let client = match args.client {
+        McpClient::ClaudeCode => "claude-code",
+        McpClient::ClaudeDesktop => "claude-desktop",
+        McpClient::Cursor => "cursor",
+        McpClient::Codex => "codex",
+    };
+    let mut cmd = format!("ttm mcp install --client {client}");
+    if args.name != "ttm" {
+        cmd.push_str(&format!(" --name {}", ttm_ui::shell_quote(&args.name)));
+    }
+    if let Some(toolsets) = &args.toolsets {
+        cmd.push_str(&format!(" --toolsets {}", ttm_ui::shell_quote(toolsets)));
+    }
+    cmd
 }
 
 fn client_name(client: McpClient) -> &'static str {

@@ -41,9 +41,11 @@ fn is_executable(path: &Path) -> bool {
     true
 }
 
-/// Opens `url` in the default browser unless `no_browser`; always prints it so it can be copied.
-pub fn open_browser(url: &str, no_browser: bool) {
-    eprintln!("Open this URL in your browser / Mở URL này trong trình duyệt:\n  {url}");
+/// Opens `url` in the default browser unless `no_browser`; always prints it on stderr so it can be copied.
+pub fn open_browser(ui: &ttm_ui::Ui, url: &str, no_browser: bool) {
+    ui.eprint(
+        &ttm_ui::Callout::info("Open this URL in your browser:").detail(ui.paint(ttm_ui::Token::Blue, url)),
+    );
     if no_browser || std::env::var_os("TTM_NO_BROWSER").is_some() {
         return;
     }

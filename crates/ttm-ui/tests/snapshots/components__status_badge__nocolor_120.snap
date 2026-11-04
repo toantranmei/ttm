@@ -1,0 +1,8 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+phases: ○ ● ◐ ✓ ✕ ⏸
+waiting: ◐
+checks: ✓ ! ✕
+badges: 🤖 👤 · Supporter ✦ Mei-er ✦✦ Sponsor review

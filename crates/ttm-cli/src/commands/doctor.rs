@@ -7,6 +7,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::process::ExitCode;
 use ttm_api::Client;
+use ttm_ui::{Callout, Cell, Col, Status, Table, next_line};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -21,6 +22,30 @@ pub struct Check {
     pub name: &'static str,
     pub level: Level,
     pub detail: String,
+}
+
+impl From<Level> for ttm_ui::Level {
+    fn from(level: Level) -> Self {
+        match level {
+            Level::Ok => ttm_ui::Level::Ok,
+            Level::Warn => ttm_ui::Level::Warn,
+            Level::Fail => ttm_ui::Level::Fail,
+        }
+    }
+}
+
+/// What to run about a check that is not ok.
+fn next_for(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "discovery" | "host" => "ttm status",
+        "version" => "ttm self-update",
+        "token" => "ttm login",
+        "keyring" => "ttm status",
+        "git" => "install git, then ttm doctor",
+        "claude" => "install Claude Code, then ttm doctor",
+        "ttm-mcp" => "ttm self-update",
+        _ => return None,
+    })
 }
 
 fn check(name: &'static str, level: Level, detail: impl Into<String>) -> Check {
@@ -148,14 +173,34 @@ pub async fn run(app: App) -> Result<ExitCode> {
     });
 
     let failed = checks.iter().any(|c| c.level == Level::Fail);
-    emit(app.json, &checks, || {
+    emit(&app, &checks, |ui| {
+        let fails = checks.iter().filter(|c| c.level == Level::Fail).count();
+        let warns = checks.iter().filter(|c| c.level == Level::Warn).count();
+        let headline = match (fails, warns) {
+            (0, 0) => Callout::success(format!("All {} checks passed", checks.len())),
+            (0, w) => Callout::warning(format!("{w} warning(s), no failure")),
+            (f, w) => Callout::error(format!("{f} check(s) failed, {w} warning(s)")),
+        };
+        ui.print(&headline);
+        let mut table = Table::new(&[
+            Col::new("CHECK"),
+            Col::new("STATUS"),
+            Col::new("DETAIL").flex(1).min(10),
+        ]);
         for c in &checks {
-            let mark = match c.level {
-                Level::Ok => "ok  ",
-                Level::Warn => "warn",
-                Level::Fail => "FAIL",
-            };
-            println!("[{mark}] {:<10} {}", c.name, c.detail);
+            table.push(vec![
+                Cell::new(c.name),
+                Cell::new(ui.render(&Status::level(c.level.into()))),
+                Cell::new(c.detail.as_str()),
+            ]);
+        }
+        ui.print(&table);
+        let first = checks
+            .iter()
+            .find(|c| c.level == Level::Fail)
+            .or_else(|| checks.iter().find(|c| c.level == Level::Warn));
+        if let Some(next) = first.and_then(|c| next_for(c.name)) {
+            ui.line(&next_line(ui.mode(), next));
         }
     });
     Ok(if failed {

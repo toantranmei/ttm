@@ -1,8 +1,11 @@
 //! `ttm`: the command line of toantranmei.com.
 
 mod app;
+mod ascode;
 mod cli;
+mod cli_v2;
 mod commands;
+mod membership;
 mod output;
 mod util;
 
@@ -13,19 +16,21 @@ fn main() -> ExitCode {
     let cli = cli::Cli::parse();
     init_logging(cli.global.verbose);
     let json = cli.global.json;
+    let ui = ttm_ui::Ui::detect(cli.global.plain, json);
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(err) => {
-            eprintln!("error: cannot start the async runtime: {err}");
+            output::print_error(
+                &ui,
+                json,
+                &anyhow::anyhow!("cannot start the async runtime: {err}"),
+            );
             return ExitCode::FAILURE;
         }
     };
-    match runtime.block_on(commands::run(cli)) {
+    match runtime.block_on(commands::run(cli, ui.clone())) {
         Ok(code) => code,
-        Err(err) => {
-            output::print_error(json, &err);
-            ExitCode::FAILURE
-        }
+        Err(err) => output::print_error(&ui, json, &err),
     }
 }
 

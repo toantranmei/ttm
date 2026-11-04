@@ -104,10 +104,11 @@ tra lại các ô trên trang trước khi bấm **Tạo token**.
 | `factory:read` | Xem project, task, kế hoạch (export), change request, luật, sự kiện của run; gửi kết quả luật (`rule_check`) | |
 | `factory:write` | Tạo project, sửa task, chuyển trạng thái, duyệt, gửi change request, tạo task con | `factory:read` |
 | `factory:run` | Đăng ký và chạy runner, nhận job, gửi sự kiện, kết thúc run, `ttm agent run`, tạo task con của chính run | `factory:read` |
+| `factory:admin` | Quản trị cấu hình Factory qua token: workflow, Tự động hoá, agent, skill, MCP server, cài mẫu; luôn qua **xác nhận hai bước** khi đi từ MCP. Token của job (agent đang chạy) **không bao giờ** có scope này | `factory:write` |
 | `offline_access` | Cấp refresh token (giữ đăng nhập) | |
 
 `ttm login` mặc định xin **tất cả**: `workspace:read notee:read notee:write notee:comment factory:read factory:write
-factory:run offline_access`. Thu hẹp bằng `--scope`, ví dụ chỉ đọc Notee:
+factory:run factory:admin offline_access`. Thu hẹp bằng `--scope`, ví dụ chỉ đọc Notee:
 
 ```sh
 ttm login --scope "workspace:read notee:read"
@@ -156,7 +157,7 @@ Service, container) hoặc bị tắt bằng `TTM_NO_KEYRING=1` thì token vào 
 access_token = "ttm_oat_…"
 refresh_token = "ttm_ort_…"
 expires_at = "2026-12-04T05:00:00Z"
-scope = "workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run offline_access"
+scope = "workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run factory:admin offline_access"
 ```
 
 `ttm status` cho biết token đang lấy từ đâu và chỉ hiện vài ký tự đầu:
@@ -207,6 +208,31 @@ Trên `<host>/me/ket-noi`:
 - tab **Runner**: máy đang chạy `ttm runner`.
 
 Thu hồi có hiệu lực ngay: mọi request sau đó trả `401 invalid_token`.
+
+## Token cũ và `factory:admin`
+
+Từ 0.2.0, `ttm login` xin thêm `factory:admin` (lệnh `ttm agent`, `ttm skill review`, `ttm workflow publish`…). Token tạo
+trước đó thiếu scope này: lệnh quản trị trả `insufficient_scope` với `Fix:` gợi ý đăng nhập lại. Chạy `ttm login` một lần
+là đủ.
+
+## Huy hiệu Mei-er
+
+Khi bạn là thành viên Mei-er, `ttm login` và `ttm whoami` in thêm một dòng màu vàng gold:
+
+```text
+✦ Mei-er since 2026-11  Thank you for being a Mei-er. You keep this going.
+```
+
+| Hạng | Dòng cảm ơn |
+| --- | --- |
+| Supporter (`· Supporter`) | `Thank you for supporting toantranmei.` |
+| Mei-er (`✦ Mei-er`) | `Thank you for being a Mei-er. You keep this going.` |
+| Sponsor (`✦✦ Sponsor`) | `Thank you, Sponsor. This work exists because of you.` |
+
+Đúng ngày kỷ niệm tham gia (cùng tháng–ngày, từ năm thứ nhất) có thêm `Happy <n>-year Mei-er anniversary!`. Với `--plain`,
+huy hiệu là `[Mei-er]`. Với `--json`, `whoami` và `login` có thêm khoá `meta.membership` (`{tier, status, since, until,
+badge}` hoặc `null`). Người chưa là thành viên chỉ thấy, **duy nhất** ở `ttm whoami`, một dòng mờ `Support toantranmei →
+https://toantranmei.com/mei-er`; không lệnh nào khác nhắc.
 
 ## Nhiều tài khoản, nhiều máy chủ
 

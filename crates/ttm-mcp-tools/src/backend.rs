@@ -207,6 +207,47 @@ pub trait Backend: Send + Sync + 'static {
     async fn factory_renew_lease(&self, _paths: &[String]) -> BackendResult<Lease> {
         Err(BackendError::unsupported("factory-renew-lease"))
     }
+
+    /// One `/api/v1` request on behalf of the caller (`path` relative to `/api/v1`, e.g. `/factory/skills`), JSON in
+    /// and out. The v2 read tools, the admin tools (preview + `POST /confirmations`) and `factory-confirm` are all
+    /// written over this one method; the hosted server answers it through its own router with the caller's
+    /// authorization, so every permission check runs as for a normal request.
+    async fn api(
+        &self,
+        _method: &str,
+        _path: &str,
+        _query: &[(String, String)],
+        _body: Option<Value>,
+    ) -> BackendResult<Value> {
+        Err(BackendError::unsupported("this tool"))
+    }
+
+    /// The job this backend serves, if any. A backend with a `run_id` never exposes the `admin` toolset.
+    fn factory_scope(&self) -> FactoryScope {
+        FactoryScope::default()
+    }
+
+    /// Whether the server has a feature of its discovery document (`confirmations`, `agent_v2`, …).
+    fn supports(&self, _feature: &str) -> bool {
+        true
+    }
+
+    /// `POST /confirmations/{id}/apply`, keeping the replayed status and body as data and telling whether they are
+    /// the action's (`X-Confirmation: applied`). The default goes through [`Backend::api`]: a success is the action's,
+    /// an error is reported as the confirmation's.
+    async fn confirm_apply(&self, id: &str) -> BackendResult<ttm_api::confirmations::ApplyOutcome> {
+        match self
+            .api("POST", &format!("/confirmations/{id}/apply"), &[], None)
+            .await
+        {
+            Ok(body) => Ok(ttm_api::confirmations::ApplyOutcome {
+                status: 200,
+                body,
+                applied: true,
+            }),
+            Err(err) => Err(err),
+        }
+    }
 }
 
 /// The job an agent works in, from `TTM_RUN_ID`, `TTM_TASK`, `TTM_PROJECT` (set by the runner).
@@ -235,6 +276,8 @@ pub struct HttpBackend {
     /// Workspace id chosen with `ttm workspace switch`.
     current_workspace: Option<String>,
     factory: FactoryScope,
+    /// `features` of the discovery document; `None` = unknown (assume present).
+    features: Option<Vec<String>>,
 }
 
 impl HttpBackend {
@@ -243,7 +286,14 @@ impl HttpBackend {
             client,
             current_workspace,
             factory: FactoryScope::default(),
+            features: None,
         }
+    }
+
+    /// The server's discovery `features` (tools for missing features answer `unsupported_feature`).
+    pub fn with_features(mut self, features: Vec<String>) -> Self {
+        self.features = Some(features);
+        self
     }
 
     /// Current run / task / project for the Factory tools.
@@ -458,5 +508,35 @@ impl Backend for HttpBackend {
 
     async fn factory_renew_lease(&self, paths: &[String]) -> BackendResult<Lease> {
         Ok(self.client.request_lease(self.run_id()?, paths).await?)
+    }
+
+    async fn api(
+        &self,
+        method: &str,
+        path: &str,
+        query: &[(String, String)],
+        body: Option<Value>,
+    ) -> BackendResult<Value> {
+        let method = reqwest::Method::from_bytes(method.to_ascii_uppercase().as_bytes())
+            .map_err(|_| BackendError::new("bad_request", format!("unknown method {method}")))?;
+        let query: Vec<(&str, String)> = query.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+        Ok(self
+            .client
+            .json::<Value>(method, path, &query, body.map(ttm_api::client::Body::Json))
+            .await?)
+    }
+
+    fn factory_scope(&self) -> FactoryScope {
+        self.factory.clone()
+    }
+
+    fn supports(&self, feature: &str) -> bool {
+        self.features
+            .as_ref()
+            .is_none_or(|f| f.iter().any(|x| x == feature))
+    }
+
+    async fn confirm_apply(&self, id: &str) -> BackendResult<ttm_api::confirmations::ApplyOutcome> {
+        Ok(self.client.confirmation_apply(id).await?)
     }
 }

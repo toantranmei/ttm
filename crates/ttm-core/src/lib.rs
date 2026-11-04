@@ -12,6 +12,7 @@ pub mod merge3;
 pub mod paths;
 pub mod profile;
 pub mod project_file;
+pub mod skill_zip;
 pub mod worktree;
 
 pub use config::Config;

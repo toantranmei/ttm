@@ -7,6 +7,7 @@ use crate::output::emit;
 use crate::util::open_browser;
 use anyhow::{Result, bail};
 use std::process::ExitCode;
+use ttm_ui::{Callout, Token};
 
 pub async fn run(app: App, command: TokenCommand) -> Result<ExitCode> {
     let url = match &command {
@@ -32,11 +33,12 @@ pub async fn run(app: App, command: TokenCommand) -> Result<ExitCode> {
             page_url(app.host(), &params)?
         }
     };
-    open_browser(&url, false);
+    open_browser(&app.ui, &url, false);
     let out = serde_json::json!({ "url": url });
-    emit(app.json, &out, || {
-        println!(
-            "Tokens are managed on the web (the API does not accept a token here). Finish in the browser."
+    emit(&app, &out, |ui| {
+        ui.print(
+            &Callout::info("Tokens are managed on the web (the API does not accept a token here)")
+                .detail(format!("Finish in the browser: {}", ui.paint(Token::Blue, &url))),
         );
     });
     Ok(ExitCode::SUCCESS)

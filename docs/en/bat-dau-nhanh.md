@@ -125,6 +125,24 @@ see the `ttm` server, then try asking:
 Claude calls `notee-search` and then `notee-fetch` with your token. Other apps (Claude Desktop, Cursor, Codex, VS Code)
 and remote MCP: see [Connecting MCP](mcp.md).
 
+## 7. Create a Factory project (optional)
+
+In your repository:
+
+```sh
+ttm project init
+```
+
+The wizard asks for the name, key, workspace, repository, workflow, preset agents and runner; every question has a flag.
+In scripts or CI, pass every flag and `--yes`:
+
+```sh
+ttm project init --name "Web todo" --key WEB --workflow balanced --agents create --runner this --yes
+```
+
+Then: `ttm runner up` so this machine takes agent jobs. See [Factory](factory.md) and [Command line
+interface](giao-dien.md).
+
 ## Next steps
 
 - [Notee](notee.md): edit pages, suggest edits, query databases, comment.

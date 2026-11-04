@@ -1,0 +1,8 @@
+{
+  "client": "Cursor",
+  "file": "/tmp/.cursor/mcp.json",
+  "backup": null,
+  "changed": true,
+  "dry_run": true,
+  "entry": {"name": "ttm", "command": "ttm-mcp", "args": ["--host", "http://127.0.0.1:1"]}
+}

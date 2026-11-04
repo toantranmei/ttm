@@ -37,6 +37,16 @@ Nhà cung cấp repo suy từ URL: `github.com` → `github`, có chữ `gitlab`
 `local`. Nhánh chính lấy từ `origin/HEAD`, nếu không có thì `main` nếu tồn tại, nếu không thì `master`. Key đã có người dùng:
 `409 conflict` (`rule: key_taken`).
 
+### Wizard (0.2)
+
+Trong terminal, `ttm project init` không cờ hỏi lần lượt: tên → key (gợi ý từ tên, đúng `^[A-Z][A-Z0-9]{1,9}$`) →
+workspace → repo (mặc định `origin`) → workflow (`Professional — 9 statuses, 6 agents`, `Balanced — 5 statuses, 3 agents,
+about 40% fewer tokens`, hoặc mẫu khác) → agent mẫu (dùng lại agent cùng vai trò hay tạo mới) → runner (`this` ghi
+`[repos] KEY = <thư mục>` vào `runner.toml`). Mọi câu có cờ: `--name --key --workspace --repo --workflow
+professional|balanced|kanban|scrum|autopilot|<slug> --agents create|reuse|none --runner this|none`, `--yes` lấy mặc định.
+Không phải terminal và chỉ có `--key` thì chạy như 0.1.6. Sau wizard, `ttm` in lệnh tương đương (`Equivalent: …`) ra
+stderr.
+
 ### Liên kết với project có sẵn
 
 ```sh
@@ -358,3 +368,21 @@ tạo nhưng nằm ngoài sprint, kèm `warning`.
 
 Agent do runner chạy dùng các tool MCP `factory-*` (lấy task, context, báo tiến độ, xin duyệt, tạo task con, đính kèm PR
 hay kết quả test, đọc luật, giữ vùng code). Xem [Runner](runner.md) và [Tool MCP](mcp-cong-cu.md).
+
+## Lệnh của Factory v2 (0.2)
+
+| Lệnh | Việc |
+| --- | --- |
+| `ttm workflow show\|validate\|simulate\|diff\|publish\|upgrade\|copy` | Xem, kiểm, chạy thử, so, xuất bản, nâng cấp, chép workflow |
+| `ttm automation list\|show\|test\|enable\|disable\|runs` | Luật Tự động hoá: xem dạng Khi/Nếu/Thì, chạy thử trên một task, lịch sử |
+| `ttm agent list\|show\|create\|edit\|pause\|resume\|archive`, `agent skills add\|rm`, `agent mcp add\|rm` | Quản trị agent (handle, danh tính git, skill, MCP) |
+| `ttm skill list\|push\|pull\|show\|review\|import` | Skill: đóng gói tất định, đẩy phiên bản, duyệt |
+| `ttm mcp-server list\|add\|connect\|remove` | MCP server từ xa của workspace (secret ở gateway) |
+| `ttm cr list\|show\|approve\|reject` | Change request của kế hoạch và cấu hình |
+| `ttm inbox [--watch]`, `ttm inbox read` | Hộp thư thông báo |
+| `ttm template list\|publish\|install` | Thư viện mẫu |
+| `ttm workspace members` | Thành viên và huy hiệu |
+
+Mỗi lệnh kiểm `discovery.features` của server trước; server chưa có tính năng → `This server does not support … yet`
+(`unsupported_feature`, mã thoát 2). Cú pháp đầy đủ: [Tham chiếu lệnh](lenh.md). Workflow, luật, agent và skill dạng file
+trong `.ttm/`: [Cấu hình dạng code](as-code.md). Quy ước đầu ra: [Giao diện dòng lệnh](giao-dien.md).

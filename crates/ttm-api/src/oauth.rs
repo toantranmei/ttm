@@ -7,7 +7,7 @@ use crate::{ApiError, Client, DeviceAuthorization, OAuthErrorBody, Result, Token
 pub const CLI_CLIENT_ID: &str = "ttm-cli";
 
 /// Scopes `ttm login` asks for by default.
-pub const DEFAULT_SCOPES: &str = "workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run offline_access";
+pub const DEFAULT_SCOPES: &str = "workspace:read notee:read notee:write notee:comment factory:read factory:write factory:run factory:admin offline_access";
 
 pub const DEVICE_CODE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 

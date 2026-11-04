@@ -1,0 +1,8 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+phases: todo doing review done blocked paused
+waiting: review
+checks: ok warn FAIL
+badges: [agent] [person] [Supporter] [Mei-er] [Sponsor] review
