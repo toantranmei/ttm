@@ -27,9 +27,17 @@ The server returns errors as `application/problem+json`:
 | `rule` | The specific rule violated (for `bad_request`, `conflict`, `precondition_failed`), for example `split-limit` |
 | `params` | Related values, for example `{"required": "notee:write"}`, `{"max_depth": 2, "per_run": 10}` |
 
-`ttm` prints `error: <title> (<code>, HTTP <status>) <params>` to stderr; with `--json` it also prints
-`{"error": {"code", "message"}}` to stdout. MCP tools return `isError: true`, the text `<message> (<code>)` and
-`structuredContent.error.code`.
+`ttm` prints `error: <title> (<code>, rule <rule>, field <field>, HTTP <status>) <params>` to stderr (the `rule`, `field`
+and `params` parts only when the server sends them), for example:
+
+```text
+error: At most 10 subtasks per run (10 already). (conflict, rule `split-limit`, HTTP 409) {"depth":1,"max_depth":2,"per_root":30,"per_run":10,"root_count":12,"run_count":10}
+```
+
+With `--json`, stdout also gets `{"error": {"code", "message", "status", "rule", "field", "params"}}` (the last three
+only when the server sends them) so scripts can branch on `rule`. MCP tools return `isError: true`, the text
+`<message> (<code>)` and `structuredContent.error` with the same fields: agents branch on `rule` (`split-limit`,
+`rev-conflict`, `approval-required`) or read `params.required` of `insufficient_scope`.
 
 > **Note:** for `bad_request`, `conflict` and `precondition_failed` errors, `code` is generic; the specific cause is in
 > `rule` (the **Rule** column below) and the message.
@@ -157,6 +165,7 @@ Most are `409 conflict` with the following `rule`:
 | --- | --- | --- |
 | `repo_not_configured` | The job's project has no clone in `runner.toml`, or the clone's `origin` doesn't match the job's repo | `ttm runner config --repo KEY=<clone path>` |
 | `invalid_branch` | The job's branch name isn't valid for git | Fix the task/branch on the web |
+| `invalid_worktree` | The job's `worktree_hint` is an absolute path, has `..`, or leads out of `worktree_root` | Report it as a server bug; the runner never creates a worktree outside `worktree_root` |
 
 These two codes are reported to the server as `error` when the run finishes.
 
@@ -173,12 +182,12 @@ These two codes are reported to the server as `error` when the run finishes.
 
 | Message | Meaning |
 | --- | --- |
-| `not signed in to <host> (profile <p>); run ttm login` | No token for this (profile, host) |
+| `` not signed in to <host> (profile <p>); run `ttm login` `` | No token for this (profile, host) |
 | `the saved token has expired; run ttm login` | Token expired, no refresh token |
 | `the session expired and could not be renewed; run ttm login` | Renewal failed |
 | `the server rejected this token (…)` | `ttm login --token` with an invalid token |
 | `cannot reach <host>` | Network, DNS, or wrong `--host` |
 | `this directory is not linked to a project; run ttm project link <KEY>` | A Factory command run outside a linked repo |
-| `no agent harness found; install Claude Code (claude) first` | `claude` isn't on the runner's `PATH` |
+| ``no agent harness found; install Claude Code (`claude`) first`` | `claude` isn't on the runner's `PATH` |
 | `timed out after 5 minutes waiting for the browser` | **Allow** wasn't clicked in time |
 | `invalid TOML in <file>: …` | `config.toml`/`credentials.toml`/`runner.toml` has a syntax error |

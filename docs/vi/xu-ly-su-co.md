@@ -55,12 +55,12 @@ Chạy lại và bấm **Cho phép** trong 5 phút. Dùng `--no-browser` để t
 **`the code expired before it was approved`.**
 Mã thiết bị sống 10 phút. Chạy lại `ttm login --device`.
 
-**`not signed in to … ; run ttm login` dù đã đăng nhập.**
+**`` not signed in to …; run `ttm login` `` dù đã đăng nhập.**
 Token gắn với (profile, host). Có thể bạn đang dùng profile hoặc host khác: xem `ttm status`. `TTM_HOST`, `TTM_PROFILE`,
 `--host` đều đổi cặp đó.
 
 **`invalid_token` sau một thời gian.**
-Token hết hạn (khoảng 30 ngày với `ttm login`) hoặc đã bị thu hồi. `ttm login` lại. Nếu `ttm status` báo nguồn
+Token hết hạn (với `ttm login`: không dùng `ttm` quá 90 ngày, refresh token đã hết hạn) hoặc đã bị thu hồi. `ttm login` lại. Nếu `ttm status` báo nguồn
 `TTM_TOKEN`, biến đó đang giữ token cũ: bỏ hoặc thay nó.
 
 **`insufficient_scope … [requires scope X]` / `{"required": "X"}`.**
@@ -88,7 +88,7 @@ cấu hình MCP.
 File cấu hình của ứng dụng đang hỏng; ttm không ghi gì. Sửa file (bản sao lưu cũ nằm ở `<file>.bak-<số>` nếu từng cài)
 rồi chạy lại.
 
-**`Claude Code (claude) is not on PATH`.**
+**``Claude Code (`claude`) is not on PATH``.**
 Cài Claude Code, hoặc chạy lệnh in kèm thông báo bằng tay (`claude mcp add --scope user ttm -- …`).
 
 **Tool `factory-*` trả `no_run`.**
@@ -164,9 +164,9 @@ Workflow chặn chuyển trạng thái. Xem bảng ở [Mã lỗi](ma-loi.md).
 
 ## Runner
 
-**`no agent harness found; install Claude Code (claude) first`.**
-Cài Claude Code. Chạy dưới dịch vụ mà vẫn báo: dịch vụ không thấy `PATH` của shell; thêm `PATH` cho dịch vụ (xem
-[Runner](runner.md)).
+**``no agent harness found; install Claude Code (`claude`) first``.**
+Cài Claude Code. Chạy dưới dịch vụ mà vẫn báo: dịch vụ dùng `PATH` ghi lúc cài (bản trước 0.1.3 không ghi `PATH`). Chạy
+lại `ttm runner install-service` từ shell mà `which claude` tìm thấy (xem [Runner](runner.md)).
 
 **Job bị từ chối: `refused AUR-12: no local clone is configured for project AUR`.**
 `ttm runner config --repo AUR=~/code/aurora` rồi khởi động lại runner.
@@ -174,8 +174,12 @@ Cài Claude Code. Chạy dưới dịch vụ mà vẫn báo: dịch vụ không 
 **`the job's repository … is not the origin of …`.**
 `origin` của clone không phải repo của project. Sửa remote (`git remote set-url origin …`) hoặc trỏ `--repo` tới đúng clone.
 
+**Job bị từ chối: `` refused AUR-12: the job's worktree_hint `…` is an absolute path; worktrees stay under the runner's worktree_root … ``.**
+Server gửi một `worktree_hint` không nằm dưới `worktree_root` (tuyệt đối, có `..` hoặc qua symlink ra ngoài). Runner từ
+chối (`invalid_worktree`) và không tạo gì; báo lỗi cho người quản trị server.
+
 **Runner tự chạy lại sau `ttm runner down`.**
-Dịch vụ (launchd `KeepAlive`, systemd, Task Scheduler) đang giữ nó. Gỡ dịch vụ để tắt hẳn.
+Dịch vụ (launchd `KeepAlive`, systemd, Task Scheduler) đang giữ nó. Tắt hẳn bằng `ttm runner uninstall-service`.
 
 **Run kết thúc `paused`.**
 Claude báo hết hạn mức; runner tạm ngừng nhận job tới giờ reset, server xếp lại việc.
@@ -214,7 +218,8 @@ PAT tối thiểu + `TTM_TOKEN`, ví dụ `ttm sync --check` để chặn PR là
 Chưa đăng crates.io; cài từ mã nguồn bằng `cargo install --git https://github.com/toantranmei/ttm ttm-cli`.
 
 **Có gói `.mcpb` cho Claude Desktop không?**
-Manifest đã có trong repo nhưng chưa phát hành ở 0.1.2. Dùng `ttm mcp install --client claude-desktop` hoặc MCP từ xa.
+Có, từ 0.1.3: tải `ttm-mcp-<hệ điều hành>.mcpb` ở GitHub Releases (xem [MCP](mcp.md)). Bản cũ hơn: dùng
+`ttm mcp install --client claude-desktop` hoặc MCP từ xa.
 
 **Dữ liệu của tôi có được dùng để huấn luyện model không?**
 ttm không gửi dữ liệu cho bên thứ ba. Nội dung bạn đưa cho Claude, ChatGPT… theo chính sách của nhà cung cấp đó.

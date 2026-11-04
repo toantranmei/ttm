@@ -122,17 +122,19 @@ agent。用 token 调用这些操作会返回 `403 token_not_allowed`。缺少 s
 
 | Token | 前缀 | 有效期 |
 | --- | --- | --- |
-| CLI 登录（`ttm login`、`--device`） | `ttm_oat_` | 30 天 |
-| CLI 的 refresh token | `ttm_ort_` | 30 天，每次使用时轮换 |
+| CLI 登录（`ttm login`、`--device`） | `ttm_oat_` | 7 天，自动续期 |
+| CLI 的 refresh token | `ttm_ort_` | 90 天，滚动：每次续期都会签发新的 refresh token，重新计 90 天 |
 | 个人 token | `ttm_pat_` | 1–365 天，由你选择（默认 30），不续期 |
-| 远程 MCP 应用（Claude.ai、ChatGPT 等） | `ttm_oat_` | 1 小时；如果应用申请了 `offline_access`，refresh token 为 30 天 |
+| 远程 MCP 应用（Claude.ai、ChatGPT 等） | `ttm_oat_` | 1 小时；仅当应用申请了 `offline_access` 时才有 90 天的滚动 refresh token |
 | Runner | `ttm_job_` | 12 小时，runner 会在过期前自动重新注册 |
 | 单次 agent 运行 | `ttm_job_` | 随作业的时长而定 |
 
 当已保存的 token 过期且有 refresh token 时，`ttm` 和 `ttm-mcp` 会自动申请新 token 并保存。无法续期时，命令会报告
 `the saved token has expired; run ttm login`。来自 `TTM_TOKEN` 的 token 永远不会自动续期。
 
-> **注意：** CLI 的 refresh token 与访问 token 同时签发，有效期同为 30 天，所以实际上你大约每 30 天需要重新执行一次 `ttm login`。
+> **注意：** CLI 的访问 token 有效期 7 天，会自动续期；只要你至少每 90 天使用一次 `ttm`（或 `ttm-mcp`），就会保持登录。
+> 超过 90 天未使用，refresh token 过期，需要重新 `ttm login`。（这些有效期随即将发布的服务器更新生效；在此之前两种 token
+> 都是 30 天。）
 
 ## Token 存储在哪里
 

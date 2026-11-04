@@ -27,8 +27,17 @@ section: reference
 | `rule` | 具体违反的规则（用于 `bad_request`、`conflict`、`precondition_failed`），例如 `split-limit` |
 | `params` | 相关的值，例如 `{"required": "notee:write"}`、`{"max_depth": 2, "per_run": 10}` |
 
-`ttm` 向 stderr 输出 `error: <title> (<code>, HTTP <status>) <params>`；使用 `--json` 时还会向 stdout 输出
-`{"error": {"code", "message"}}`。MCP 工具返回 `isError: true`、文本 `<thông báo> (<code>)` 以及 `structuredContent.error.code`。
+`ttm` 向 stderr 输出 `error: <title> (<code>, rule <rule>, field <field>, HTTP <status>) <params>`（`rule`、`field`、
+`params` 部分仅在服务器发送时出现），例如：
+
+```text
+error: At most 10 subtasks per run (10 already). (conflict, rule `split-limit`, HTTP 409) {"depth":1,"max_depth":2,"per_root":30,"per_run":10,"root_count":12,"run_count":10}
+```
+
+使用 `--json` 时，stdout 还会输出 `{"error": {"code", "message", "status", "rule", "field", "params"}}`（后三个字段仅在
+服务器发送时出现），方便脚本按 `rule` 分支。MCP 工具返回 `isError: true`、文本 `<消息> (<code>)`，以及带有相同字段的
+`structuredContent.error`：agent 可按 `rule`（`split-limit`、`rev-conflict`、`approval-required`）分支，或读取
+`insufficient_scope` 的 `params.required`。
 
 > **注意：** 对于 `bad_request`、`conflict`、`precondition_failed` 错误，`code` 比较笼统；具体原因在
 > `rule`（下表中的 **Rule** 列）和提示信息中。
@@ -155,6 +164,7 @@ section: reference
 | --- | --- | --- |
 | `repo_not_configured` | 作业（job）所属项目在 `runner.toml` 中没有 clone，或 clone 的 `origin` 与作业的仓库不一致 | `ttm runner config --repo KEY=<đường dẫn clone>` |
 | `invalid_branch` | 作业的分支名不符合 git 规则 | 在网页上修改任务/分支 |
+| `invalid_worktree` | 作业的 `worktree_hint` 是绝对路径、含 `..`，或指向 `worktree_root` 之外 | 作为服务器问题反馈；runner 绝不会在 `worktree_root` 之外创建 worktree |
 
 这两个错误码会在 run 结束时作为 `error` 上报给服务器。
 
@@ -171,12 +181,12 @@ section: reference
 
 | 提示信息 | 含义 |
 | --- | --- |
-| `not signed in to <host> (profile <p>); run ttm login` | 该（profile，host）没有 token |
+| `` not signed in to <host> (profile <p>); run `ttm login` `` | 该（profile，host）没有 token |
 | `the saved token has expired; run ttm login` | Token 已过期，且没有 refresh token |
 | `the session expired and could not be renewed; run ttm login` | 续期失败 |
 | `the server rejected this token (…)` | `ttm login --token` 使用了无效的 token |
 | `cannot reach <host>` | 网络、DNS 问题，或 `--host` 错误 |
 | `this directory is not linked to a project; run ttm project link <KEY>` | 在已关联的仓库之外运行了 Factory 命令 |
-| `no agent harness found; install Claude Code (claude) first` | Runner 的 `PATH` 中没有 `claude` |
+| ``no agent harness found; install Claude Code (`claude`) first`` | Runner 的 `PATH` 中没有 `claude` |
 | `timed out after 5 minutes waiting for the browser` | 没有及时点击 **允许** |
 | `invalid TOML in <file>: …` | `config.toml`/`credentials.toml`/`runner.toml` 语法错误 |

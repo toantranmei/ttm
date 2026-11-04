@@ -44,7 +44,7 @@ Linked /Users/an/code/aurora to AUR (Aurora), plan rev 42.
 Commit .ttm/project.toml and .ttm/plan; run `ttm rules apply` to install the project rules.
 ```
 
-`ttm` 会在你的各个工作区中查找该项目，下载计划并写入 `.ttm/`。找不到时：`no project AUR in your workspaces`。
+`ttm` 会在你的各个工作区中查找该项目，下载计划并写入 `.ttm/`。找不到时：``no project `AUR` in your workspaces``。
 
 ```sh
 ttm project status            # key、id、host、已同步的 rev、待审批的变更请求
@@ -245,18 +245,21 @@ runner 的 agent）共用。runner 会在每个作业的 worktree 中自动运�
 Claude Code 通过 stdin 传入 JSON 调用 hook。hook **以 2 退出**表示阻止该操作；stderr 上的消息会返回给 agent：
 
 ```text
-Blocked by project rule `no_push_main`: do not push to main/master directly; push a branch and open a pull request
+Blocked by project rule `no_push_main`: do not push to main directly; push a branch and open a pull request
 ```
 
 | 规则 | Hook | 阻止 |
 | --- | --- | --- |
-| `no_push_main` | `pre-bash` | 推送到 `main` 或 `master` 的 `git push`（包括 `HEAD:refs/heads/main`、`+main`，以及在 `main`/`master` 上执行不带参数的 `git push`） |
+| `no_push_main` | `pre-bash` | 推送到受保护分支的 `git push`（包括 `HEAD:refs/heads/main`、`+main`，以及在该分支上执行不带参数的 `git push`） |
 | `no_verify` | `pre-bash` | 带 `--no-verify` 的 `git commit`/`git push`，或 `git commit -n` |
 | `conventional_commits` | `pre-bash` | 首行不符合 Conventional Commits 的 `git commit -m`：`type(scope)!: 摘要`，`type` 属于 `feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`revert`、`merge` |
 | `tests_before_done` | `stop` | agent 在未运行项目测试命令的情况下结束（命令必须出现在 transcript 中） |
 
 - hook 按 `&&`、`||`、`;`、`|` 拆分命令行，能理解引号，并跳过 `git -C <dir>`、`git -c k=v`。
 - 在编辑器中撰写的提交（没有 `-m`）不做检查。
+- 受保护分支：服务器下发规则中的 `hooks.pre_bash.protected_branches`（项目设置 `protected_branches`，默认是项目的默认
+  分支），由 `ttm rules apply` 保存在 `.ttm/cache/rules.json`。没有缓存的规则时使用 `.ttm/project.toml` 中的
+  `default_branch`；仍没有则为 `main` 和 `master`。拦截消息会列出这些分支（`do not push to trunk/release directly; …`）。
 - 在已关联的仓库之外，hook 放行一切。缺少 `.ttm/cache/rules.json` 时，前三条规则生效。
 - 服务器根据项目设置启用或关闭每条规则（`commit_convention = none` 关闭提交规则；当工作流有 `tests_pass` guard 或设置了
   `test_commands` 时，`tests_before_done` 生效）。
@@ -308,7 +311,8 @@ AUR-14     inbox          QC        -                Kiểm thử đăng nhập
 
 ### 创建子任务
 
-`subtasks.json`（数组，或 `{"tasks": [...]}`）；字段名与 API 一致，使用 **camelCase**：
+`subtasks.json`（数组，或 `{"tasks": [...]}`）；字段名可用与 API 一致的 **camelCase**，也可用与 MCP 工具
+`factory-create-subtasks` 一致的 **snake_case**（`acceptance_criteria`、`depends_on`）：`ttm` 在发送前会改成服务器读取的名称。
 
 ```json
 [
@@ -325,10 +329,13 @@ AUR-14     inbox          QC        -                Kiểm thử đăng nhập
 | `estimate` | 整数 | 累加到父任务上 |
 | `type`、`priority`、`description` | 字符串 | |
 | `labels` | 字符串数组 | |
-| `acceptanceCriteria` | 字符串数组 | |
-| `dependencies` | 数组 | 已有任务的 key，或 `#<n>` = 同一文件中的第 n 个子任务（从 0 开始计数） |
+| `acceptanceCriteria`（或 `acceptance_criteria`） | 字符串数组 | |
+| `dependencies`（或 `depends_on`） | 数组 | 已有任务的 key，或 `#<n>` = 同一文件中的第 n 个子任务（从 0 开始计数） |
+
+`kind` 视为 `type`。其他键会被丢弃，并在 stderr 上给出警告：
 
 ```text
+warning: subtask #1: unknown key `owner` ignored (known: title, type, priority, estimate, role, description, labels, acceptanceCriteria, dependencies, or acceptance_criteria, depends_on)
 2 subtask(s) created under AUR-12.
 ```
 

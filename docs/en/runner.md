@@ -85,10 +85,13 @@ The runner **never clones a URL the server sends**. Each job names its repo; the
 2. that clone's `origin` matches the job's repo (compared after normalizing: dropping the scheme, user, port, `.git`,
    and trailing `/`; for example `git@github.com:a/b.git` = `https://github.com/a/b`); for a `local` project, the job's
    path must match the declared path;
-3. the job's branch name is valid under git's rules.
+3. the job's branch name is valid under git's rules;
+4. the worktree stays under `worktree_root`: the job's `worktree_hint` may only be a relative path; an absolute path
+   (`/…`, `C:\…`), one with `..`, `\` or `:`, or one that goes through a symlink leading out of `worktree_root` is
+   refused.
 
-Otherwise the job is refused and reported to the server (`repo_not_configured` or `invalid_branch`), and the terminal
-prints:
+Otherwise the job is refused and reported to the server (`repo_not_configured`, `invalid_branch` or `invalid_worktree`),
+and the terminal prints:
 
 ```text
 ttm runner: refused AUR-12: no local clone is configured for project AUR; add it with `ttm runner config --repo AUR=<path to your clone>`
@@ -108,8 +111,10 @@ of retrying continuously.
 
 1. **Check** the repo and branch (section above).
 2. **Worktree**: `git fetch origin <default branch>`, then
-   `git worktree add -B <branch> <path> origin/<default branch>`. The default path is
-   `<worktree_root>/<KEY>/<branch>` (unusual characters become `-`).
+   `git worktree add -B <branch> <path> origin/<default branch>`. The path is
+   `<worktree_root>/<worktree_hint>` (the server suggests `<lowercase key>/<branch without ttm/>`, for example
+   `aur/aur-12-dang-nhap-google`); a job without a hint gets `<worktree_root>/<KEY>/<branch>` (unusual characters become
+   `-`).
 3. **Rules**: runs `ttm rules apply` in the worktree (the `AGENTS.md`/`CLAUDE.md` block, Claude Code hooks).
 4. **MCP**: writes `<cache>/mcp-<run>.json` (mode 0600) pointing to
    `ttm-mcp --toolsets <the job's toolsets, default factory,notee>` with `TTM_TOKEN` set to the job token, `TTM_RUN_ID`,
@@ -137,7 +142,8 @@ Worktrees of finished jobs are kept for `keep_days` days so you can review them,
 ### Connection to the server
 
 - The runner only opens **outbound** connections (works behind NAT, no open ports needed): a heartbeat every 20 seconds
-  and a job long-poll every 15 seconds while it has free slots.
+  and a job long-poll (`?wait=25`, the server holds it up to 25 seconds) while it has free slots. A pending long-poll is
+  not cancelled when a heartbeat is due, so a job the server already handed out is never lost.
 - The heartbeat carries the list of running runs; the server answers with the runs to stop (the **kill switch** on the
   web or `ttm agent stop`) or an order to shut the runner down (“turned off from the web”).
 - The runner token lives for 12 hours and is renewed automatically 30 minutes before it expires (by registering again;
@@ -170,7 +176,7 @@ ttm runner down     # sends SIGTERM (Windows: taskkill) to the process in runner
 ```
 
 `Ctrl-C` or `ttm runner down` stops the runner; running agents are cancelled. If the runner runs under a service, the
-service restarts it; uninstall the service to turn it off for good.
+service restarts it; `ttm runner uninstall-service` turns it off for good.
 
 ## Background service: `ttm runner install-service`
 
@@ -187,37 +193,31 @@ ttm --profile work runner install-service     # the service uses the work profil
 
 The service runs `<path to ttm> [--profile <name>] runner up`; `--profile` is only written when you pass it explicitly.
 
-> **Note:** the service doesn't inherit your shell's `PATH`. If the log says ``no agent harness found; install Claude
-> Code (`claude`) first`` even though `claude` works in your terminal, add a `PATH` for the service. macOS: add it to the
-> plist, then reload it
->
-> ```xml
-> <key>EnvironmentVariables</key>
-> <dict>
->   <key>PATH</key>
->   <string>/Users/an/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-> </dict>
-> ```
->
-> Linux: `systemctl --user edit ttm-runner` and add `Environment=PATH=…` under `[Service]`. On Linux you also need
-> `loginctl enable-linger $USER` if you want the runner to run while you aren't signed in.
+The service carries a `PATH`: launchd and systemd start services with a minimal `PATH` (`/usr/bin:/bin:…`) that lacks
+`claude`, `gh` and sometimes `git`. So the plist (`EnvironmentVariables`) and the unit (`Environment="PATH=…"`) record
+the `PATH` of the shell that runs `install-service` (empty or relative entries such as `.` dropped), plus whichever of
+`~/.local/bin`, `~/.cargo/bin`, `/opt/homebrew/bin`, `/opt/homebrew/sbin`, `/usr/local/bin`, `/usr/bin`, `/bin`,
+`/usr/sbin`, `/sbin` are missing. The command prints the recorded `PATH`:
 
-### Uninstall the service
+```text
+Runner service installed: /Users/an/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
+PATH of the service: /Users/an/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/an/.cargo/bin:/opt/homebrew/sbin:/usr/sbin:/sbin
+```
+
+If you later install tools somewhere else, run `ttm runner install-service` again from a shell with the new `PATH` (it
+overwrites and reloads the service). On Windows the task runs with your account's environment (the `PATH` set in
+Windows), so nothing extra is needed. On Linux you also need `loginctl enable-linger $USER` if you want the runner to run
+while you aren't signed in.
+
+### Uninstall the service: `ttm runner uninstall-service`
 
 ```sh
-# macOS
-launchctl unload -w ~/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
-rm ~/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
-
-# Linux
-systemctl --user disable --now ttm-runner.service
-rm ~/.config/systemd/user/ttm-runner.service && systemctl --user daemon-reload
+ttm runner uninstall-service
 ```
 
-```powershell
-# Windows
-schtasks /Delete /TN ttm-runner /F
-```
+Stops the service, then removes it: macOS `launchctl unload -w` and deletes the plist; Linux `systemctl --user disable
+--now`, deletes the unit, `daemon-reload`; Windows `schtasks /End` then `schtasks /Delete /F /TN ttm-runner`. Output:
+`Runner service stopped and removed: <file>`, or `No runner service installed.` when there was none.
 
 ## Run a task now: `ttm agent`
 
@@ -227,7 +227,7 @@ ttm agent run AUR-12
 
 ```text
 Run 0190f610-… for AUR-12 on branch aur-12-dang-nhap-google
-[log] worktree /Users/an/.ttm/worktrees/AUR/aur-12-dang-nhap-google on aur-12-dang-nhap-google from main
+[log] worktree /Users/an/.ttm/worktrees/aur/aur-12-dang-nhap-google on aur-12-dang-nhap-google from main
 [log] agent started claude-sonnet-4-5
 [thought] Mình sẽ đọc context của task trước.
 [action] mcp__ttm__factory-get-context
@@ -235,7 +235,7 @@ Run 0190f610-… for AUR-12 on branch aur-12-dang-nhap-google
 [log] tests passed: cargo test -p auth
 [response] Đã thêm đăng nhập Google, test đều qua.
 Run 0190f610-…: succeeded
-worktree: /Users/an/.ttm/worktrees/AUR/aur-12-dang-nhap-google
+worktree: /Users/an/.ttm/worktrees/aur/aur-12-dang-nhap-google
 pull request: https://github.com/an/aurora/pull/57
 ```
 
@@ -275,7 +275,7 @@ To revoke a runner: the **Runner** or **Token** tab on `/me/ket-noi`.
 - **Only repos you declare**, with `origin` checked for every job; no unknown URLs are cloned; branch names are checked
   before use.
 - **One worktree and one branch per task**; your own worktree isn't touched. The `pre-bash` hook blocks direct pushes to
-  `main`/`master`, `--no-verify`, and commits that break the convention.
+  a protected branch, `--no-verify`, and commits that break the convention. Worktrees always stay under `worktree_root`.
 - **The job token** only works within its run and expires with the job; it lives in a 0600 file and is deleted after the
   run.
 - **The agent runs with your OS user's permissions**, limited by the allowed-tools list the job sends. This isn't a

@@ -13,7 +13,7 @@ section: start
 | `ttm` | 命令行（CLI） | 登录、切换工作区、读取和修改 Notee 页面、将仓库与 Factory 项目关联、同步计划、对 agent 强制执行规则、在你的机器上运行 agent、把 MCP 安装到各种 AI 应用 |
 | `ttm-mcp` | 在你的机器上通过 stdio 运行的 [MCP](https://modelcontextprotocol.io) 服务器 | 让 Claude Code、Claude Desktop、Cursor、Codex、VS Code…… 代表你读写 Notee、处理 Factory 任务 |
 
-源代码：<https://github.com/toantranmei/ttm>。当前版本：**0.1.2**。
+源代码：<https://github.com/toantranmei/ttm>。当前版本：**0.1.3**。
 
 如果你不使用终端，则无需安装任何东西：把**远程 MCP URL** `https://toantranmei.com/api/v1/mcp` 粘贴到
 Claude.ai 或 ChatGPT 即可（参见 [连接 MCP](mcp.md)）。

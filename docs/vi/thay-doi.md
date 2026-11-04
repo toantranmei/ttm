@@ -7,6 +7,39 @@ section: more
 
 `ttm` và `ttm-mcp` phát hành cùng phiên bản. Bản tải: <https://github.com/toantranmei/ttm/releases>.
 
+## 0.1.3 (chưa phát hành)
+
+### Lỗi và mã lỗi
+
+- Lỗi của server giữ `rule`, `field`, `params`: `ttm` in `rule`/`field` trong thông báo lỗi; `--json` và lỗi của tool MCP
+  (`structuredContent.error`) có thêm `status`, `rule`, `field`, `params` để rẽ nhánh theo `split-limit`, `rev-conflict`,
+  `approval-required`, hoặc đọc `params.required` của `insufficient_scope`. Xem [Mã lỗi](ma-loi.md).
+- Mô tả tool `factory-create-subtasks` ghi đúng quy tắc `split-limit` (`409 conflict`) thay vì `split_limit`.
+
+### ttm
+
+- `ttm task split` nhận khoá camelCase hoặc snake_case (`acceptance_criteria`, `depends_on`, như tool MCP) và cảnh báo
+  khoá lạ.
+- `ttm task approve --reject` in `rejected` (trước đây `rejectd`).
+- `ttm hook pre-bash` bảo vệ các nhánh trong `hooks.pre_bash.protected_branches` của luật đã lưu, rồi nhánh chính trong
+  `.ttm/project.toml`, rồi `main`/`master` (trước đây luôn là `main`/`master`).
+- `ttm notes query --page-size` chỉ nhận 1–100, báo lỗi rõ trước khi gọi server.
+- Đăng nhập CLI: token truy cập 7 ngày, tự gia hạn; vẫn đăng nhập chừng nào còn dùng `ttm` ít nhất mỗi 90 ngày (đi cùng
+  thay đổi phía server sắp phát hành).
+
+### Runner
+
+- Dịch vụ (launchd, systemd) mang `PATH` của shell chạy `install-service` cộng `~/.local/bin`, `~/.cargo/bin`,
+  `/opt/homebrew/bin`, `/usr/local/bin`…, nên tìm thấy `claude`, `gh`, `git`. Lệnh mới `ttm runner uninstall-service`.
+- `worktree_hint` của job chỉ được là đường dẫn tương đối dưới `worktree_root`; đường dẫn tuyệt đối, `..` hay symlink ra
+  ngoài bị từ chối (`invalid_worktree`).
+- Long-poll job với `wait=25` (tối đa của server); yêu cầu đang chờ không bị huỷ khi tới lượt heartbeat.
+
+### Phát hành
+
+- Gói Claude Desktop `.mcpb` cho macOS (universal), Linux x64/arm64, Windows x64 trên GitHub Releases. Phiên bản của
+  manifest theo `Cargo.toml` (CI kiểm).
+
 ## 0.1.2 (04/11/2026)
 
 Bản phát hành đầu tiên.

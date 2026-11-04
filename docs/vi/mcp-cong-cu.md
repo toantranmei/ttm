@@ -6,7 +6,7 @@ section: reference
 ---
 
 Trang này áp dụng cho cả `ttm-mcp` (stdio) và MCP từ xa `https://toantranmei.com/api/v1/mcp`: cùng tên tool, cùng tham số,
-cùng kết quả. Phiên bản **0.1.2**: 26 tool trong 3 nhóm và 1 resource.
+cùng kết quả. Phiên bản **0.1.3**: 26 tool trong 3 nhóm và 1 resource.
 
 ## Quy ước
 
@@ -22,7 +22,7 @@ cùng kết quả. Phiên bản **0.1.2**: 26 tool trong 3 nhóm và 1 resource.
 | Dạng | Khi nào | Model thấy |
 | --- | --- | --- |
 | Lỗi giao thức `invalid_params` (-32602) | Tên tool lạ; tham số sai kiểu, thiếu, hoặc lạ; kiểm tra cục bộ thất bại (ví dụ `give 1 to 20 pages`) | Thông báo lỗi JSON-RPC |
-| Kết quả có `isError: true` | Server từ chối hoặc lỗi | Văn bản `<thông báo> (<code>)`, và `structuredContent: {"error": {"code", "message"}}` |
+| Kết quả có `isError: true` | Server từ chối hoặc lỗi | Văn bản `<thông báo> (<code>)`, và `structuredContent: {"error": {"code", "message", "status", "rule", "field", "params"}}` |
 
 `code` là mã của server (`unauthorized`, `invalid_token`, `insufficient_scope`, `not_found`, `too_many_blocks`…, xem
 [Mã lỗi](ma-loi.md)) hoặc mã của chính tool:
@@ -35,7 +35,12 @@ cùng kết quả. Phiên bản **0.1.2**: 26 tool trong 3 nhóm và 1 resource.
 | `unsupported` | Server này không hỗ trợ tool đó |
 | `network`, `decode` | Không gọi được API / phản hồi lạ |
 
-Lỗi 401 kèm gợi ý `Sign in again with ttm login.`
+Lỗi của server giữ `status`, `rule` (quy tắc bị vi phạm), `field` (trường đầu vào) và `params` (giá trị liên quan) khi
+server gửi; văn bản cũng ghi `rule` và `field`. Agent rẽ nhánh theo `rule` thay vì đọc câu chữ: `split-limit` (chia ít hơn
+hoặc nông hơn, `params` có giới hạn), `rev-conflict` (đọc lại task rồi thử lại), `approval-required` (xin duyệt bằng
+`factory-request-approval`); `insufficient_scope` có `params.required` là scope còn thiếu.
+
+Lỗi 401 kèm gợi ý ``Sign in again with `ttm login`.``
 
 ## Resource
 
@@ -131,7 +136,7 @@ Văn bản cho page:
 </page>
 ```
 
-Page bị cắt thêm dòng `The page was truncated. Read the missing parts with notee-fetch and block set to one of: …`. Dòng
+Page bị cắt thêm dòng ``The page was truncated. Read the missing parts with notee-fetch and `block` set to one of: …``. Dòng
 database có thêm `<properties>{…}</properties>`. Có cấu trúc: `{"kind": "page", id, title, icon, url, parent,
 properties?, markdown, truncated, unknown_block_ids}` hoặc `{"kind": "database", id, title, url, properties[], views[]}`.
 

@@ -36,7 +36,8 @@ section: more
 
 ## Lifetime and revocation
 
-- Tokens last 30 days by default (PAT 1–365 days, OAuth apps 1 hour, runner 12 hours, job tokens as long as the job).
+- CLI sign-in tokens last 7 days and are renewed with a 90-day refresh token (PAT 1–365 days, OAuth apps 1 hour, runner
+  12 hours, job tokens as long as the job).
 - Refresh tokens **rotate** on every use; reusing an old refresh token (a sign of theft) revokes the whole token family.
 - `ttm logout` revokes the token on the server before deleting it locally.
 - The `/me/ket-noi` page shows when each token was last used; each connected app has a **Disconnect** button that revokes
@@ -74,7 +75,10 @@ toantranmei.com.
 - Works only in the **clone you declare** (`ttm runner config --repo`), and checks that the clone's `origin` matches the
   job's repo; it never clones a URL sent by the server. Branch names are validated before use.
 - **One worktree and one branch per task**; your own worktree is never touched. The `pre-bash` hook blocks pushing
-  straight to `main`/`master`, `--no-verify` and commits that break the conventions.
+  straight to a protected branch (by default the project's default branch), `--no-verify` and commits that break the
+  conventions.
+- Worktrees always stay under the runner's `worktree_root`: a job's `worktree_hint` is only a relative path; an absolute
+  path, `..` or a symlink leading out is refused (`invalid_worktree`).
 - A job token works only for its own run, lives in an MCP config file with mode 0600, and is deleted when the run ends.
 - The agent runs with **your operating system user's permissions**, limited by the tool list the job allows. This is not
   a sandbox: run runners only for projects you trust, review pull requests before merging, and consider running the

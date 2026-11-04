@@ -6,7 +6,7 @@ section: reference
 ---
 
 本页同时适用于 `ttm-mcp`（stdio）和远程 MCP `https://toantranmei.com/api/v1/mcp`：工具名、参数和结果都相同。
-版本 **0.1.2**：3 个组共 26 个工具，以及 1 个 resource。
+版本 **0.1.3**：3 个组共 26 个工具，以及 1 个 resource。
 
 ## 约定
 
@@ -22,7 +22,7 @@ section: reference
 | 形式 | 何时出现 | 模型看到什么 |
 | --- | --- | --- |
 | 协议错误 `invalid_params`（-32602） | 未知工具名；参数类型错误、缺失或未知；本地校验失败（例如 `give 1 to 20 pages`） | JSON-RPC 错误消息 |
-| 结果带 `isError: true` | 服务器拒绝或出错 | 文本 `<thông báo> (<code>)`，以及 `structuredContent: {"error": {"code", "message"}}` |
+| 结果带 `isError: true` | 服务器拒绝或出错 | 文本 `<消息> (<code>)`，以及 `structuredContent: {"error": {"code", "message", "status", "rule", "field", "params"}}` |
 
 `code` 是服务器的错误码（`unauthorized`、`invalid_token`、`insufficient_scope`、`not_found`、`too_many_blocks`…，见
 [错误码](ma-loi.md)），或工具自身的错误码：
@@ -35,7 +35,12 @@ section: reference
 | `unsupported` | 该服务器不支持此工具 |
 | `network`、`decode` | 无法调用 API / 响应无法识别 |
 
-401 错误会附带提示 `Sign in again with ttm login.`
+服务器错误在服务器提供时会保留 `status`、`rule`（未通过的检查）、`field`（输入字段）和 `params`（相关的值）；文本中也会
+写出 `rule` 和 `field`。agent 应按 `rule` 分支，而不是解析文字：`split-limit`（拆得更少或更浅，`params` 中有上限），
+`rev-conflict`（重新读取任务后重试），`approval-required`（用 `factory-request-approval` 申请批准）；`insufficient_scope`
+的 `params.required` 是缺少的 scope。
+
+401 错误会附带提示 ``Sign in again with `ttm login`.``
 
 ## Resource
 
@@ -130,7 +135,7 @@ section: reference
 </page>
 ```
 
-被截断的页面会多一行 `The page was truncated. Read the missing parts with notee-fetch and block set to one of: …`。
+被截断的页面会多一行 ``The page was truncated. Read the missing parts with notee-fetch and `block` set to one of: …``。
 数据库行会多出 `<properties>{…}</properties>`。结构化：`{"kind": "page", id, title, icon, url, parent,
 properties?, markdown, truncated, unknown_block_ids}` 或 `{"kind": "database", id, title, url, properties[], views[]}`。
 

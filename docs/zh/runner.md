@@ -83,9 +83,11 @@ Runner **永远不会 clone 服务器发来的 URL**。每个作业都会注明�
 1. 作业所属项目在 `[repos]` 中有 clone（按 key，不区分大小写，或按 id）；
 2. 该 clone 的 `origin` 与作业的仓库一致（规范化后比较：去掉协议、用户、端口、`.git`、末尾的 `/`；例如
    `git@github.com:a/b.git` = `https://github.com/a/b`）；对于 `local` 项目，作业的路径必须与声明的路径一致；
-3. 作业的分支名符合 git 的规则。
+3. 作业的分支名符合 git 的规则；
+4. worktree 位于 `worktree_root` 之下：作业的 `worktree_hint` 只能是相对路径；绝对路径（`/…`、`C:\…`）、含 `..`、`\` 或
+   `:` 的路径，或经由符号链接指向 `worktree_root` 之外的路径都会被拒绝。
 
-不满足时，作业会被拒绝并上报服务器（`repo_not_configured` 或 `invalid_branch`），终端打印：
+不满足时，作业会被拒绝并上报服务器（`repo_not_configured`、`invalid_branch` 或 `invalid_worktree`），终端打印：
 
 ```text
 ttm runner: refused AUR-12: no local clone is configured for project AUR; add it with `ttm runner config --repo AUR=<path to your clone>`
@@ -102,8 +104,9 @@ ttm runner: refused AUR-12: no local clone is configured for project AUR; add it
 ## 作业如何运行
 
 1. **检查**仓库和分支（见上一节）。
-2. **Worktree**：`git fetch origin <主分支>`，然后 `git worktree add -B <分支> <路径> origin/<主分支>`。默认路径为
-   `<worktree_root>/<KEY>/<分支>`（特殊字符替换为 `-`）。
+2. **Worktree**：`git fetch origin <主分支>`，然后 `git worktree add -B <分支> <路径> origin/<主分支>`。路径为
+   `<worktree_root>/<worktree_hint>`（服务器建议 `<小写 key>/<去掉 ttm/ 的分支>`，例如 `aur/aur-12-dang-nhap-google`）；
+   没有建议的作业使用 `<worktree_root>/<KEY>/<分支>`（特殊字符替换为 `-`）。
 3. **规则**：在 worktree 中运行 `ttm rules apply`（`AGENTS.md`/`CLAUDE.md` 区块、Claude Code hook）。
 4. **MCP**：写入 `<cache>/mcp-<run>.json`（权限 0600），指向 `ttm-mcp --toolsets <作业的工具组，默认 factory,notee>`，其中
    `TTM_TOKEN` 是作业的 token，另有 `TTM_RUN_ID`、`TTM_TASK`、`TTM_PROJECT`。
@@ -126,7 +129,8 @@ ttm runner: refused AUR-12: no local clone is configured for project AUR; add it
 
 ### 与服务器的连接
 
-- Runner 只建立**出站**连接（可以在 NAT 之后运行，无需开放端口）：每 20 秒发送一次 heartbeat，有空闲容量时每 15 秒 long-poll 一次作业。
+- Runner 只建立**出站**连接（可以在 NAT 之后运行，无需开放端口）：每 20 秒发送一次 heartbeat，有空闲容量时 long-poll 作业
+  （`?wait=25`，服务器最多保持 25 秒）。等待中的 long-poll 不会因 heartbeat 而被取消，因此服务器已分派的作业不会丢失。
 - heartbeat 携带正在运行的 run 列表；服务器返回需要停止的 run（来自网页的 **kill switch** 或 `ttm agent stop`），或关闭 runner
   的指令（“turned off from the web”）。
 - runner token 有效期 12 小时，在过期前 30 分钟自动续期（重新注册，旧 token 被撤销）。连续超过 3 次被 `401` 拒绝时，runner 会停止。
@@ -156,7 +160,7 @@ repo:      WEB = /Users/an/code/web
 ttm runner down     # 向 runner.pid 中的进程发送 SIGTERM（Windows：taskkill）
 ```
 
-`Ctrl-C` 或 `ttm runner down` 会停止 runner；正在运行的 agent 会被取消。如果 runner 以服务方式运行，服务会重新启动它；要彻底关闭，请卸载服务。
+`Ctrl-C` 或 `ttm runner down` 会停止 runner；正在运行的 agent 会被取消。如果 runner 以服务方式运行，服务会重新启动它；要彻底关闭，请运行 `ttm runner uninstall-service`。
 
 ## 后台服务：`ttm runner install-service`
 
@@ -173,36 +177,29 @@ ttm --profile work runner install-service     # 服务使用 work profile
 
 服务运行 `<ttm 路径> [--profile <名称>] runner up`；只有你显式传入 `--profile` 时才会写入它。
 
-> **注意：** 服务不会继承 shell 的 `PATH`。如果日志报告 `no agent harness found; install Claude Code (claude)
-> first`，而 `claude` 在终端里可以运行，请为服务添加 `PATH`。macOS：加入 plist 后重新加载
->
-> ```xml
-> <key>EnvironmentVariables</key>
-> <dict>
->   <key>PATH</key>
->   <string>/Users/an/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-> </dict>
-> ```
->
-> Linux：执行 `systemctl --user edit ttm-runner`，在 `[Service]` 中加入 `Environment=PATH=…`。如果希望在你未登录时 runner
-> 也能运行，Linux 还需要 `loginctl enable-linger $USER`。
+服务会带上 `PATH`：launchd 和 systemd 以最小的 `PATH`（`/usr/bin:/bin:…`）启动服务，其中没有 `claude`、`gh`，有时连 `git`
+也没有。因此 plist（`EnvironmentVariables`）和 unit（`Environment="PATH=…"`）会写入运行 `install-service` 的 shell 的
+`PATH`（去掉空项或 `.` 这类相对路径），并补上缺少的 `~/.local/bin`、`~/.cargo/bin`、`/opt/homebrew/bin`、`/opt/homebrew/sbin`、
+`/usr/local/bin`、`/usr/bin`、`/bin`、`/usr/sbin`、`/sbin`。命令会打印写入的 `PATH`：
 
-### 卸载服务
+```text
+Runner service installed: /Users/an/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
+PATH of the service: /Users/an/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/an/.cargo/bin:/opt/homebrew/sbin:/usr/sbin:/sbin
+```
+
+之后若把工具装到别的目录，请在已有新 `PATH` 的 shell 中再次运行 `ttm runner install-service`（会覆盖并重新加载服务）。
+在 Windows 上，任务以你账户的环境（Windows 中设置的 `PATH`）运行，无需额外操作。如果希望在你未登录时 runner 也能运行，
+Linux 还需要 `loginctl enable-linger $USER`。
+
+### 卸载服务：`ttm runner uninstall-service`
 
 ```sh
-# macOS
-launchctl unload -w ~/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
-rm ~/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
-
-# Linux
-systemctl --user disable --now ttm-runner.service
-rm ~/.config/systemd/user/ttm-runner.service && systemctl --user daemon-reload
+ttm runner uninstall-service
 ```
 
-```powershell
-# Windows
-schtasks /Delete /TN ttm-runner /F
-```
+先停止服务再移除：macOS 执行 `launchctl unload -w` 并删除 plist；Linux 执行 `systemctl --user disable --now`、删除 unit、
+`daemon-reload`；Windows 执行 `schtasks /End` 再 `schtasks /Delete /F /TN ttm-runner`。输出
+`Runner service stopped and removed: <file>`，未安装时为 `No runner service installed.`。
 
 ## 立即运行一个任务：`ttm agent`
 
@@ -212,7 +209,7 @@ ttm agent run AUR-12
 
 ```text
 Run 0190f610-… for AUR-12 on branch aur-12-dang-nhap-google
-[log] worktree /Users/an/.ttm/worktrees/AUR/aur-12-dang-nhap-google on aur-12-dang-nhap-google from main
+[log] worktree /Users/an/.ttm/worktrees/aur/aur-12-dang-nhap-google on aur-12-dang-nhap-google from main
 [log] agent started claude-sonnet-4-5
 [thought] Mình sẽ đọc context của task trước.
 [action] mcp__ttm__factory-get-context
@@ -220,7 +217,7 @@ Run 0190f610-… for AUR-12 on branch aur-12-dang-nhap-google
 [log] tests passed: cargo test -p auth
 [response] Đã thêm đăng nhập Google, test đều qua.
 Run 0190f610-…: succeeded
-worktree: /Users/an/.ttm/worktrees/AUR/aur-12-dang-nhap-google
+worktree: /Users/an/.ttm/worktrees/aur/aur-12-dang-nhap-google
 pull request: https://github.com/an/aurora/pull/57
 ```
 
@@ -255,8 +252,8 @@ ttm agent stop 0190f610-…            # kill switch
 
 - **只有出站连接**；不在你的机器上开放任何端口。
 - **只使用你声明的仓库**，每个作业都检查 `origin`；不 clone 陌生 URL；分支名在使用前经过检查。
-- **每个任务一个 worktree、一个分支**；你自己的 worktree 不会被改动。`pre-bash` hook 会阻止直接推送 `main`/`master`、`--no-verify`
-  以及不符合约定的提交。
+- **每个任务一个 worktree、一个分支**；你自己的 worktree 不会被改动。`pre-bash` hook 会阻止直接推送受保护分支、`--no-verify`
+  以及不符合约定的提交。worktree 始终位于 `worktree_root` 之下。
 - **作业 token** 只能在它所属的 run 中使用，随作业过期；它保存在 0600 文件中，run 结束后删除。
 - **Agent 以你的操作系统用户权限运行**，受作业下发的允许工具列表约束。这不是沙箱：只为你信任的项目和工作区运行 runner，并在合并前审查 PR。
 - 每一步的最终 prompt 都会经过你的机器（用于运行 Claude Code）；服务器永远不会接收你的 Claude key。

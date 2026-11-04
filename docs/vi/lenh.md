@@ -9,7 +9,7 @@ section: reference
 ttm [OPTIONS] <COMMAND>
 ```
 
-`ttm --help` và `ttm <lệnh> --help` in trợ giúp gốc (tiếng Anh). Trang này theo phiên bản **0.1.2**.
+`ttm --help` và `ttm <lệnh> --help` in trợ giúp gốc (tiếng Anh). Trang này theo phiên bản **0.1.3**.
 
 ## Cờ chung
 
@@ -22,7 +22,7 @@ Dùng được với mọi lệnh, đặt trước hay sau lệnh con đều đ�
 | `--json` | | Kết quả dạng JSON trên stdout |
 | `-v`, `--verbose` | `TTM_LOG` | Thêm log ra stderr (`-v` info, `-vv` debug) |
 | `-h`, `--help` | | Trợ giúp |
-| `-V`, `--version` | | Phiên bản (`ttm 0.1.2`; chỉ ở cấp gốc) |
+| `-V`, `--version` | | Phiên bản (`ttm 0.1.3`; chỉ ở cấp gốc) |
 
 ## Mã thoát
 
@@ -52,7 +52,7 @@ Lỗi luôn in `error: <thông báo>` ra stderr; với `--json`, thêm `{"error"
 | [`task`](#task) | `list`, `show`, `claim`, `done`, `approve`, `split` |
 | [`rules`](#rules) | `apply` |
 | [`hook`](#hook) | `pre-bash`, `stop` (do agent gọi) |
-| [`runner`](#runner) | `up`, `down`, `status`, `config`, `install-service` |
+| [`runner`](#runner) | `up`, `down`, `status`, `config`, `install-service`, `uninstall-service` |
 | [`agent`](#agent) | `run`, `logs`, `stop` |
 | [`mcp`](#mcp) | `install` |
 | [`self-update`](#self-update) | Cập nhật ttm |
@@ -132,7 +132,7 @@ ttm status
 Những gì máy này sẽ dùng; không cần đăng nhập hay mạng (luôn thoát 0).
 
 ```text
-ttm 0.1.2
+ttm 0.1.3
 host:      https://toantranmei.com
 profile:   default (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -155,7 +155,7 @@ Mỗi dòng một kiểm tra: `host`, `discovery` (tải mới, không dùng b�
 ```text
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.2, server API v1
+[ok  ] version    ttm 0.1.3, server API v1
 [ok  ] token      ttm_oat_Ab12… (keyring) as an@example.com
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1
@@ -266,7 +266,7 @@ ttm notes query <DATABASE> (--sql <SQL> | --filter <FILE>) [--page-size <N>] [--
 | --- | --- |
 | `--sql <SQL>` | SQL chỉ đọc trên bảng `rows` |
 | `--filter <FILE>` | File JSON `{"filter": …, "sorts": …}` hoặc chỉ bộ lọc; `-` đọc stdin |
-| `--page-size <N>` | 1–100 dòng (server mặc định 100) |
+| `--page-size <N>` | 1–100 dòng (server mặc định 100); ngoài khoảng đó `ttm` dừng trước khi gọi server: `invalid value '500' for '--page-size <N>': 500 is out of range: --page-size takes 1 to 100 rows per page` |
 | `--cursor <CURSOR>` | `next_cursor` của trang trước |
 
 Phải có đúng một trong `--sql`, `--filter`. Mỗi dòng in `<id>  <values JSON>`; còn trang sau thì stderr in
@@ -473,7 +473,7 @@ Chạy trong repo đã liên kết (trừ `show`, `claim`, `done`, `approve`, `s
 | `ttm task claim <KEY>` | | Giao task cho chính bạn | `factory:write` |
 | `ttm task done <KEY>` | | Chuyển sang `done` (guard, cổng duyệt vẫn áp) | `factory:write` |
 | `ttm task approve <KEY>` | `--reject` | Duyệt / từ chối bước đang chờ | `factory:write` |
-| `ttm task split <KEY> -f <FILE>` | `-f`, `--file` (bắt buộc; `-` = stdin) | Tạo task con từ JSON | `factory:write` |
+| `ttm task split <KEY> -f <FILE>` | `-f`, `--file` (bắt buộc; `-` = stdin) | Tạo task con từ JSON (khoá camelCase hoặc snake_case, xem [Factory](factory.md)) | `factory:write` |
 
 ```text
 AUR-12     doing          DEV       Dev bot          Đăng nhập bằng Google
@@ -486,7 +486,7 @@ state: doing  role: DEV  assignee: Dev bot
 Cho phép đăng nhập bằng tài khoản Google.
 ```
 
-Đầu ra khác: `AUR-12 is now yours.`, `AUR-12 is now done.`, `AUR-12 approved; state done.`,
+Đầu ra khác: `AUR-12 is now yours.`, `AUR-12 is now done.`, `AUR-12 approved; state done.`, `AUR-12 rejected; state doing.` (`--reject`),
 `2 subtask(s) created under AUR-12.` JSON: đối tượng task (camelCase, `id` là key), hoặc `{tasks, warnings}` cho `split`.
 
 ## rules
@@ -507,7 +507,7 @@ stderr; thoát 0 khi cho phép hoặc ngoài repo đã liên kết.
 
 | Lệnh | Hook | Kiểm |
 | --- | --- | --- |
-| `ttm hook pre-bash` | `PreToolUse` (matcher `Bash`) | `no_push_main`, `no_verify`, `conventional_commits` trên `tool_input.command` |
+| `ttm hook pre-bash` | `PreToolUse` (matcher `Bash`) | `no_push_main` (nhánh được bảo vệ theo luật đã lưu, xem [Factory](factory.md)), `no_verify`, `conventional_commits` trên `tool_input.command` |
 | `ttm hook stop` | `Stop` | `tests_before_done`: lệnh test có trong `transcript_path` (bỏ qua khi `stop_hook_active`) |
 
 ## runner
@@ -518,7 +518,8 @@ stderr; thoát 0 khi cho phép hoặc ngoài repo đã liên kết.
 | `ttm runner down` | Dừng tiến trình trong `runner.pid` |
 | `ttm runner status` | Id, tên, đang chạy, sức chứa, harness, repo |
 | `ttm runner config [cờ]` | Sửa `runner.toml` |
-| `ttm runner install-service` | Cài dịch vụ chạy khi đăng nhập (launchd, systemd `--user`, Task Scheduler) |
+| `ttm runner install-service` | Cài dịch vụ chạy khi đăng nhập (launchd, systemd `--user`, Task Scheduler), mang theo `PATH` của shell đang chạy lệnh |
+| `ttm runner uninstall-service` | Dừng và gỡ dịch vụ (plist, unit hoặc tác vụ Task Scheduler) |
 
 Cờ của `runner config`:
 
@@ -533,7 +534,8 @@ Cờ của `runner config`:
 | `--auto-merge <true\|false>` | `false` | Tự merge đầu merge queue và push |
 
 JSON của `status`: `runner_id`, `name`, `running`, `pid`, `capacity`, `accept_team_jobs`, `harnesses`, `repos`,
-`worktree_root`. Của `config`: nội dung `runner.toml`. Của `down`: `stopped`, `pid`. Của `install-service`: `installed`.
+`worktree_root`. Của `config`: nội dung `runner.toml`. Của `down`: `stopped`, `pid`. Của `install-service`: `installed`, `path` (`PATH` của dịch vụ; `null` trên Windows). Của
+`uninstall-service`: `removed` (`null` khi chưa cài).
 
 ## agent
 

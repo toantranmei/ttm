@@ -49,7 +49,7 @@ Commit .ttm/project.toml and .ttm/plan; run `ttm rules apply` to install the pro
 ```
 
 `ttm` tìm project trong các workspace của bạn, tải kế hoạch và ghi `.ttm/`. Không thấy:
-`no project AUR in your workspaces`.
+``no project `AUR` in your workspaces``.
 
 ```sh
 ttm project status            # key, id, host, rev đã đồng bộ, change request đang chờ
@@ -252,18 +252,22 @@ nhóm (và agent của runner) dùng chung. Runner tự chạy `ttm rules apply`
 Claude Code gọi hook với JSON trên stdin. Hook **thoát 2** để chặn hành động; thông báo trên stderr quay về cho agent:
 
 ```text
-Blocked by project rule `no_push_main`: do not push to main/master directly; push a branch and open a pull request
+Blocked by project rule `no_push_main`: do not push to main directly; push a branch and open a pull request
 ```
 
 | Luật | Hook | Chặn |
 | --- | --- | --- |
-| `no_push_main` | `pre-bash` | `git push` tới `main` hoặc `master` (kể cả `HEAD:refs/heads/main`, `+main`, và `git push` trần khi đang ở `main`/`master`) |
+| `no_push_main` | `pre-bash` | `git push` tới một nhánh được bảo vệ (kể cả `HEAD:refs/heads/main`, `+main`, và `git push` trần khi đang ở nhánh đó) |
 | `no_verify` | `pre-bash` | `git commit`/`git push` có `--no-verify`, hoặc `git commit -n` |
 | `conventional_commits` | `pre-bash` | `git commit -m` mà dòng đầu không theo Conventional Commits: `type(scope)!: tóm tắt`, `type` thuộc `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`, `merge` |
 | `tests_before_done` | `stop` | Agent kết thúc mà chưa chạy lệnh test của project (lệnh phải xuất hiện trong transcript) |
 
 - Hook tách dòng lệnh theo `&&`, `||`, `;`, `|`, hiểu dấu nháy và bỏ qua `git -C <dir>`, `git -c k=v`.
 - Commit soạn trong editor (không có `-m`) không bị kiểm.
+- Nhánh được bảo vệ: `hooks.pre_bash.protected_branches` trong luật server gửi (cài đặt `protected_branches` của project,
+  mặc định là nhánh chính của project), lưu ở `.ttm/cache/rules.json` khi `ttm rules apply`. Chưa có luật thì dùng
+  `default_branch` trong `.ttm/project.toml`, nếu không có nữa thì `main` và `master`. Thông báo chặn liệt kê các nhánh đó
+  (`do not push to trunk/release directly; …`).
 - Ngoài một repo đã liên kết, hook cho phép mọi thứ. Thiếu `.ttm/cache/rules.json` thì ba luật đầu bật.
 - Server bật hay tắt từng luật theo cài đặt project (`commit_convention = none` tắt luật commit; `tests_before_done` bật
   khi workflow có guard `tests_pass` hoặc có `test_commands`).
@@ -316,7 +320,8 @@ trong 9 cột chuẩn của board: `inbox`, `refinement`, `ready`, `ux-design`, 
 
 ### Tạo task con
 
-`subtasks.json` (mảng, hoặc `{"tasks": [...]}`); tên trường theo API, viết **camelCase**:
+`subtasks.json` (mảng, hoặc `{"tasks": [...]}`); tên trường viết **camelCase** như API, hoặc **snake_case** như tool MCP
+`factory-create-subtasks` (`acceptance_criteria`, `depends_on`): `ttm` đổi sang tên server đọc trước khi gửi.
 
 ```json
 [
@@ -333,10 +338,13 @@ trong 9 cột chuẩn của board: `inbox`, `refinement`, `ready`, `ux-design`, 
 | `estimate` | số nguyên | Cộng dồn lên task cha |
 | `type`, `priority`, `description` | chuỗi | |
 | `labels` | mảng chuỗi | |
-| `acceptanceCriteria` | mảng chuỗi | |
-| `dependencies` | mảng | Key task có sẵn, hoặc `#<n>` = task con thứ n (đếm từ 0) của cùng file |
+| `acceptanceCriteria` (hoặc `acceptance_criteria`) | mảng chuỗi | |
+| `dependencies` (hoặc `depends_on`) | mảng | Key task có sẵn, hoặc `#<n>` = task con thứ n (đếm từ 0) của cùng file |
+
+`kind` được hiểu là `type`. Khoá khác bị bỏ, kèm cảnh báo trên stderr:
 
 ```text
+warning: subtask #1: unknown key `owner` ignored (known: title, type, priority, estimate, role, description, labels, acceptanceCriteria, dependencies, or acceptance_criteria, depends_on)
 2 subtask(s) created under AUR-12.
 ```
 

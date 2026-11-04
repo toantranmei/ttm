@@ -55,12 +55,12 @@ npm 跳过了 `postinstall` 脚本（npm 11 会对全局安装包的脚本发出
 **`the code expired before it was approved`。**
 设备码有效期为 10 分钟。重新运行 `ttm login --device`。
 
-**明明已登录，却出现 `not signed in to … ; run ttm login`。**
+**明明已登录，却出现 `` not signed in to …; run `ttm login` ``。**
 token 绑定在（profile, host）上。你可能正在使用另一个 profile 或 host：查看 `ttm status`。`TTM_HOST`、`TTM_PROFILE`、
 `--host` 都会改变这一组合。
 
 **过一段时间后出现 `invalid_token`。**
-token 已过期（`ttm login` 获得的约 30 天）或已被撤销。重新 `ttm login`。如果 `ttm status` 显示来源是
+token 已过期（对 `ttm login` 而言：超过 90 天未使用 `ttm`，refresh token 已过期）或已被撤销。重新 `ttm login`。如果 `ttm status` 显示来源是
 `TTM_TOKEN`，说明该变量保存的是旧 token：删除或替换它。
 
 **`insufficient_scope … [requires scope X]` / `{"required": "X"}`。**
@@ -86,7 +86,7 @@ PAT 没有 `workspace:read`：Notee/Factory 命令仍可运行，但 `whoami`、
 **`ttm mcp install` 提示 `the existing config is not valid JSON; fix it first`。**
 应用的配置文件已损坏；ttm 不会写入任何内容。修好文件（如果之前安装过，旧备份位于 `<file>.bak-<số>`）后重新运行。
 
-**`Claude Code (claude) is not on PATH`。**
+**``Claude Code (`claude`) is not on PATH``。**
 安装 Claude Code，或手动运行提示中附带的命令（`claude mcp add --scope user ttm -- …`）。
 
 **`factory-*` 工具返回 `no_run`。**
@@ -161,9 +161,9 @@ PAT 没有 `workspace:read`：Notee/Factory 命令仍可运行，但 `whoami`、
 
 ## Runner
 
-**`no agent harness found; install Claude Code (claude) first`。**
-安装 Claude Code。若以服务方式运行仍然报错：服务看不到 shell 的 `PATH`；请为服务添加 `PATH`（见
-[Runner](runner.md)）。
+**``no agent harness found; install Claude Code (`claude`) first``。**
+安装 Claude Code。若以服务方式运行仍然报错：服务使用的是安装时记录的 `PATH`（0.1.3 之前的版本不记录 `PATH`）。请在
+`which claude` 能找到它的 shell 中再次运行 `ttm runner install-service`（见 [Runner](runner.md)）。
 
 **作业被拒绝：`refused AUR-12: no local clone is configured for project AUR`。**
 `ttm runner config --repo AUR=~/code/aurora`，然后重启 runner。
@@ -171,8 +171,12 @@ PAT 没有 `workspace:read`：Notee/Factory 命令仍可运行，但 `whoami`、
 **`the job's repository … is not the origin of …`。**
 该 clone 的 `origin` 不是项目的仓库。修改 remote（`git remote set-url origin …`），或把 `--repo` 指向正确的 clone。
 
+**作业被拒绝：`` refused AUR-12: the job's worktree_hint `…` is an absolute path; worktrees stay under the runner's worktree_root … ``。**
+服务器发来的 `worktree_hint` 不在 `worktree_root` 之下（绝对路径、含 `..`，或经符号链接指向外部）。runner 会拒绝它
+（`invalid_worktree`），不会创建任何东西；请向服务器管理员反馈。
+
 **`ttm runner down` 之后 runner 又自动运行了。**
-是服务（launchd `KeepAlive`、systemd、Task Scheduler）在保持它运行。卸载服务才能彻底关闭。
+是服务（launchd `KeepAlive`、systemd、Task Scheduler）在保持它运行。用 `ttm runner uninstall-service` 才能彻底关闭。
 
 **run 以 `paused` 结束。**
 Claude 报告额度用尽；runner 会暂停接收作业直到额度重置，服务器会重新排队这些工作。
@@ -210,7 +214,8 @@ toantranmei 的额度。
 尚未发布到 crates.io；可用 `cargo install --git https://github.com/toantranmei/ttm ttm-cli` 从源码安装。
 
 **有 Claude Desktop 的 `.mcpb` 包吗？**
-manifest 已在仓库中，但 0.1.2 尚未发布。请使用 `ttm mcp install --client claude-desktop` 或远程 MCP。
+有，从 0.1.3 起：在 GitHub Releases 下载 `ttm-mcp-<操作系统>.mcpb`（见 [MCP](mcp.md)）。更早的版本请使用
+`ttm mcp install --client claude-desktop` 或远程 MCP。
 
 **我的数据会被用来训练模型吗？**
 ttm 不会把数据发送给第三方。你交给 Claude、ChatGPT… 的内容遵循相应提供商的政策。

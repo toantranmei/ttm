@@ -6,7 +6,7 @@ section: reference
 ---
 
 This page applies to both `ttm-mcp` (stdio) and the remote MCP at `https://toantranmei.com/api/v1/mcp`: same tool names,
-same parameters, same results. Version **0.1.2**: 26 tools in 3 toolsets and 1 resource.
+same parameters, same results. Version **0.1.3**: 26 tools in 3 toolsets and 1 resource.
 
 ## Conventions
 
@@ -22,7 +22,7 @@ same parameters, same results. Version **0.1.2**: 26 tools in 3 toolsets and 1 r
 | Form | When | What the model sees |
 | --- | --- | --- |
 | Protocol error `invalid_params` (-32602) | Unknown tool name; a parameter of the wrong type, missing or unknown; a local check fails (for example `give 1 to 20 pages`) | A JSON-RPC error message |
-| Result with `isError: true` | The server refuses or fails | The text `<message> (<code>)`, and `structuredContent: {"error": {"code", "message"}}` |
+| Result with `isError: true` | The server refuses or fails | The text `<message> (<code>)`, and `structuredContent: {"error": {"code", "message", "status", "rule", "field", "params"}}` |
 
 `code` is a server code (`unauthorized`, `invalid_token`, `insufficient_scope`, `not_found`, `too_many_blocks`…, see
 [Error codes](ma-loi.md)) or a code from the tool itself:
@@ -34,6 +34,12 @@ same parameters, same results. Version **0.1.2**: 26 tools in 3 toolsets and 1 r
 | `no_project` | No `project` passed and `TTM_PROJECT` is not set |
 | `unsupported` | This server does not support the tool |
 | `network`, `decode` | Could not reach the API / unexpected response |
+
+A server error keeps its `status`, `rule` (the check that failed), `field` (the input) and `params` (the values involved)
+when the server sends them; the text names the `rule` and `field` too. Agents branch on `rule` instead of the wording:
+`split-limit` (split into fewer or shallower subtasks; `params` has the limits), `rev-conflict` (read the task again and
+retry), `approval-required` (ask with `factory-request-approval`); `insufficient_scope` has the missing scope in
+`params.required`.
 
 401 errors come with the hint ``Sign in again with `ttm login`.``
 

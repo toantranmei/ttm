@@ -97,7 +97,7 @@ ttm status
 ```
 
 ```text
-ttm 0.1.2
+ttm 0.1.3
 host:      https://toantranmei.com
 profile:   work (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -152,11 +152,15 @@ On error, `--json` also prints an error object to stdout (and an `error: …` li
 {
   "error": {
     "code": "insufficient_scope",
-    "message": "this token lacks the scope notee:write (insufficient_scope, HTTP 403) {\"required\":\"notee:write\"}"
+    "message": "this token lacks the scope notee:write (insufficient_scope, HTTP 403) [requires scope notee:write]",
+    "status": 403,
+    "params": { "required": "notee:write" }
   }
 }
 ```
 
+An error from the server also has `status` and, when the server sends them, `rule` (for example `split-limit`,
+`rev-conflict`), `field` and `params`.
 `code` is the server's stable code (see [Error codes](ma-loi.md)), an OAuth code (`access_denied`, `invalid_grant`…), or
 a local code: `network` (couldn't connect), `decode` (unexpected response), `upgrade_required` (ttm is too old),
 `invalid_url`, `error` (anything else, such as not signed in or a file that can't be read).

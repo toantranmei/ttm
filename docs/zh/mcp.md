@@ -28,7 +28,7 @@ ttm doctor         # ttm-mcp 这一行必须是 [ok  ]
 
 `ttm-mcp` 读取 token 的方式与 `ttm` 相同：先 `TTM_TOKEN`，再 keyring，再 `credentials.toml`，按当前选中的 profile 和
 host。token 过期且有 refresh token 时会自动续期。未登录时服务器仍会启动，但所有工具都返回 `unauthorized` 错误
-（日志：`not signed in to <host>; run ttm login (tools will answer unauthorized)`）。
+（日志：``not signed in to <host>; run `ttm login` (tools will answer unauthorized)``）。
 
 ### 自动安装
 
@@ -52,7 +52,7 @@ ttm mcp install --client codex
   `ttm` 条目的 `command` 和 `args`。
 - **备份**：修改前会把旧文件复制为 `<file>.bak-<giây unix>`。
 - **文件损坏**（JSON/TOML 语法错误）时不写入任何内容并报错；修好文件后重新运行。
-- 没有任何变化时重新运行，会打印 `<client> already uses <lệnh> for <tên>.`，且不创建备份。
+- 没有任何变化时重新运行，会打印 ``<client> already uses <命令> for `<名称>`.``，且不创建备份。
 
 | 标志 | 默认值 | 作用 |
 | --- | --- | --- |
@@ -136,8 +136,21 @@ claude mcp add --scope user ttm-notee -- ttm-mcp --toolsets notee
 
 在 Windows 上路径要使用 `\\`：`"C:\\Users\\an\\.cargo\\bin\\ttm-mcp.exe"`。完全退出 Claude Desktop 后再重新打开。
 
-> **注意：** `.mcpb` 包（Claude Desktop 一键安装，粘贴 token 代替 `ttm login`）已在仓库中有 manifest
-> （`mcpb/manifest.json`），但在 0.1.2 版本中 **尚未发布**。在此之前，请使用上面的配置或远程 MCP。
+#### `.mcpb` 包（一键安装）
+
+从 0.1.3 起，[GitHub Releases](https://github.com/toantranmei/ttm/releases) 上的每个版本都为各操作系统提供 Claude Desktop
+包，并附带 `.sha256` 文件：
+
+| 包 | 机器 |
+| --- | --- |
+| `ttm-mcp-darwin.mcpb` | macOS（Apple Silicon 和 Intel，universal 二进制） |
+| `ttm-mcp-win32-x64.mcpb` | Windows x64（Windows on ARM 通过模拟运行） |
+| `ttm-mcp-linux-x64.mcpb`、`ttm-mcp-linux-arm64.mcpb` | Linux（静态 musl 二进制） |
+
+用 Claude Desktop 打开该文件（双击，或 **Settings → Extensions → Install Extension…**）。该包运行
+`ttm-mcp --toolsets notee`（`workspace` 和 `notee` 工具组，不含 `factory`），并询问两个值：**Access token**（在
+`https://toantranmei.com/me/ket-noi` 创建的 `ttm_pat_…` PAT；留空则使用 `ttm login` 保存的 token）和 **Server**（默认
+`https://toantranmei.com`）。无需另外安装 `ttm-mcp`；安装新版本的包即可更新。
 
 ### Cursor
 
@@ -275,7 +288,7 @@ URL：**`https://toantranmei.com/api/v1/mcp`**（MCP Streamable HTTP，无会话
 - 当你属于多个工作区时显示 **限定在工作区内** 一栏。
 - **允许** / **拒绝** 按钮。
 
-远程应用的 token 有效期为 **1 小时**；只有申请了 `offline_access` 的应用才会获得 refresh token（30 天，每次使用都会轮换）。
+远程应用的 token 有效期为 **1 小时**；只有申请了 `offline_access` 的应用才会获得 refresh token（90 天，每次使用都会轮换）。
 重复使用旧的 refresh token 会撤销整个 token 家族。在 `<host>/me/ket-noi` 的 **已连接的应用** 标签页中断开连接。
 
 ### 面向 client 开发者的细节

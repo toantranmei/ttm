@@ -124,18 +124,19 @@ xoá page, tạo hay sửa workspace, thêm agent. Gọi chúng bằng token tr�
 
 | Token | Tiền tố | Sống |
 | --- | --- | --- |
-| Đăng nhập CLI (`ttm login`, `--device`) | `ttm_oat_` | 30 ngày |
-| Refresh token của CLI | `ttm_ort_` | 30 ngày, xoay vòng mỗi lần dùng |
+| Đăng nhập CLI (`ttm login`, `--device`) | `ttm_oat_` | 7 ngày, tự gia hạn |
+| Refresh token của CLI | `ttm_ort_` | 90 ngày, xoay vòng: mỗi lần gia hạn cấp refresh token mới với 90 ngày mới |
 | Token cá nhân | `ttm_pat_` | 1–365 ngày do bạn chọn (mặc định 30), không gia hạn |
-| Ứng dụng MCP từ xa (Claude.ai, ChatGPT…) | `ttm_oat_` | 1 giờ; refresh token 30 ngày nếu ứng dụng xin `offline_access` |
+| Ứng dụng MCP từ xa (Claude.ai, ChatGPT…) | `ttm_oat_` | 1 giờ; refresh token 90 ngày (xoay vòng) chỉ khi ứng dụng xin `offline_access` |
 | Runner | `ttm_job_` | 12 giờ, runner tự đăng ký lại trước khi hết hạn |
 | Một lần chạy agent | `ttm_job_` | Theo thời gian của job |
 
 Khi token đã lưu hết hạn và có refresh token, `ttm` và `ttm-mcp` tự xin token mới rồi lưu lại. Không gia hạn được thì lệnh
 báo `the saved token has expired; run ttm login`. Token lấy từ `TTM_TOKEN` không bao giờ được gia hạn tự động.
 
-> **Lưu ý:** refresh token của CLI được cấp cùng lúc và cùng thời hạn 30 ngày với token truy cập, nên trong thực tế bạn
-> sẽ cần `ttm login` lại khoảng mỗi 30 ngày.
+> **Lưu ý:** token truy cập của CLI sống 7 ngày và được gia hạn tự động; bạn vẫn đăng nhập chừng nào còn dùng `ttm` (hoặc
+> `ttm-mcp`) ít nhất mỗi 90 ngày. Bỏ không quá 90 ngày thì refresh token hết hạn và cần `ttm login` lại. (Thời hạn này
+> đi cùng thay đổi phía server sắp phát hành; trước đó cả hai token sống 30 ngày.)
 
 ## Token được lưu ở đâu
 

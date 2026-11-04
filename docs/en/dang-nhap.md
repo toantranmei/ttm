@@ -130,10 +130,10 @@ billing, deleting pages, creating or editing workspaces, adding agents. Calling 
 
 | Token | Prefix | Lives |
 | --- | --- | --- |
-| CLI sign-in (`ttm login`, `--device`) | `ttm_oat_` | 30 days |
-| CLI refresh token | `ttm_ort_` | 30 days, rotated on every use |
+| CLI sign-in (`ttm login`, `--device`) | `ttm_oat_` | 7 days, renewed automatically |
+| CLI refresh token | `ttm_ort_` | 90 days, rolling: every renewal issues a new refresh token with a fresh 90 days |
 | Personal access token | `ttm_pat_` | 1–365 days, your choice (default 30), not renewed |
-| Remote MCP apps (Claude.ai, ChatGPT…) | `ttm_oat_` | 1 hour; 30-day refresh token if the app requests `offline_access` |
+| Remote MCP apps (Claude.ai, ChatGPT…) | `ttm_oat_` | 1 hour; 90-day rolling refresh token only if the app requests `offline_access` |
 | Runner | `ttm_job_` | 12 hours, the runner re-registers itself before it expires |
 | A single agent run | `ttm_job_` | As long as the job |
 
@@ -141,8 +141,9 @@ When a saved token has expired and a refresh token is available, `ttm` and `ttm-
 If it can't be renewed, the command reports `the saved token has expired; run ttm login`. A token taken from `TTM_TOKEN`
 is never renewed automatically.
 
-> **Note:** the CLI refresh token is issued at the same time and with the same 30-day lifetime as the access token, so
-> in practice you'll need to run `ttm login` again roughly every 30 days.
+> **Note:** the CLI access token lasts 7 days and is renewed automatically; you stay signed in as long as you use `ttm`
+> (or `ttm-mcp`) at least every 90 days. Leave it unused for more than 90 days and the refresh token expires, so you
+> run `ttm login` again. (These lifetimes come with a server change shipping soon; until then both tokens last 30 days.)
 
 ## Where tokens are stored
 

@@ -138,9 +138,22 @@ Config file:
 On Windows, use paths with `\\`: `"C:\\Users\\an\\.cargo\\bin\\ttm-mcp.exe"`. Quit Claude Desktop completely, then open
 it again.
 
-> **Note:** the `.mcpb` bundle (one-click install for Claude Desktop, paste a token instead of `ttm login`) has a manifest
-> in the repo (`mcpb/manifest.json`) but is **not yet released** as of 0.1.2. In the meantime, use the config above or the
-> remote MCP.
+#### `.mcpb` bundle (one-click install)
+
+Since 0.1.3, every release on [GitHub Releases](https://github.com/toantranmei/ttm/releases) has a Claude Desktop bundle
+per operating system, with a `.sha256` file:
+
+| Bundle | Machine |
+| --- | --- |
+| `ttm-mcp-darwin.mcpb` | macOS (Apple Silicon and Intel, universal binary) |
+| `ttm-mcp-win32-x64.mcpb` | Windows x64 (Windows on ARM runs it through emulation) |
+| `ttm-mcp-linux-x64.mcpb`, `ttm-mcp-linux-arm64.mcpb` | Linux (static musl binary) |
+
+Open the file with Claude Desktop (double-click it, or **Settings → Extensions → Install Extension…**). The bundle runs
+`ttm-mcp --toolsets notee` (the `workspace` and `notee` toolsets, no `factory`) and asks for two values: **Access token**
+(a `ttm_pat_…` PAT created at `https://toantranmei.com/me/ket-noi`; leave it empty to use the token saved by
+`ttm login`) and **Server** (default `https://toantranmei.com`). No separate `ttm-mcp` install is needed; update by
+installing the bundle of the new release.
 
 ### Cursor
 
@@ -280,7 +293,7 @@ above, choose OAuth authentication and complete the consent step.
 - The **Limit to workspace** field when you belong to several workspaces.
 - The **Allow** / **Deny** buttons.
 
-Tokens for remote apps last **1 hour**; an app gets a refresh token (30 days, rotated on every use) only when it requests
+Tokens for remote apps last **1 hour**; an app gets a refresh token (90 days, rotated on every use) only when it requests
 `offline_access`. Reusing an old refresh token revokes the whole token family. Disconnect at `<host>/me/ket-noi`, in the
 **Connected apps** tab.
 

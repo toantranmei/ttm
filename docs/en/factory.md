@@ -259,18 +259,22 @@ Claude Code calls a hook with JSON on stdin. The hook **exits 2** to block the a
 to the agent:
 
 ```text
-Blocked by project rule `no_push_main`: do not push to main/master directly; push a branch and open a pull request
+Blocked by project rule `no_push_main`: do not push to main directly; push a branch and open a pull request
 ```
 
 | Rule | Hook | Blocks |
 | --- | --- | --- |
-| `no_push_main` | `pre-bash` | `git push` to `main` or `master` (including `HEAD:refs/heads/main`, `+main`, and a bare `git push` while on `main`/`master`) |
+| `no_push_main` | `pre-bash` | `git push` to a protected branch (including `HEAD:refs/heads/main`, `+main`, and a bare `git push` while on that branch) |
 | `no_verify` | `pre-bash` | `git commit`/`git push` with `--no-verify`, or `git commit -n` |
 | `conventional_commits` | `pre-bash` | `git commit -m` whose first line doesn't follow Conventional Commits: `type(scope)!: summary`, with `type` one of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`, `merge` |
 | `tests_before_done` | `stop` | The agent finishes without running the project's test command (the command must appear in the transcript) |
 
 - The hook splits the command line on `&&`, `||`, `;`, `|`, understands quotes, and skips `git -C <dir>`, `git -c k=v`.
 - Commits written in an editor (no `-m`) aren't checked.
+- Protected branches: `hooks.pre_bash.protected_branches` of the rules the server sends (the project's
+  `protected_branches` setting, by default its default branch), saved in `.ttm/cache/rules.json` by `ttm rules apply`.
+  Without cached rules, the `default_branch` of `.ttm/project.toml`; without that, `main` and `master`. The block message
+  names them (`do not push to trunk/release directly; …`).
 - Outside a linked repo, the hooks allow everything. If `.ttm/cache/rules.json` is missing, the first three rules are on.
 - The server turns each rule on or off from the project settings (`commit_convention = none` turns off the commit rule;
   `tests_before_done` is on when the workflow has a `tests_pass` guard or `test_commands`).
@@ -323,7 +327,9 @@ board's 9 standard columns: `inbox`, `refinement`, `ready`, `ux-design`, `in-pro
 
 ### Create subtasks
 
-`subtasks.json` (an array, or `{"tasks": [...]}`); field names follow the API, in **camelCase**:
+`subtasks.json` (an array, or `{"tasks": [...]}`); field names in **camelCase** like the API, or in **snake_case** like the
+`factory-create-subtasks` MCP tool (`acceptance_criteria`, `depends_on`): `ttm` renames them to what the server reads
+before sending.
 
 ```json
 [
@@ -340,10 +346,13 @@ board's 9 standard columns: `inbox`, `refinement`, `ready`, `ux-design`, `in-pro
 | `estimate` | integer | Rolls up into the parent task |
 | `type`, `priority`, `description` | string | |
 | `labels` | array of strings | |
-| `acceptanceCriteria` | array of strings | |
-| `dependencies` | array | Existing task keys, or `#<n>` = the nth subtask (counting from 0) in the same file |
+| `acceptanceCriteria` (or `acceptance_criteria`) | array of strings | |
+| `dependencies` (or `depends_on`) | array | Existing task keys, or `#<n>` = the nth subtask (counting from 0) in the same file |
+
+`kind` is read as `type`. Other keys are dropped with a warning on stderr:
 
 ```text
+warning: subtask #1: unknown key `owner` ignored (known: title, type, priority, estimate, role, description, labels, acceptanceCriteria, dependencies, or acceptance_criteria, depends_on)
 2 subtask(s) created under AUR-12.
 ```
 

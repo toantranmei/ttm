@@ -96,7 +96,7 @@ ttm status
 ```
 
 ```text
-ttm 0.1.2
+ttm 0.1.3
 host:      https://toantranmei.com
 profile:   work (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -151,11 +151,14 @@ ttm whoami --json
 {
   "error": {
     "code": "insufficient_scope",
-    "message": "this token lacks the scope notee:write (insufficient_scope, HTTP 403) {\"required\":\"notee:write\"}"
+    "message": "this token lacks the scope notee:write (insufficient_scope, HTTP 403) [requires scope notee:write]",
+    "status": 403,
+    "params": { "required": "notee:write" }
   }
 }
 ```
 
+来自服务器的错误还带有 `status`，以及服务器发送时的 `rule`（例如 `split-limit`、`rev-conflict`）、`field` 和 `params`。
 `code` 是服务器的稳定错误码（见 [错误码](ma-loi.md)）、OAuth 错误码（`access_denied`、`invalid_grant`…），或本地错误码：
 `network`（无法连接）、`decode`（响应格式异常）、`upgrade_required`（ttm 版本过旧）、`invalid_url`、`error`（其他错误，
 如未登录、文件无法读取）。

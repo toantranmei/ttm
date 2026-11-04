@@ -31,7 +31,8 @@ section: more
 
 ## Thời hạn và thu hồi
 
-- Token mặc định sống 30 ngày (PAT 1–365 ngày, ứng dụng OAuth 1 giờ, runner 12 giờ, job theo thời gian của job).
+- Token đăng nhập CLI sống 7 ngày, tự gia hạn bằng refresh token 90 ngày (PAT 1–365 ngày, ứng dụng OAuth 1 giờ, runner
+  12 giờ, job theo thời gian của job).
 - Refresh token **xoay vòng** mỗi lần dùng; dùng lại một refresh token cũ (dấu hiệu bị đánh cắp) thu hồi cả họ token.
 - `ttm logout` thu hồi trên server rồi mới xoá ở máy.
 - Trang `/me/ket-noi` cho thấy lần dùng cuối của từng token; ứng dụng đã kết nối có nút **Ngắt kết nối** thu hồi mọi token
@@ -65,8 +66,10 @@ nói chuyện trực tiếp với Anthropic bằng tài khoản của bạn, kh�
 - Chỉ **kết nối đi ra** (heartbeat và long-poll), không mở cổng.
 - Chỉ làm việc trong **clone bạn khai báo** (`ttm runner config --repo`), kiểm `origin` của clone trùng repo của job;
   không bao giờ clone URL server gửi. Tên nhánh được kiểm trước khi dùng.
-- **Mỗi task một worktree, một nhánh**; worktree của bạn không bị đụng. Hook `pre-bash` chặn push thẳng `main`/`master`,
-  `--no-verify` và commit sai quy ước.
+- **Mỗi task một worktree, một nhánh**; worktree của bạn không bị đụng. Hook `pre-bash` chặn push thẳng vào nhánh được
+  bảo vệ (mặc định nhánh chính của project), `--no-verify` và commit sai quy ước.
+- Worktree luôn nằm dưới `worktree_root` của runner: `worktree_hint` của job chỉ là đường dẫn tương đối; đường dẫn tuyệt
+  đối, `..` hay symlink dẫn ra ngoài bị từ chối (`invalid_worktree`).
 - Token của job chỉ dùng được cho run của nó, nằm trong file cấu hình MCP quyền 0600 và bị xoá khi run xong.
 - Agent chạy với **quyền người dùng hệ điều hành của bạn**, giới hạn bởi danh sách tool mà job cho phép. Đây không phải
   sandbox: chỉ chạy runner cho project bạn tin, xem lại pull request trước khi merge, và cân nhắc chạy runner bằng một tài

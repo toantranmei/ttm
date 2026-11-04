@@ -9,7 +9,7 @@ section: reference
 ttm [OPTIONS] <COMMAND>
 ```
 
-`ttm --help` 和 `ttm <命令> --help` 会打印原始帮助信息（英文）。本页对应版本 **0.1.2**。
+`ttm --help` 和 `ttm <命令> --help` 会打印原始帮助信息（英文）。本页对应版本 **0.1.3**。
 
 ## 全局选项
 
@@ -22,7 +22,7 @@ ttm [OPTIONS] <COMMAND>
 | `--json` | | 在 stdout 上以 JSON 输出结果 |
 | `-v`, `--verbose` | `TTM_LOG` | 向 stderr 输出更多日志（`-v` 为 info，`-vv` 为 debug） |
 | `-h`, `--help` | | 帮助 |
-| `-V`, `--version` | | 版本（`ttm 0.1.2`；仅在顶层可用） |
+| `-V`, `--version` | | 版本（`ttm 0.1.3`；仅在顶层可用） |
 
 ## 退出码
 
@@ -52,7 +52,7 @@ ttm [OPTIONS] <COMMAND>
 | [`task`](#task) | `list`、`show`、`claim`、`done`、`approve`、`split` |
 | [`rules`](#rules) | `apply` |
 | [`hook`](#hook) | `pre-bash`、`stop`（由 agent 调用） |
-| [`runner`](#runner) | `up`、`down`、`status`、`config`、`install-service` |
+| [`runner`](#runner) | `up`、`down`、`status`、`config`、`install-service`、`uninstall-service` |
 | [`agent`](#agent) | `run`、`logs`、`stop` |
 | [`mcp`](#mcp) | `install` |
 | [`self-update`](#self-update) | 更新 ttm |
@@ -132,7 +132,7 @@ ttm status
 显示本机将要使用的设置；无需登录或联网（始终以 0 退出）。
 
 ```text
-ttm 0.1.2
+ttm 0.1.3
 host:      https://toantranmei.com
 profile:   default (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -155,7 +155,7 @@ ttm doctor
 ```text
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.2, server API v1
+[ok  ] version    ttm 0.1.3, server API v1
 [ok  ] token      ttm_oat_Ab12… (keyring) as an@example.com
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1
@@ -266,7 +266,7 @@ ttm notes query <DATABASE> (--sql <SQL> | --filter <FILE>) [--page-size <N>] [--
 | --- | --- |
 | `--sql <SQL>` | 在 `rows` 表上执行的只读 SQL |
 | `--filter <FILE>` | JSON 文件 `{"filter": …, "sorts": …}` 或仅包含过滤条件；`-` 表示读取 stdin |
-| `--page-size <N>` | 1–100 行（服务器默认 100） |
+| `--page-size <N>` | 1–100 行（服务器默认 100）；超出范围时 `ttm` 在调用服务器之前就会停止：`invalid value '500' for '--page-size <N>': 500 is out of range: --page-size takes 1 to 100 rows per page` |
 | `--cursor <CURSOR>` | 上一页的 `next_cursor` |
 
 `--sql` 和 `--filter` 必须且只能指定一个。每行打印 `<id>  <values JSON>`；还有下一页时，stderr 打印
@@ -473,7 +473,7 @@ JSON：`local_rev`、`server_rev`、`local_changes`、`server_changes`、`change
 | `ttm task claim <KEY>` | | 把任务分配给自己 | `factory:write` |
 | `ttm task done <KEY>` | | 转为 `done`（guard 和审批关卡仍然生效） | `factory:write` |
 | `ttm task approve <KEY>` | `--reject` | 批准/拒绝正在等待的步骤 | `factory:write` |
-| `ttm task split <KEY> -f <FILE>` | `-f`, `--file`（必填；`-` = stdin） | 从 JSON 创建子任务 | `factory:write` |
+| `ttm task split <KEY> -f <FILE>` | `-f`, `--file`（必填；`-` = stdin） | 从 JSON 创建子任务（键可用 camelCase 或 snake_case，见 [Factory](factory.md)） | `factory:write` |
 
 ```text
 AUR-12     doing          DEV       Dev bot          Đăng nhập bằng Google
@@ -486,7 +486,7 @@ state: doing  role: DEV  assignee: Dev bot
 Cho phép đăng nhập bằng tài khoản Google.
 ```
 
-其他输出：`AUR-12 is now yours.`、`AUR-12 is now done.`、`AUR-12 approved; state done.`、
+其他输出：`AUR-12 is now yours.`、`AUR-12 is now done.`、`AUR-12 approved; state done.`、`AUR-12 rejected; state doing.`（`--reject`）、
 `2 subtask(s) created under AUR-12.` JSON：任务对象（camelCase，`id` 为 key），`split` 则为 `{tasks, warnings}`。
 
 ## rules
@@ -507,7 +507,7 @@ stderr 上给出原因；允许或不在已关联的仓库中时以 0 退出。
 
 | 命令 | Hook | 检查 |
 | --- | --- | --- |
-| `ttm hook pre-bash` | `PreToolUse`（matcher `Bash`） | 对 `tool_input.command` 检查 `no_push_main`、`no_verify`、`conventional_commits` |
+| `ttm hook pre-bash` | `PreToolUse`（matcher `Bash`） | 对 `tool_input.command` 检查 `no_push_main`（受保护分支来自缓存的规则，见 [Factory](factory.md)）、`no_verify`、`conventional_commits` |
 | `ttm hook stop` | `Stop` | `tests_before_done`：`transcript_path` 中包含测试命令（`stop_hook_active` 时跳过） |
 
 ## runner
@@ -518,7 +518,8 @@ stderr 上给出原因；允许或不在已关联的仓库中时以 0 退出。
 | `ttm runner down` | 停止 `runner.pid` 中的进程 |
 | `ttm runner status` | Id、名称、是否运行中、容量、harness、仓库 |
 | `ttm runner config [选项]` | 修改 `runner.toml` |
-| `ttm runner install-service` | 安装登录时运行的服务（launchd、systemd `--user`、Task Scheduler） |
+| `ttm runner install-service` | 安装登录时运行的服务（launchd、systemd `--user`、Task Scheduler），并带上运行该命令的 shell 的 `PATH` |
+| `ttm runner uninstall-service` | 停止并移除服务（plist、unit 或 Task Scheduler 任务） |
 
 `runner config` 的选项：
 
@@ -533,7 +534,8 @@ stderr 上给出原因；允许或不在已关联的仓库中时以 0 退出。
 | `--auto-merge <true\|false>` | `false` | 自动合并合并队列的队首并 push |
 
 `status` 的 JSON：`runner_id`、`name`、`running`、`pid`、`capacity`、`accept_team_jobs`、`harnesses`、`repos`、
-`worktree_root`。`config` 的：`runner.toml` 的内容。`down` 的：`stopped`、`pid`。`install-service` 的：`installed`。
+`worktree_root`。`config` 的：`runner.toml` 的内容。`down` 的：`stopped`、`pid`。`install-service` 的：`installed`、`path`（服务的 `PATH`；Windows 上为 `null`）。
+`uninstall-service` 的：`removed`（未安装时为 `null`）。
 
 ## agent
 

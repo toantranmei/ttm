@@ -9,7 +9,7 @@ section: reference
 ttm [OPTIONS] <COMMAND>
 ```
 
-`ttm --help` and `ttm <command> --help` print the built-in help (in English). This page covers version **0.1.2**.
+`ttm --help` and `ttm <command> --help` print the built-in help (in English). This page covers version **0.1.3**.
 
 ## Global flags
 
@@ -22,7 +22,7 @@ Available on every command, before or after the subcommand (`ttm whoami --json` 
 | `--json` | | Print results as JSON on stdout |
 | `-v`, `--verbose` | `TTM_LOG` | More logging to stderr (`-v` info, `-vv` debug) |
 | `-h`, `--help` | | Help |
-| `-V`, `--version` | | Version (`ttm 0.1.2`; top level only) |
+| `-V`, `--version` | | Version (`ttm 0.1.3`; top level only) |
 
 ## Exit codes
 
@@ -52,7 +52,7 @@ Errors always print `error: <message>` to stderr; with `--json`, `{"error": {"co
 | [`task`](#task) | `list`, `show`, `claim`, `done`, `approve`, `split` |
 | [`rules`](#rules) | `apply` |
 | [`hook`](#hook) | `pre-bash`, `stop` (called by the agent) |
-| [`runner`](#runner) | `up`, `down`, `status`, `config`, `install-service` |
+| [`runner`](#runner) | `up`, `down`, `status`, `config`, `install-service`, `uninstall-service` |
 | [`agent`](#agent) | `run`, `logs`, `stop` |
 | [`mcp`](#mcp) | `install` |
 | [`self-update`](#self-update) | Update ttm |
@@ -132,7 +132,7 @@ ttm status
 What this machine will use; requires no sign-in or network (always exits 0).
 
 ```text
-ttm 0.1.2
+ttm 0.1.3
 host:      https://toantranmei.com
 profile:   default (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -156,7 +156,7 @@ One check per line: `host`, `discovery` (fetched fresh, not from the cache), `ve
 ```text
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.2, server API v1
+[ok  ] version    ttm 0.1.3, server API v1
 [ok  ] token      ttm_oat_Ab12… (keyring) as an@example.com
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1
@@ -267,7 +267,7 @@ ttm notes query <DATABASE> (--sql <SQL> | --filter <FILE>) [--page-size <N>] [--
 | --- | --- |
 | `--sql <SQL>` | Read-only SQL on the `rows` table |
 | `--filter <FILE>` | JSON file `{"filter": …, "sorts": …}` or just the filter; `-` reads stdin |
-| `--page-size <N>` | 1–100 rows (server default 100) |
+| `--page-size <N>` | 1–100 rows (server default 100); outside that range `ttm` stops before calling the server: `invalid value '500' for '--page-size <N>': 500 is out of range: --page-size takes 1 to 100 rows per page` |
 | `--cursor <CURSOR>` | The `next_cursor` from the previous page |
 
 Exactly one of `--sql` or `--filter` is required. Each row prints as `<id>  <values JSON>`; if there's another page,
@@ -476,7 +476,7 @@ Run inside a linked repo (except `show`, `claim`, `done`, `approve`, `split`, wh
 | `ttm task claim <KEY>` | | Assign the task to yourself | `factory:write` |
 | `ttm task done <KEY>` | | Move to `done` (guards and approval gates still apply) | `factory:write` |
 | `ttm task approve <KEY>` | `--reject` | Approve / reject the pending step | `factory:write` |
-| `ttm task split <KEY> -f <FILE>` | `-f`, `--file` (required; `-` = stdin) | Create subtasks from JSON | `factory:write` |
+| `ttm task split <KEY> -f <FILE>` | `-f`, `--file` (required; `-` = stdin) | Create subtasks from JSON (camelCase or snake_case keys, see [Factory](factory.md)) | `factory:write` |
 
 ```text
 AUR-12     doing          DEV       Dev bot          Đăng nhập bằng Google
@@ -489,7 +489,7 @@ state: doing  role: DEV  assignee: Dev bot
 Cho phép đăng nhập bằng tài khoản Google.
 ```
 
-Other output: `AUR-12 is now yours.`, `AUR-12 is now done.`, `AUR-12 approved; state done.`,
+Other output: `AUR-12 is now yours.`, `AUR-12 is now done.`, `AUR-12 approved; state done.`, `AUR-12 rejected; state doing.` (`--reject`),
 `2 subtask(s) created under AUR-12.` JSON: the task object (camelCase, `id` is the key), or `{tasks, warnings}` for
 `split`.
 
@@ -512,7 +512,7 @@ blocks, with the reason on stderr; exits 0 when it allows or when outside a link
 
 | Command | Hook | Checks |
 | --- | --- | --- |
-| `ttm hook pre-bash` | `PreToolUse` (matcher `Bash`) | `no_push_main`, `no_verify`, `conventional_commits` on `tool_input.command` |
+| `ttm hook pre-bash` | `PreToolUse` (matcher `Bash`) | `no_push_main` (protected branches from the cached rules, see [Factory](factory.md)), `no_verify`, `conventional_commits` on `tool_input.command` |
 | `ttm hook stop` | `Stop` | `tests_before_done`: a test command appears in `transcript_path` (skipped when `stop_hook_active`) |
 
 ## runner
@@ -523,7 +523,8 @@ blocks, with the reason on stderr; exits 0 when it allows or when outside a link
 | `ttm runner down` | Stop the process in `runner.pid` |
 | `ttm runner status` | Id, name, running, capacity, harnesses, repos |
 | `ttm runner config [flags]` | Edit `runner.toml` |
-| `ttm runner install-service` | Install a service that starts at login (launchd, systemd `--user`, Task Scheduler) |
+| `ttm runner install-service` | Install a service that starts at login (launchd, systemd `--user`, Task Scheduler), carrying the `PATH` of the shell that runs it |
+| `ttm runner uninstall-service` | Stop and remove the service (plist, unit or Task Scheduler task) |
 
 `runner config` flags:
 
@@ -539,7 +540,8 @@ blocks, with the reason on stderr; exits 0 when it allows or when outside a link
 
 JSON for `status`: `runner_id`, `name`, `running`, `pid`, `capacity`, `accept_team_jobs`, `harnesses`, `repos`,
 `worktree_root`. For `config`: the contents of `runner.toml`. For `down`: `stopped`, `pid`. For `install-service`:
-`installed`.
+`installed`, `path` (the service's `PATH`; `null` on Windows). For `uninstall-service`: `removed` (`null` when none was
+installed).
 
 ## agent
 

@@ -28,6 +28,7 @@ Code、Claude Desktop、Cursor、Codex 等）或要运行 runner，再额外安�
 | npm（所有平台） | `@toantranmei/cli` | `@toantranmei/mcp` | `npm update -g` |
 | MSI（Windows x64） | `ttm-cli-x86_64-pc-windows-msvc.msi` | `ttm-mcp-x86_64-pc-windows-msvc.msi` | 下载新的 MSI |
 | 源码 | `cargo install --git … ttm-cli` | `cargo install --git … ttm-mcp` | 重新安装 |
+| Claude Desktop（从 0.1.3 起） | | `ttm-mcp-<操作系统>.mcpb`（见 [MCP](mcp.md)） | 安装新包 |
 
 ### macOS、Linux：脚本
 
@@ -37,7 +38,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/toantranmei/ttm/release
 ```
 
 脚本会把二进制文件放到 `$CARGO_HOME/bin`（默认 `~/.cargo/bin`），并在 shell 的启动文件中把该目录加入 `PATH`。打开新的终端（或执行
-`source ~/.cargo/env`）即可立即使用。安装固定版本：把 `latest/download` 换成 `download/v0.1.2`。
+`source ~/.cargo/env`）即可立即使用。安装固定版本：把 `latest/download` 换成 `download/v0.1.3`。
 
 ### Windows：PowerShell
 
@@ -91,8 +92,8 @@ npx -y @toantranmei/mcp --help
 这些 crate 尚未发布到 crates.io；直接从 GitHub 安装（需要 Rust stable ≥ 1.88 和 `git`）：
 
 ```sh
-cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.2 ttm-cli
-cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.2 ttm-mcp
+cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.3 ttm-cli
+cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.3 ttm-mcp
 ```
 
 自行构建的版本与正式发布版一样指向 `https://toantranmei.com`。在构建时修改默认 host：
@@ -107,11 +108,11 @@ ttm doctor
 ```
 
 ```text
-ttm 0.1.2
-ttm-mcp 0.1.2
+ttm 0.1.3
+ttm-mcp 0.1.3
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.2, server API v1
+[ok  ] version    ttm 0.1.3, server API v1
 [warn] token      not signed in (ttm login)
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1
@@ -126,13 +127,14 @@ ttm-mcp 0.1.2
 
 每个发布版本都提供：
 
-- 每个 archive 和 MSI 旁边的 `<archive>.sha256` 文件，以及汇总全部校验值的 `sha256.sum` 文件；
+- 每个 archive 和 MSI 旁边的 `<archive>.sha256` 文件，以及汇总全部校验值的 `sha256.sum` 文件（`.mcpb` 包只有
+  自己的 `.sha256`）；
 - **GitHub artifact attestation**（Sigstore），证明文件由 `toantranmei/ttm` 仓库的发布工作流构建。
 
 SHA-256：
 
 ```sh
-V=v0.1.2; F=ttm-cli-aarch64-apple-darwin.tar.xz
+V=v0.1.3; F=ttm-cli-aarch64-apple-darwin.tar.xz
 curl -LO https://github.com/toantranmei/ttm/releases/download/$V/$F
 curl -LO https://github.com/toantranmei/ttm/releases/download/$V/$F.sha256
 shasum -a 256 "$F"; cat "$F.sha256"   # 两个值必须一致
@@ -173,11 +175,11 @@ xattr -d com.apple.quarantine ./ttm ./ttm-mcp
 ```sh
 ttm self-update --check           # 只报告是否有新版本
 ttm self-update                   # 安装最新版本
-ttm self-update --version 0.1.2   # 安装指定版本（可用于降级）
+ttm self-update --version 0.1.3   # 安装指定版本（可用于降级）
 ```
 
 ```text
-ttm 0.1.2 is up to date.
+ttm 0.1.3 is up to date.
 ```
 
 ```text
@@ -188,12 +190,12 @@ SHA-256 verified; attestation verified.
 > **注意：** 通过 Homebrew 或 npm 安装的，请用对应的包管理器更新。`ttm self-update` 会覆盖包管理器正在跟踪的二进制文件，导致两边版本不一致。
 
 当服务器要求更新的版本（discovery 中的 `min_cli`）时，每条命令都会打印警告
-`the server needs ttm >= X (this is Y); run ttm self-update`，API 也可能返回 `426 upgrade_required`。
+`` the server needs ttm >= X (this is Y); run `ttm self-update` ``，API 也可能返回 `426 upgrade_required`。
 
 ## 卸载
 
 1. 退出登录，以在服务器上撤销 token 并将其从 keyring 中删除：`ttm logout`（对你用过的每个 `--profile` 重复执行）。
-2. 如果安装过 runner 服务，先卸载它（见 [Runner](runner.md) 的 **卸载服务** 一节）。
+2. 如果安装过 runner 服务，先用 `ttm runner uninstall-service` 卸载它（见 [Runner](runner.md)）。
 3. 卸载程序：
 
    | 渠道 | 命令 |

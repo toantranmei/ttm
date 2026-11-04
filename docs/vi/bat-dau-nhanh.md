@@ -32,7 +32,7 @@ Waiting for the browser (5 minutes)… On a machine without a browser use `ttm l
 
 Trình duyệt mở trang **“ttm CLI muốn truy cập tài khoản của bạn”**, liệt kê quyền xin cấp. Nếu bạn ở nhiều workspace, có
 ô **Giới hạn trong workspace** (để trống = mọi workspace). Bấm **Cho phép**; trang chuyển về `127.0.0.1` báo
-“Đã đăng nhập, quay lại terminal.”
+“Đã đăng nhập, quay lại terminal.” kèm dòng tiếng Anh “Signed in. You can close this tab and return to the terminal.”
 
 ```text
 Signed in to https://toantranmei.com as An Nguyễn <an@example.com>.

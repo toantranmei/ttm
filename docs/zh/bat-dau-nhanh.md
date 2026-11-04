@@ -31,8 +31,8 @@ Waiting for the browser (5 minutes)… On a machine without a browser use `ttm l
 ```
 
 浏览器会打开 **“ttm CLI 想要访问你的账号”** 页面，列出所申请的权限。如果你属于多个工作区，页面上会有
-**限定在工作区内** 一栏（留空 = 所有工作区）。点击 **允许**；页面会跳转回 `127.0.0.1` 并提示
-“已登录，请返回终端。”
+**限定在工作区内** 一栏（留空 = 所有工作区）。点击 **允许**；页面会跳转回 `127.0.0.1` 并显示
+“Đã đăng nhập, quay lại terminal.”（越南语）和 “Signed in. You can close this tab and return to the terminal.”
 
 ```text
 Signed in to https://toantranmei.com as An Nguyễn <an@example.com>.

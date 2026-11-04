@@ -32,7 +32,8 @@ Waiting for the browser (5 minutes)… On a machine without a browser use `ttm l
 
 Your browser opens the page **"ttm CLI wants to access your account"**, listing the permissions requested. If you belong
 to several workspaces, there's a **Limit to workspace** field (leave it empty = all workspaces). Click **Allow**; the page
-redirects to `127.0.0.1`, which says "Signed in. You can close this tab and return to the terminal."
+redirects to `127.0.0.1`, which says "Đã đăng nhập, quay lại terminal." (Vietnamese) and "Signed in. You can close this tab
+and return to the terminal."
 
 ```text
 Signed in to https://toantranmei.com as An Nguyễn <an@example.com>.

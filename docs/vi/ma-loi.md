@@ -27,8 +27,17 @@ Server trả lỗi dạng `application/problem+json`:
 | `rule` | Quy tắc cụ thể bị vi phạm (với `bad_request`, `conflict`, `precondition_failed`), ví dụ `split-limit` |
 | `params` | Giá trị liên quan, ví dụ `{"required": "notee:write"}`, `{"max_depth": 2, "per_run": 10}` |
 
-`ttm` in `error: <title> (<code>, HTTP <status>) <params>` ra stderr; với `--json` thêm `{"error": {"code", "message"}}`
-ra stdout. Tool MCP trả `isError: true`, văn bản `<thông báo> (<code>)` và `structuredContent.error.code`.
+`ttm` in ra stderr `error: <title> (<code>, rule <rule>, field <field>, HTTP <status>) <params>` (phần `rule`, `field`,
+`params` chỉ có khi server gửi), ví dụ:
+
+```text
+error: At most 10 subtasks per run (10 already). (conflict, rule `split-limit`, HTTP 409) {"depth":1,"max_depth":2,"per_root":30,"per_run":10,"root_count":12,"run_count":10}
+```
+
+Với `--json`, stdout có thêm `{"error": {"code", "message", "status", "rule", "field", "params"}}` (ba trường cuối chỉ
+có khi server gửi) để script rẽ nhánh theo `rule`. Tool MCP trả `isError: true`, văn bản `<thông báo> (<code>)` và
+`structuredContent.error` cùng các trường đó: agent rẽ nhánh theo `rule` (`split-limit`, `rev-conflict`,
+`approval-required`) hoặc đọc `params.required` của `insufficient_scope`.
 
 > **Lưu ý:** với lỗi `bad_request`, `conflict`, `precondition_failed`, `code` chung chung; nguyên nhân cụ thể nằm ở
 > `rule` (cột **Rule** dưới đây) và câu thông báo.
@@ -155,6 +164,7 @@ Hầu hết là `409 conflict` với `rule` sau:
 | --- | --- | --- |
 | `repo_not_configured` | Project của job không có clone trong `runner.toml`, hoặc `origin` của clone không trùng repo của job | `ttm runner config --repo KEY=<đường dẫn clone>` |
 | `invalid_branch` | Tên nhánh của job không hợp lệ theo git | Sửa task/nhánh trên web |
+| `invalid_worktree` | `worktree_hint` của job là đường dẫn tuyệt đối, có `..`, hoặc dẫn ra ngoài `worktree_root` | Báo lỗi server; runner không bao giờ tạo worktree ngoài `worktree_root` |
 
 Hai mã này được báo lên server làm `error` khi kết thúc run.
 
@@ -171,12 +181,12 @@ Hai mã này được báo lên server làm `error` khi kết thúc run.
 
 | Thông báo | Nghĩa |
 | --- | --- |
-| `not signed in to <host> (profile <p>); run ttm login` | Không có token cho (profile, host) này |
+| `` not signed in to <host> (profile <p>); run `ttm login` `` | Không có token cho (profile, host) này |
 | `the saved token has expired; run ttm login` | Token hết hạn, không có refresh token |
 | `the session expired and could not be renewed; run ttm login` | Gia hạn thất bại |
 | `the server rejected this token (…)` | `ttm login --token` với token không hợp lệ |
 | `cannot reach <host>` | Mạng, DNS, hoặc `--host` sai |
 | `this directory is not linked to a project; run ttm project link <KEY>` | Lệnh Factory chạy ngoài repo đã liên kết |
-| `no agent harness found; install Claude Code (claude) first` | `claude` không có trên `PATH` của runner |
+| ``no agent harness found; install Claude Code (`claude`) first`` | `claude` không có trên `PATH` của runner |
 | `timed out after 5 minutes waiting for the browser` | Chưa bấm **Cho phép** kịp |
 | `invalid TOML in <file>: …` | `config.toml`/`credentials.toml`/`runner.toml` sai cú pháp |

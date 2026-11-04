@@ -31,7 +31,8 @@ section: more
 
 ## 有效期与撤销
 
-- token 默认有效期 30 天（PAT 1–365 天，OAuth 应用 1 小时，runner 12 小时，作业（job）的 token 随作业时长而定）。
+- CLI 登录 token 有效期 7 天，通过 90 天的 refresh token 自动续期（PAT 1–365 天，OAuth 应用 1 小时，runner 12 小时，
+  作业（job）的 token 随作业时长而定）。
 - refresh token 每次使用都会**轮换**；重复使用旧的 refresh token（被盗的迹象）会撤销整个 token 家族。
 - `ttm logout` 先在服务器上撤销，然后才删除本机副本。
 - `/me/ket-noi` 页面显示每个 token 的最后使用时间；已连接的应用有 **断开连接** 按钮，可撤销该应用的所有 token；
@@ -64,8 +65,10 @@ section: more
 - 只有**出站连接**（heartbeat 和 long-poll），不开放任何端口。
 - 只在**你声明的克隆**（`ttm runner config --repo`）中工作，并检查克隆的 `origin` 与作业的仓库一致；
   绝不克隆服务器发来的 URL。分支名在使用前会经过检查。
-- **每个任务一个 worktree、一个分支**；你自己的 worktree 不受影响。`pre-bash` hook 会阻止直接 push 到 `main`/`master`、
-  `--no-verify` 以及不符合约定的 commit。
+- **每个任务一个 worktree、一个分支**；你自己的 worktree 不受影响。`pre-bash` hook 会阻止直接 push 到受保护分支
+  （默认是项目的默认分支）、`--no-verify` 以及不符合约定的 commit。
+- worktree 始终位于 runner 的 `worktree_root` 之下：作业的 `worktree_hint` 只是相对路径；绝对路径、`..` 或指向外部的
+  符号链接都会被拒绝（`invalid_worktree`）。
 - 作业的 token 只能用于它自己的 run，保存在权限为 0600 的 MCP 配置文件中，run 结束后即被删除。
 - agent 以**你的操作系统用户权限**运行，受作业所允许的工具列表限制。这不是
   沙箱：只为你信任的项目运行 runner，合并前审查 pull request，并考虑使用单独的操作系统

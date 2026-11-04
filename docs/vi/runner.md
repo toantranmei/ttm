@@ -85,9 +85,12 @@ Runner **không bao giờ clone một URL server gửi tới**. Mỗi job nêu r
 2. `origin` của clone đó trùng repo của job (so sau khi chuẩn hoá: bỏ giao thức, user, cổng, `.git`, `/` cuối; ví dụ
    `git@github.com:a/b.git` = `https://github.com/a/b`); với project `local`, đường dẫn của job phải trùng đường dẫn đã
    khai báo;
-3. tên nhánh của job hợp lệ theo luật của git.
+3. tên nhánh của job hợp lệ theo luật của git;
+4. worktree nằm dưới `worktree_root`: `worktree_hint` của job chỉ được là đường dẫn tương đối; đường dẫn tuyệt đối (`/…`,
+   `C:\…`), có `..`, `\` hoặc `:`, hay đi qua một symlink dẫn ra ngoài `worktree_root` đều bị từ chối.
 
-Không thoả thì job bị từ chối và báo về server (`repo_not_configured` hoặc `invalid_branch`), terminal in:
+Không thoả thì job bị từ chối và báo về server (`repo_not_configured`, `invalid_branch` hoặc `invalid_worktree`), terminal
+in:
 
 ```text
 ttm runner: refused AUR-12: no local clone is configured for project AUR; add it with `ttm runner config --repo AUR=<path to your clone>`
@@ -106,7 +109,8 @@ mức sử dụng của Claude, runner **tạm dừng nhận job** tới giờ r
 
 1. **Kiểm tra** repo và nhánh (mục trên).
 2. **Worktree**: `git fetch origin <nhánh chính>`, rồi `git worktree add -B <nhánh> <đường dẫn> origin/<nhánh chính>`.
-   Đường dẫn mặc định `<worktree_root>/<KEY>/<nhánh>` (ký tự lạ thành `-`).
+   Đường dẫn: `<worktree_root>/<worktree_hint>` (server gợi ý `<key viết thường>/<nhánh bỏ ttm/>`, ví dụ
+   `aur/aur-12-dang-nhap-google`); job không có gợi ý thì `<worktree_root>/<KEY>/<nhánh>` (ký tự lạ thành `-`).
 3. **Luật**: chạy `ttm rules apply` trong worktree (khối `AGENTS.md`/`CLAUDE.md`, hook Claude Code).
 4. **MCP**: ghi `<cache>/mcp-<run>.json` (quyền 0600) trỏ tới `ttm-mcp --toolsets <nhóm của job, mặc định factory,notee>`
    với `TTM_TOKEN` là token của job, `TTM_RUN_ID`, `TTM_TASK`, `TTM_PROJECT`.
@@ -131,8 +135,9 @@ Worktree của job đã xong được giữ `keep_days` ngày để bạn xem l�
 
 ### Kết nối với server
 
-- Runner chỉ mở kết nối **đi ra** (chạy được sau NAT, không cần mở cổng): heartbeat mỗi 20 giây và long-poll job mỗi 15
-  giây khi còn chỗ trống.
+- Runner chỉ mở kết nối **đi ra** (chạy được sau NAT, không cần mở cổng): heartbeat mỗi 20 giây và long-poll job
+  (`?wait=25`, server giữ yêu cầu tối đa 25 giây) khi còn chỗ trống. Yêu cầu long-poll đang chờ không bị huỷ khi tới lượt
+  heartbeat, nên job server đã giao không bị mất.
 - Heartbeat mang danh sách run đang chạy; server trả về các run cần dừng (**kill switch** từ web hoặc `ttm agent stop`)
   hoặc lệnh tắt runner (“turned off from the web”).
 - Token runner sống 12 giờ và được gia hạn tự động 30 phút trước khi hết (đăng ký lại, token cũ bị thu hồi). Bị từ chối
@@ -165,7 +170,7 @@ ttm runner down     # gửi SIGTERM (Windows: taskkill) tới tiến trình tron
 ```
 
 `Ctrl-C` hay `ttm runner down` dừng runner; agent đang chạy bị huỷ. Nếu runner chạy dưới dịch vụ, dịch vụ sẽ khởi động lại
-nó; gỡ dịch vụ để tắt hẳn.
+nó; chạy `ttm runner uninstall-service` để tắt hẳn.
 
 ## Dịch vụ nền: `ttm runner install-service`
 
@@ -182,36 +187,29 @@ ttm --profile work runner install-service     # dịch vụ dùng profile work
 
 Dịch vụ chạy `<đường dẫn ttm> [--profile <tên>] runner up`; `--profile` chỉ được ghi khi bạn truyền nó tường minh.
 
-> **Lưu ý:** dịch vụ không thừa hưởng `PATH` của shell. Nếu log báo `no agent harness found; install Claude Code (claude)
-> first` dù `claude` chạy được trong terminal, thêm `PATH` cho dịch vụ. macOS: thêm vào plist rồi nạp lại
->
-> ```xml
-> <key>EnvironmentVariables</key>
-> <dict>
->   <key>PATH</key>
->   <string>/Users/an/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-> </dict>
-> ```
->
-> Linux: `systemctl --user edit ttm-runner` và thêm `Environment=PATH=…` trong `[Service]`. Linux cũng cần
-> `loginctl enable-linger $USER` nếu muốn runner chạy khi bạn chưa đăng nhập.
+Dịch vụ mang theo `PATH`: launchd và systemd khởi động dịch vụ với `PATH` tối giản (`/usr/bin:/bin:…`), thiếu `claude`,
+`gh`, đôi khi cả `git`. Vì vậy plist (`EnvironmentVariables`) và unit (`Environment="PATH=…"`) ghi `PATH` của shell chạy
+`install-service` (bỏ mục rỗng hoặc tương đối như `.`), cộng các thư mục còn thiếu trong `~/.local/bin`, `~/.cargo/bin`,
+`/opt/homebrew/bin`, `/opt/homebrew/sbin`, `/usr/local/bin`, `/usr/bin`, `/bin`, `/usr/sbin`, `/sbin`. Lệnh in `PATH` đã ghi:
 
-### Gỡ dịch vụ
+```text
+Runner service installed: /Users/an/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
+PATH of the service: /Users/an/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/an/.cargo/bin:/opt/homebrew/sbin:/usr/sbin:/sbin
+```
+
+Cài thêm công cụ vào thư mục khác sau này thì chạy lại `ttm runner install-service` từ shell đã có `PATH` mới (lệnh ghi đè
+và nạp lại dịch vụ). Trên Windows, tác vụ chạy với môi trường của tài khoản (`PATH` đặt trong Windows), nên không cần gì
+thêm. Linux cũng cần `loginctl enable-linger $USER` nếu muốn runner chạy khi bạn chưa đăng nhập.
+
+### Gỡ dịch vụ: `ttm runner uninstall-service`
 
 ```sh
-# macOS
-launchctl unload -w ~/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
-rm ~/Library/LaunchAgents/com.toantranmei.ttm-runner.plist
-
-# Linux
-systemctl --user disable --now ttm-runner.service
-rm ~/.config/systemd/user/ttm-runner.service && systemctl --user daemon-reload
+ttm runner uninstall-service
 ```
 
-```powershell
-# Windows
-schtasks /Delete /TN ttm-runner /F
-```
+Dừng dịch vụ rồi gỡ nó: macOS `launchctl unload -w` và xoá plist; Linux `systemctl --user disable --now`, xoá unit,
+`daemon-reload`; Windows `schtasks /End` rồi `schtasks /Delete /F /TN ttm-runner`. Kết quả:
+`Runner service stopped and removed: <file>`, hoặc `No runner service installed.` khi chưa cài.
 
 ## Chạy một task ngay: `ttm agent`
 
@@ -221,7 +219,7 @@ ttm agent run AUR-12
 
 ```text
 Run 0190f610-… for AUR-12 on branch aur-12-dang-nhap-google
-[log] worktree /Users/an/.ttm/worktrees/AUR/aur-12-dang-nhap-google on aur-12-dang-nhap-google from main
+[log] worktree /Users/an/.ttm/worktrees/aur/aur-12-dang-nhap-google on aur-12-dang-nhap-google from main
 [log] agent started claude-sonnet-4-5
 [thought] Mình sẽ đọc context của task trước.
 [action] mcp__ttm__factory-get-context
@@ -229,7 +227,7 @@ Run 0190f610-… for AUR-12 on branch aur-12-dang-nhap-google
 [log] tests passed: cargo test -p auth
 [response] Đã thêm đăng nhập Google, test đều qua.
 Run 0190f610-…: succeeded
-worktree: /Users/an/.ttm/worktrees/AUR/aur-12-dang-nhap-google
+worktree: /Users/an/.ttm/worktrees/aur/aur-12-dang-nhap-google
 pull request: https://github.com/an/aurora/pull/57
 ```
 
@@ -266,8 +264,8 @@ Thu hồi runner: tab **Runner** hoặc **Token** trên `/me/ket-noi`.
 
 - **Chỉ kết nối đi ra**; không mở cổng nào trên máy bạn.
 - **Chỉ repo bạn khai báo**, kiểm `origin` từng job; không clone URL lạ; tên nhánh được kiểm trước khi dùng.
-- **Mỗi task một worktree và một nhánh**; worktree của bạn không bị đụng. Hook `pre-bash` chặn push thẳng `main`/`master`,
-  `--no-verify`, commit sai quy ước.
+- **Mỗi task một worktree và một nhánh**; worktree của bạn không bị đụng. Hook `pre-bash` chặn push thẳng vào nhánh được bảo
+  vệ, `--no-verify`, commit sai quy ước. Worktree luôn nằm dưới `worktree_root`.
 - **Token của job** chỉ dùng được trong run của nó và hết hạn theo job; nó nằm trong file 0600 và bị xoá sau run.
 - **Agent chạy với quyền người dùng hệ điều hành của bạn**, giới hạn bởi danh sách tool cho phép mà job gửi xuống. Đây
   không phải sandbox: chỉ chạy runner cho project và workspace bạn tin, và xem lại PR trước khi merge.

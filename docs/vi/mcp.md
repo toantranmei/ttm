@@ -28,7 +28,7 @@ ttm doctor         # dòng ttm-mcp phải là [ok  ]
 
 `ttm-mcp` đọc token giống `ttm`: `TTM_TOKEN`, rồi keyring, rồi `credentials.toml`, theo profile và host đang chọn. Token
 hết hạn và có refresh token thì nó tự gia hạn. Chưa đăng nhập thì máy chủ vẫn khởi động nhưng mọi tool trả lỗi
-`unauthorized` (log: `not signed in to <host>; run ttm login (tools will answer unauthorized)`).
+`unauthorized` (log: ``not signed in to <host>; run `ttm login` (tools will answer unauthorized)``).
 
 ### Cài tự động
 
@@ -52,7 +52,7 @@ Với file cấu hình:
   nguyên; chỉ `command` và `args` của mục `ttm` được đặt lại.
 - **Sao lưu**: file cũ được chép sang `<file>.bak-<giây unix>` trước khi sửa.
 - **File hỏng** (JSON/TOML sai) thì không ghi gì và báo lỗi; sửa file rồi chạy lại.
-- Chạy lại khi không có gì đổi thì in `<client> already uses <lệnh> for <tên>.` và không tạo bản sao lưu.
+- Chạy lại khi không có gì đổi thì in ``<client> already uses <lệnh> for `<tên>`.`` và không tạo bản sao lưu.
 
 | Cờ | Mặc định | Việc |
 | --- | --- | --- |
@@ -136,8 +136,21 @@ File cấu hình:
 
 Trên Windows dùng đường dẫn có `\\`: `"C:\\Users\\an\\.cargo\\bin\\ttm-mcp.exe"`. Thoát hẳn Claude Desktop rồi mở lại.
 
-> **Lưu ý:** gói `.mcpb` (cài một chạm cho Claude Desktop, dán token thay vì `ttm login`) đã có manifest trong repo
-> (`mcpb/manifest.json`) nhưng **chưa được phát hành** ở bản 0.1.2. Trong lúc chờ, dùng cấu hình ở trên hoặc MCP từ xa.
+#### Gói `.mcpb` (cài một chạm)
+
+Từ 0.1.3, mỗi bản phát hành trên [GitHub Releases](https://github.com/toantranmei/ttm/releases) có gói Claude Desktop
+cho từng hệ điều hành, kèm file `.sha256`:
+
+| Gói | Máy |
+| --- | --- |
+| `ttm-mcp-darwin.mcpb` | macOS (Apple Silicon và Intel, binary universal) |
+| `ttm-mcp-win32-x64.mcpb` | Windows x64 (Windows on ARM chạy qua giả lập) |
+| `ttm-mcp-linux-x64.mcpb`, `ttm-mcp-linux-arm64.mcpb` | Linux (binary musl tĩnh) |
+
+Mở file bằng Claude Desktop (bấm đúp, hoặc **Settings → Extensions → Install Extension…**). Gói chạy `ttm-mcp --toolsets
+notee` (nhóm `workspace` và `notee`, không có `factory`) và hỏi hai giá trị: **Access token** (PAT `ttm_pat_…` tạo ở
+`https://toantranmei.com/me/ket-noi`; để trống thì dùng token đã lưu bởi `ttm login`) và **Server** (mặc định
+`https://toantranmei.com`). Không cần cài `ttm-mcp` riêng; cập nhật bằng cách cài gói của bản mới.
 
 ### Cursor
 
@@ -276,7 +289,7 @@ xác thực OAuth và hoàn tất bước cho phép.
 - Ô **Giới hạn trong workspace** khi bạn ở nhiều workspace.
 - Nút **Cho phép** / **Từ chối**.
 
-Token của ứng dụng từ xa sống **1 giờ**; ứng dụng chỉ có refresh token (30 ngày, xoay vòng mỗi lần dùng) khi xin
+Token của ứng dụng từ xa sống **1 giờ**; ứng dụng chỉ có refresh token (90 ngày, xoay vòng mỗi lần dùng) khi xin
 `offline_access`. Dùng lại một refresh token cũ sẽ thu hồi cả họ token. Ngắt kết nối ở `<host>/me/ket-noi`, tab **Ứng dụng
 đã kết nối**.
 

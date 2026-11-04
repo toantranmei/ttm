@@ -96,7 +96,7 @@ ttm status
 ```
 
 ```text
-ttm 0.1.2
+ttm 0.1.3
 host:      https://toantranmei.com
 profile:   work (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00
@@ -151,11 +151,14 @@ Khi lỗi, `--json` in thêm một đối tượng lỗi ra stdout (và dòng `e
 {
   "error": {
     "code": "insufficient_scope",
-    "message": "this token lacks the scope notee:write (insufficient_scope, HTTP 403) {\"required\":\"notee:write\"}"
+    "message": "this token lacks the scope notee:write (insufficient_scope, HTTP 403) [requires scope notee:write]",
+    "status": 403,
+    "params": { "required": "notee:write" }
   }
 }
 ```
 
+Lỗi từ server có thêm `status` và, khi server gửi, `rule` (ví dụ `split-limit`, `rev-conflict`), `field`, `params`.
 `code` là mã ổn định của server (xem [Mã lỗi](ma-loi.md)), mã OAuth (`access_denied`, `invalid_grant`…), hoặc mã cục bộ:
 `network` (không kết nối được), `decode` (phản hồi lạ), `upgrade_required` (ttm quá cũ), `invalid_url`, `error` (lỗi khác
 như chưa đăng nhập, file không đọc được).

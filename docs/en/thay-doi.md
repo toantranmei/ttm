@@ -7,6 +7,41 @@ section: more
 
 `ttm` and `ttm-mcp` are released under the same version. Downloads: <https://github.com/toantranmei/ttm/releases>.
 
+## 0.1.3 (unreleased)
+
+### Errors and error codes
+
+- Server errors keep `rule`, `field`, `params`: `ttm` prints the `rule`/`field` in error messages; `--json` and MCP tool
+  errors (`structuredContent.error`) also carry `status`, `rule`, `field`, `params`, so you can branch on `split-limit`,
+  `rev-conflict`, `approval-required`, or read `params.required` of `insufficient_scope`. See [Error codes](ma-loi.md).
+- The `factory-create-subtasks` tool description names the real rule `split-limit` (`409 conflict`) instead of
+  `split_limit`.
+
+### ttm
+
+- `ttm task split` accepts camelCase or snake_case keys (`acceptance_criteria`, `depends_on`, like the MCP tool) and
+  warns about unknown keys.
+- `ttm task approve --reject` prints `rejected` (it used to print `rejectd`).
+- `ttm hook pre-bash` protects the branches in `hooks.pre_bash.protected_branches` of the cached rules, then the default
+  branch in `.ttm/project.toml`, then `main`/`master` (it used to always be `main`/`master`).
+- `ttm notes query --page-size` only accepts 1–100, with a clear error before calling the server.
+- CLI sign-in: 7-day access token, renewed automatically; you stay signed in as long as you use `ttm` at least every 90
+  days (comes with a server change shipping soon).
+
+### Runner
+
+- The service (launchd, systemd) carries the `PATH` of the shell that ran `install-service` plus `~/.local/bin`,
+  `~/.cargo/bin`, `/opt/homebrew/bin`, `/usr/local/bin`…, so it finds `claude`, `gh`, `git`. New command
+  `ttm runner uninstall-service`.
+- A job's `worktree_hint` may only be a relative path under `worktree_root`; an absolute path, `..` or a symlink leading
+  out is refused (`invalid_worktree`).
+- Job long-poll with `wait=25` (the server's maximum); a pending request is no longer cancelled when a heartbeat is due.
+
+### Release
+
+- Claude Desktop `.mcpb` bundles for macOS (universal), Linux x64/arm64 and Windows x64 on GitHub Releases. The manifest
+  version follows `Cargo.toml` (checked in CI).
+
 ## 0.1.2 (04/11/2026)
 
 First release.

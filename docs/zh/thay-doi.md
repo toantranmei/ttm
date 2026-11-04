@@ -7,6 +7,38 @@ section: more
 
 `ttm` 和 `ttm-mcp` 以相同版本发布。下载：<https://github.com/toantranmei/ttm/releases>。
 
+## 0.1.3（未发布）
+
+### 错误与错误码
+
+- 服务器错误保留 `rule`、`field`、`params`：`ttm` 在错误信息中打印 `rule`/`field`；`--json` 和 MCP 工具错误
+  （`structuredContent.error`）还带有 `status`、`rule`、`field`、`params`，可据此按 `split-limit`、`rev-conflict`、
+  `approval-required` 分支，或读取 `insufficient_scope` 的 `params.required`。见 [错误码](ma-loi.md)。
+- `factory-create-subtasks` 工具说明写出真实规则 `split-limit`（`409 conflict`），不再是 `split_limit`。
+
+### ttm
+
+- `ttm task split` 接受 camelCase 或 snake_case 键（`acceptance_criteria`、`depends_on`，与 MCP 工具一致），并对未知键给出
+  警告。
+- `ttm task approve --reject` 打印 `rejected`（以前是 `rejectd`）。
+- `ttm hook pre-bash` 保护缓存规则中 `hooks.pre_bash.protected_branches` 列出的分支，其次是 `.ttm/project.toml` 中的默认
+  分支，再次是 `main`/`master`（以前总是 `main`/`master`）。
+- `ttm notes query --page-size` 只接受 1–100，在调用服务器前给出清晰的错误。
+- CLI 登录：访问 token 7 天，自动续期；只要至少每 90 天使用一次 `ttm` 就会保持登录（随即将发布的服务器更新生效）。
+
+### Runner
+
+- 服务（launchd、systemd）带上运行 `install-service` 的 shell 的 `PATH`，并补充 `~/.local/bin`、`~/.cargo/bin`、
+  `/opt/homebrew/bin`、`/usr/local/bin` 等，从而能找到 `claude`、`gh`、`git`。新增命令 `ttm runner uninstall-service`。
+- 作业的 `worktree_hint` 只能是 `worktree_root` 之下的相对路径；绝对路径、`..` 或指向外部的符号链接会被拒绝
+  （`invalid_worktree`）。
+- 作业 long-poll 使用 `wait=25`（服务器上限）；等待中的请求不再因 heartbeat 而被取消。
+
+### 发布
+
+- GitHub Releases 提供 macOS（universal）、Linux x64/arm64、Windows x64 的 Claude Desktop `.mcpb` 包。manifest 的版本
+  跟随 `Cargo.toml`（由 CI 检查）。
+
 ## 0.1.2（2026/11/04）
 
 首个发布版本。

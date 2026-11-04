@@ -29,6 +29,7 @@ bạn dùng ứng dụng AI trên máy (Claude Code, Claude Desktop, Cursor, Cod
 | npm (mọi nền tảng) | `@toantranmei/cli` | `@toantranmei/mcp` | `npm update -g` |
 | MSI (Windows x64) | `ttm-cli-x86_64-pc-windows-msvc.msi` | `ttm-mcp-x86_64-pc-windows-msvc.msi` | tải MSI mới |
 | Mã nguồn | `cargo install --git … ttm-cli` | `cargo install --git … ttm-mcp` | cài lại |
+| Claude Desktop (từ 0.1.3) | | `ttm-mcp-<hệ điều hành>.mcpb` (xem [MCP](mcp.md)) | cài gói mới |
 
 ### macOS, Linux: script
 
@@ -39,7 +40,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/toantranmei/ttm/release
 
 Script đặt binary vào `$CARGO_HOME/bin` (mặc định `~/.cargo/bin`) và thêm thư mục đó vào `PATH` trong file khởi động của
 shell. Mở terminal mới (hoặc `source ~/.cargo/env`) để dùng ngay. Cài một phiên bản cố định: thay `latest/download` bằng
-`download/v0.1.2`.
+`download/v0.1.3`.
 
 ### Windows: PowerShell
 
@@ -93,8 +94,8 @@ npx -y @toantranmei/mcp --help
 Các crate chưa đăng trên crates.io; cài thẳng từ GitHub (cần Rust stable ≥ 1.88, có `git`):
 
 ```sh
-cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.2 ttm-cli
-cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.2 ttm-mcp
+cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.3 ttm-cli
+cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.3 ttm-mcp
 ```
 
 Bản tự build trỏ tới `https://toantranmei.com` như bản phát hành. Đổi host mặc định lúc build:
@@ -109,11 +110,11 @@ ttm doctor
 ```
 
 ```text
-ttm 0.1.2
-ttm-mcp 0.1.2
+ttm 0.1.3
+ttm-mcp 0.1.3
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.2, server API v1
+[ok  ] version    ttm 0.1.3, server API v1
 [warn] token      not signed in (ttm login)
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1
@@ -128,14 +129,15 @@ chỉ cần cho runner và `ttm sync --resolve`.
 
 Mỗi bản phát hành có:
 
-- file `<archive>.sha256` cạnh mỗi archive và MSI, cộng file `sha256.sum` gom tất cả;
+- file `<archive>.sha256` cạnh mỗi archive và MSI, cộng file `sha256.sum` gom tất cả (gói `.mcpb`
+  chỉ có file `.sha256` riêng);
 - **GitHub artifact attestation** (Sigstore), chứng minh file được build bởi workflow phát hành của repo
   `toantranmei/ttm`.
 
 SHA-256:
 
 ```sh
-V=v0.1.2; F=ttm-cli-aarch64-apple-darwin.tar.xz
+V=v0.1.3; F=ttm-cli-aarch64-apple-darwin.tar.xz
 curl -LO https://github.com/toantranmei/ttm/releases/download/$V/$F
 curl -LO https://github.com/toantranmei/ttm/releases/download/$V/$F.sha256
 shasum -a 256 "$F"; cat "$F.sha256"   # hai giá trị phải trùng
@@ -176,11 +178,11 @@ nếu kiểm thất bại), rồi thay `ttm` và cả `ttm-mcp` nếu nó nằm 
 ```sh
 ttm self-update --check           # chỉ báo có bản mới hay không
 ttm self-update                   # cài bản mới nhất
-ttm self-update --version 0.1.2   # cài đúng phiên bản này (dùng được để hạ cấp)
+ttm self-update --version 0.1.3   # cài đúng phiên bản này (dùng được để hạ cấp)
 ```
 
 ```text
-ttm 0.1.2 is up to date.
+ttm 0.1.3 is up to date.
 ```
 
 ```text
@@ -192,12 +194,12 @@ SHA-256 verified; attestation verified.
 > mà trình quản lý gói đang theo dõi, làm hai bên lệch phiên bản.
 
 Khi server cần phiên bản mới hơn (`min_cli` trong discovery), mọi lệnh in cảnh báo
-`the server needs ttm >= X (this is Y); run ttm self-update` và API có thể trả `426 upgrade_required`.
+`` the server needs ttm >= X (this is Y); run `ttm self-update` `` và API có thể trả `426 upgrade_required`.
 
 ## Gỡ cài đặt
 
 1. Đăng xuất để thu hồi token trên server và xoá khỏi keyring: `ttm logout` (lặp lại với từng `--profile` bạn dùng).
-2. Nếu đã cài dịch vụ runner, gỡ nó trước (xem [Runner](runner.md), mục **Gỡ dịch vụ**).
+2. Nếu đã cài dịch vụ runner, gỡ nó trước bằng `ttm runner uninstall-service` (xem [Runner](runner.md)).
 3. Gỡ chương trình:
 
    | Kênh | Lệnh |

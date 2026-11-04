@@ -59,12 +59,13 @@ Run it again and click **Allow** within 5 minutes. Use `--no-browser` to open th
 **`the code expired before it was approved`.**
 The device code lives for 10 minutes. Run `ttm login --device` again.
 
-**`not signed in to … ; run ttm login` even though you signed in.**
+**`` not signed in to …; run `ttm login` `` even though you signed in.**
 A token is tied to (profile, host). You may be using a different profile or host: check `ttm status`. `TTM_HOST`,
 `TTM_PROFILE` and `--host` all change that pair.
 
 **`invalid_token` after a while.**
-The token expired (about 30 days for `ttm login`) or was revoked. Run `ttm login` again. If `ttm status` reports the
+The token expired (for `ttm login`: `ttm` went unused for more than 90 days, so the refresh token expired) or was
+revoked. Run `ttm login` again. If `ttm status` reports the
 source as `TTM_TOKEN`, that variable holds an old token: unset or replace it.
 
 **`insufficient_scope … [requires scope X]` / `{"required": "X"}`.**
@@ -93,7 +94,7 @@ keyring, add `TTM_TOKEN` to the `env` of the MCP config.
 The app's config file is broken; ttm wrote nothing. Fix the file (an older backup is at `<file>.bak-<number>` if you
 installed before), then run it again.
 
-**`Claude Code (claude) is not on PATH`.**
+**``Claude Code (`claude`) is not on PATH``.**
 Install Claude Code, or run the command printed with the message by hand (`claude mcp add --scope user ttm -- …`).
 
 **`factory-*` tools return `no_run`.**
@@ -170,9 +171,10 @@ The workflow blocks the status change. See the table in [Error codes](ma-loi.md)
 
 ## Runner
 
-**`no agent harness found; install Claude Code (claude) first`.**
-Install Claude Code. If it still reports this when running as a service: the service doesn't see your shell's `PATH`;
-add `PATH` to the service (see [Runner](runner.md)).
+**``no agent harness found; install Claude Code (`claude`) first``.**
+Install Claude Code. If it still reports this when running as a service: the service uses the `PATH` recorded at install
+time (versions before 0.1.3 recorded none). Run `ttm runner install-service` again from a shell where `which claude`
+finds it (see [Runner](runner.md)).
 
 **A job is refused: `refused AUR-12: no local clone is configured for project AUR`.**
 Run `ttm runner config --repo AUR=~/code/aurora`, then restart the runner.
@@ -181,8 +183,12 @@ Run `ttm runner config --repo AUR=~/code/aurora`, then restart the runner.
 The clone's `origin` isn't the project's repo. Fix the remote (`git remote set-url origin …`) or point `--repo` at the
 right clone.
 
+**Job refused: `` refused AUR-12: the job's worktree_hint `…` is an absolute path; worktrees stay under the runner's worktree_root … ``.**
+The server sent a `worktree_hint` that isn't under `worktree_root` (absolute, with `..`, or through a symlink leading
+out). The runner refuses it (`invalid_worktree`) and creates nothing; report it to the server's administrator.
+
 **The runner starts again after `ttm runner down`.**
-A service (launchd `KeepAlive`, systemd, Task Scheduler) keeps it alive. Uninstall the service to stop it for good.
+A service (launchd `KeepAlive`, systemd, Task Scheduler) keeps it alive. Stop it for good with `ttm runner uninstall-service`.
 
 **A run ends `paused`.**
 Claude reported that the usage limit was reached; the runner stops taking jobs until the reset time, and the server
@@ -223,7 +229,8 @@ A minimal PAT + `TTM_TOKEN`, for example `ttm sync --check` to block PRs that ma
 Not published on crates.io yet; install from source with `cargo install --git https://github.com/toantranmei/ttm ttm-cli`.
 
 **Is there an `.mcpb` bundle for Claude Desktop?**
-The manifest is in the repo but wasn't released in 0.1.2. Use `ttm mcp install --client claude-desktop` or remote MCP.
+Yes, since 0.1.3: download `ttm-mcp-<os>.mcpb` from GitHub Releases (see [MCP](mcp.md)). With older releases, use
+`ttm mcp install --client claude-desktop` or remote MCP.
 
 **Is my data used to train models?**
 ttm doesn't send data to third parties. Content you give to Claude, ChatGPT… is subject to that provider's policy.
