@@ -425,6 +425,49 @@ impl Client {
     }
 }
 
+/// The keys of a subtask the server reads (`SubtaskInput`, camelCase).
+pub const SUBTASK_KEYS: [&str; 9] = [
+    "title",
+    "type",
+    "priority",
+    "estimate",
+    "role",
+    "description",
+    "labels",
+    "acceptanceCriteria",
+    "dependencies",
+];
+
+/// Maps one subtask written in either style to the server's keys: snake_case (as the `factory-create-subtasks` MCP
+/// tool takes it: `acceptance_criteria`, `depends_on`) or camelCase (`acceptanceCriteria`, `dependencies`); `kind`
+/// is `type`. Returns the normalised object and the keys that were dropped because the server does not read them.
+pub fn normalize_subtask(task: Value) -> (Value, Vec<String>) {
+    let Value::Object(map) = task else {
+        return (task, Vec::new());
+    };
+    let mut out = Map::new();
+    let mut unknown = Vec::new();
+    for (key, value) in map {
+        let target = match key.as_str() {
+            "acceptance_criteria" => "acceptanceCriteria",
+            "depends_on" | "dependsOn" => "dependencies",
+            "kind" => "type",
+            other => match SUBTASK_KEYS.iter().find(|k| **k == other) {
+                Some(k) => k,
+                None => {
+                    unknown.push(key);
+                    continue;
+                }
+            },
+        };
+        // An explicit server key wins over its alias.
+        if key == target || !out.contains_key(target) {
+            out.insert(target.to_string(), value);
+        }
+    }
+    (Value::Object(out), unknown)
+}
+
 // Runner, runs and jobs (P8).
 
 /// `POST /factory/runners/register` body.
@@ -811,6 +854,26 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn subtasks_accept_both_key_styles() {
+        let (snake, unknown) = normalize_subtask(serde_json::json!({
+            "title": "Write tests", "acceptance_criteria": ["covers login"], "depends_on": ["#0"], "kind": "chore",
+            "estimate": 3, "colour": "red"
+        }));
+        assert_eq!(
+            snake,
+            serde_json::json!({"title": "Write tests", "acceptanceCriteria": ["covers login"], "dependencies": ["#0"],
+                "type": "chore", "estimate": 3})
+        );
+        assert_eq!(unknown, ["colour"]);
+        let camel = serde_json::json!({"title": "A", "acceptanceCriteria": ["x"], "dependencies": ["AUR-1"], "type": "bug"});
+        assert_eq!(normalize_subtask(camel.clone()), (camel, vec![]));
+        let (both, _) = normalize_subtask(
+            serde_json::json!({"title": "A", "dependencies": ["AUR-1"], "depends_on": ["#0"]}),
+        );
+        assert_eq!(both["dependencies"], serde_json::json!(["AUR-1"]));
+    }
+
     use super::*;
 
     #[test]
