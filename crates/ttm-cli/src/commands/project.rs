@@ -70,6 +70,7 @@ pub async fn run(app: App, command: ProjectCommand) -> Result<ExitCode> {
                     ),
                     repo_url,
                     default_branch: Some(worktree::default_branch(&root)),
+                    ..NewProject::default()
                 })
                 .await?;
             let linked = link(&app, &client, &root, &project).await?;

@@ -106,6 +106,8 @@ pub async fn ensure_registered(
             harnesses: harness::installed(),
             max_parallel: capacity::effective(config.max_parallel),
             accept_team_jobs: config.accept_team_jobs,
+            features: vec![],
+            local_mcp: vec![],
         },
     };
     let fresh =

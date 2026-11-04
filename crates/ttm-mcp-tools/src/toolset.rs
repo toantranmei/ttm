@@ -291,6 +291,7 @@ mod tests {
             kind: kind.into(),
             role: "owner".into(),
             slug: None,
+            owner_membership: None,
         }
     }
 
@@ -305,6 +306,7 @@ mod tests {
                     avatar_url: None,
                     locale: None,
                     plan: None,
+                    membership: None,
                 },
                 workspace: Some(ws("w1", "personal")),
             })
@@ -322,8 +324,10 @@ mod tests {
                     name: name.into(),
                     email: email.into(),
                     avatar_url: None,
+                    membership: None,
                 },
                 role: "member".into(),
+                membership: None,
             };
             Ok(vec![
                 member("An", "an@example.com"),

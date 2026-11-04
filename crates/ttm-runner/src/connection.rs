@@ -102,6 +102,7 @@ impl Runner {
                         running: running.keys().cloned().collect(),
                         capacity: self.capacity,
                         paused_until: paused_until.as_ref().map(|(s, _)| s.clone()),
+                        local_mcp: None,
                     };
                     match self.client.get().heartbeat(&self.runner_id, &beat).await {
                         Ok(reply) => {

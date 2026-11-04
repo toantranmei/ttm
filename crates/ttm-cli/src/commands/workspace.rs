@@ -155,6 +155,7 @@ mod tests {
             kind: "team".into(),
             role: "member".into(),
             slug: slug.map(String::from),
+            owner_membership: None,
         }
     }
 

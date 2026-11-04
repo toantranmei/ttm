@@ -22,6 +22,44 @@ pub struct MeUser {
     pub locale: Option<String>,
     #[serde(default)]
     pub plan: Option<String>,
+    /// Mei-er membership (`null` for non-members and older servers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership: Option<Membership>,
+}
+
+/// `user.membership` of `GET /me`: `{tier, status, since, until, badge}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Membership {
+    /// `supporter`, `mei-er`, `sponsor`.
+    pub tier: String,
+    /// `active` or `grace`.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// RFC 3339.
+    #[serde(default)]
+    pub since: Option<String>,
+    #[serde(default)]
+    pub until: Option<String>,
+    #[serde(default)]
+    pub badge: Option<String>,
+}
+
+impl Membership {
+    pub fn tier(&self) -> Option<crate::vocab::Tier> {
+        crate::vocab::Tier::parse(&self.tier)
+    }
+}
+
+/// `membership: {tier}` (people) or `owner_membership: {tier}` (agents, workspaces) in lists.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TierRef {
+    pub tier: String,
+}
+
+impl TierRef {
+    pub fn tier(&self) -> Option<crate::vocab::Tier> {
+        crate::vocab::Tier::parse(&self.tier)
+    }
 }
 
 /// A workspace the user belongs to (`/me.workspaces[]`).
@@ -36,6 +74,9 @@ pub struct WorkspaceSummary {
     /// Short URL name (added with team workspaces; absent on older servers).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slug: Option<String>,
+    /// Membership of the workspace owner (badge next to the workspace).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_membership: Option<TierRef>,
 }
 
 impl WorkspaceSummary {
@@ -56,6 +97,18 @@ impl WorkspaceSummary {
 pub struct Member {
     pub user: MemberUser,
     pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership: Option<TierRef>,
+}
+
+impl Member {
+    /// The member's tier, on the member or on its user.
+    pub fn tier(&self) -> Option<crate::vocab::Tier> {
+        self.membership
+            .as_ref()
+            .or(self.user.membership.as_ref())
+            .and_then(TierRef::tier)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -65,6 +118,8 @@ pub struct MemberUser {
     pub email: String,
     #[serde(default)]
     pub avatar_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership: Option<TierRef>,
 }
 
 /// `POST /oauth/token` success.

@@ -24,6 +24,22 @@ pub struct Project {
     pub default_branch: Option<String>,
     #[serde(default)]
     pub rev: i64,
+    /// Workflow of the project (v2).
+    #[serde(default, alias = "workflowId", skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
+    /// Agents created or reused by `POST /factory/projects` with `agents` (S2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<CreatedAgent>,
+}
+
+/// `{code, agent_id, created}` of a project created from a template.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreatedAgent {
+    pub code: String,
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub created: bool,
 }
 
 /// `POST /factory/projects` body.
@@ -40,6 +56,12 @@ pub struct NewProject {
     pub repo_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_branch: Option<String>,
+    /// Workflow template (`professional`, `balanced`, … or a catalog slug) (S2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_slug: Option<String>,
+    /// Preset code → `"new"`, `"reuse:<agent_id>"` or `"skip"` (S2).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub agents: BTreeMap<String, String>,
 }
 
 /// `GET /factory/projects/{id}/export` → `{rev, project_id, key, files: {"plan/index.md": …, "plan/tasks/<KEY>.md":
@@ -53,6 +75,26 @@ pub struct PlanBundle {
     pub key: Option<String>,
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+    /// Version stamp of the configuration files (`?include=config`, S5), sent back with the change request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_base: Option<Value>,
+    /// Skill files the bundle left out because they are binary.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub binary_skipped: Vec<String>,
+}
+
+/// Top-level paths of the as-code configuration in a bundle (S5), next to `plan/`.
+pub const CONFIG_ROOTS: [&str; 4] = ["workflow.yaml", "rules/", "agents/", "skills/"];
+
+/// Whether a bundle (or `.ttm`-relative) path is configuration rather than plan.
+pub fn is_config_path(path: &str) -> bool {
+    CONFIG_ROOTS.iter().any(|root| {
+        if root.ends_with('/') {
+            path.starts_with(root)
+        } else {
+            path == *root
+        }
+    })
 }
 
 impl PlanBundle {
@@ -65,20 +107,30 @@ impl PlanBundle {
     }
 }
 
-/// Plan-relative path (`tasks/A.md`) → bundle path used by change requests (`plan/tasks/A.md`).
+/// Plan-relative path (`tasks/A.md`) → bundle path used by change requests (`plan/tasks/A.md`). Configuration
+/// paths (`workflow.yaml`, `rules/…`, `agents/…`, `skills/…`) are bundle paths already.
 pub fn bundle_path(plan_relative: &str) -> String {
-    if plan_relative.starts_with("plan/") {
+    if plan_relative.starts_with("plan/") || is_config_path(plan_relative) {
         plan_relative.to_string()
     } else {
         format!("plan/{plan_relative}")
     }
 }
 
-/// A field changed on both sides (`409` of a change request).
+/// A field changed on both sides (`409` of a change request). Plan conflicts name `task` and `field`; configuration
+/// conflicts (S5) name `kind`, `target` and `path`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Conflict {
+    #[serde(default)]
     pub task: String,
+    #[serde(default)]
     pub field: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(default)]
     pub base: Value,
     #[serde(default)]
@@ -89,7 +141,7 @@ pub struct Conflict {
 
 /// A change request. `status`: `pending`, `applied`, `rejected`, or `empty` (nothing changed; nothing stored, `id`
 /// is empty). `skipped` lists ignored files with the reason (deletions, `plan/index.md`, unreadable files).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ChangeRequest {
     #[serde(default)]
     pub id: String,
@@ -107,6 +159,34 @@ pub struct ChangeRequest {
     pub created_at: Option<String>,
     #[serde(default)]
     pub skipped: Vec<String>,
+    /// `plan`, `workflow`, `rule`, `agent`, `skill` (S5; absent = plan).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// What a configuration request changes (workflow name, rule slug, agent handle, skill slug).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// Unified diff or `[{path, old, new}]` (S5 `GET /factory/change-requests/{id}`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<MemberRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Configuration requests created by the same sync (S5 answer `config_requests`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub config_requests: Vec<ConfigRequestRef>,
+}
+
+/// `{id, kind, target}` of a configuration request created by a sync.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigRequestRef {
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub target: String,
 }
 
 impl ChangeRequest {
@@ -116,7 +196,40 @@ impl ChangeRequest {
     }
 }
 
+/// A change request answer of either shape: 0.1 (`ChangeRequest`) or S5 (`{change_request?, config_requests,
+/// skipped}`).
+pub fn parse_change_request_answer(value: Value) -> Result<ChangeRequest> {
+    let decode = |e: serde_json::Error| ApiError::Decode {
+        status: 200,
+        message: e.to_string(),
+    };
+    if value.get("config_requests").is_some() || value.get("change_request").is_some() {
+        let mut cr: ChangeRequest = match value.get("change_request") {
+            Some(v) if !v.is_null() => serde_json::from_value(v.clone()).map_err(decode)?,
+            _ => ChangeRequest {
+                status: "empty".into(),
+                ..ChangeRequest::default()
+            },
+        };
+        cr.config_requests = value
+            .get("config_requests")
+            .map(|v| serde_json::from_value(v.clone()))
+            .transpose()
+            .map_err(decode)?
+            .unwrap_or_default();
+        if let Some(skipped) = value
+            .get("skipped")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+        {
+            cr.skipped = skipped;
+        }
+        return Ok(cr);
+    }
+    serde_json::from_value(value).map_err(decode)
+}
+
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)] // built once per sync
 pub enum ChangeRequestOutcome {
     Created(ChangeRequest),
     Conflicts(Vec<Conflict>),
@@ -319,11 +432,27 @@ impl Client {
         base_rev: i64,
         files: &BTreeMap<String, Option<String>>,
     ) -> Result<ChangeRequestOutcome> {
-        let body = serde_json::json!({ "base_rev": base_rev, "files": files });
+        self.create_change_request_v2(project_id, base_rev, files, None)
+            .await
+    }
+
+    /// Same with the `config_base` of the export (S5). A v2 answer `{change_request?, config_requests, skipped,
+    /// conflicts}` is folded into one [`ChangeRequest`] (empty when only configuration requests were created).
+    pub async fn create_change_request_v2(
+        &self,
+        project_id: &str,
+        base_rev: i64,
+        files: &BTreeMap<String, Option<String>>,
+        config_base: Option<&Value>,
+    ) -> Result<ChangeRequestOutcome> {
+        let mut body = serde_json::json!({ "base_rev": base_rev, "files": files });
+        if let Some(base) = config_base {
+            body["config_base"] = base.clone();
+        }
         let path = format!("/factory/projects/{}/change-requests", encode(project_id));
         let (status, value) = self.json_raw(Method::POST, &path, &body, None).await?;
         match status {
-            200..=299 => serde_json::from_value(value)
+            200..=299 => parse_change_request_answer(value)
                 .map(ChangeRequestOutcome::Created)
                 .map_err(|e| ApiError::Decode {
                     status,
@@ -343,6 +472,59 @@ impl Client {
                 &value.to_string(),
             )),
         }
+    }
+
+    /// Plan + configuration export (`?include=config,skills`, S5).
+    pub async fn export_bundle(&self, project_id: &str, include: &[&str]) -> Result<PlanBundle> {
+        let params: Vec<(&str, String)> = if include.is_empty() {
+            vec![]
+        } else {
+            vec![("include", include.join(","))]
+        };
+        self.get_query(
+            &format!("/factory/projects/{}/export", encode(project_id)),
+            &params,
+        )
+        .await
+    }
+
+    /// Plan change requests of a project.
+    pub async fn project_change_requests(&self, project_id: &str) -> Result<Vec<ChangeRequest>> {
+        self.get(&format!(
+            "/factory/projects/{}/change-requests",
+            encode(project_id)
+        ))
+        .await
+    }
+
+    /// `GET /factory/workspaces/{ws}/config-requests?status&kind` (S5).
+    pub async fn config_requests(
+        &self,
+        workspace_id: &str,
+        status: Option<&str>,
+        kind: Option<&str>,
+    ) -> Result<Vec<ChangeRequest>> {
+        let mut q = Vec::new();
+        if let Some(s) = status {
+            q.push(("status", s.to_string()));
+        }
+        if let Some(k) = kind {
+            q.push(("kind", k.to_string()));
+        }
+        self.get_query(
+            &format!("/factory/workspaces/{}/config-requests", encode(workspace_id)),
+            &q,
+        )
+        .await
+    }
+
+    /// `POST /factory/change-requests/{id}/approve {approve, note?}` (409 `stale`).
+    pub async fn decide_change_request(&self, id: &str, approve: bool, note: Option<&str>) -> Result<Value> {
+        self.post(
+            &format!("/factory/change-requests/{}/approve", encode(id)),
+            &serde_json::json!({ "approve": approve, "note": note }),
+        )
+        .await
     }
 
     /// `GET /factory/change-requests/{id}` .
@@ -502,6 +684,22 @@ pub struct RegisterRunner {
     pub harnesses: Vec<String>,
     pub max_parallel: usize,
     pub accept_team_jobs: bool,
+    /// What this runner can do (`git_identity`, `skills`, `mcp_gateway`, `mcp_local`, `team_isolation`).
+    #[serde(default)]
+    pub features: Vec<String>,
+    /// Local MCP servers of this machine: names and who may use them, never commands or environment.
+    #[serde(default)]
+    pub local_mcp: Vec<LocalMcpAnnounce>,
+}
+
+/// `{name, allow, team_jobs}` of a local MCP server, as announced to the server.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalMcpAnnounce {
+    pub name: String,
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default)]
+    pub team_jobs: bool,
 }
 
 /// `POST /factory/runners/register` answer: the runner id and a `ttm_job_` token for the runner channel.
@@ -540,6 +738,56 @@ pub struct JobMcp {
     pub token: String,
     #[serde(default)]
     pub toolsets: Vec<String>,
+    /// Remote MCP servers reached through the server's gateway (`{name, url}`), with the job token as Bearer.
+    #[serde(default)]
+    pub remote: Vec<JobRemoteMcp>,
+    /// Names of local MCP servers (from `runner.toml`) the agent may use.
+    #[serde(default)]
+    pub local: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct JobRemoteMcp {
+    pub name: String,
+    pub url: String,
+}
+
+/// `job.agent`: the agent doing the job (`null` for a person's task).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct JobAgent {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub handle: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// `job.git`: commit identity and trailers (never Claude/Anthropic).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct JobGit {
+    #[serde(default)]
+    pub author_name: String,
+    #[serde(default)]
+    pub author_email: String,
+    #[serde(default)]
+    pub committer_name: String,
+    #[serde(default)]
+    pub committer_email: String,
+    #[serde(default)]
+    pub trailers: Vec<String>,
+}
+
+/// `job.skills[]`: a reviewed skill version to install, downloaded from a signed URL and checked by SHA-256.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct JobSkill {
+    pub slug: String,
+    #[serde(default)]
+    pub version: i64,
+    pub url: String,
+    pub sha256: String,
+    #[serde(default)]
+    pub size: u64,
 }
 
 impl std::fmt::Debug for JobMcp {
@@ -592,6 +840,19 @@ pub struct JobSpec {
     pub limits: JobLimits,
     #[serde(default)]
     pub rules_rev: Option<i64>,
+    /// Job spec v2 (S3); older servers send none of these.
+    #[serde(default)]
+    pub agent: Option<JobAgent>,
+    /// The runner owner is not the person who delegated the task.
+    #[serde(default)]
+    pub team_job: bool,
+    #[serde(default)]
+    pub git: Option<JobGit>,
+    #[serde(default)]
+    pub skills: Vec<JobSkill>,
+    /// Runner features the job needs.
+    #[serde(default)]
+    pub requires: Vec<String>,
 }
 
 fn claude_code() -> String {
@@ -649,6 +910,9 @@ pub struct Heartbeat {
     pub capacity: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paused_until: Option<String>,
+    /// Sent again when `runner.toml` changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_mcp: Option<Vec<LocalMcpAnnounce>>,
 }
 
 /// Heartbeat answer : runs to stop (kill switch) and whether to shut down (turned off from the web).

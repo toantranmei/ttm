@@ -29,6 +29,12 @@ pub fn user_agent() -> String {
 pub enum Body {
     Json(serde_json::Value),
     Form(Vec<(String, String)>),
+    /// Raw bytes (`application/zip` skill uploads) with extra headers.
+    Bytes {
+        content_type: String,
+        headers: Vec<(String, String)>,
+        bytes: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +112,43 @@ impl Client {
     pub async fn patch<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
         self.json(Method::PATCH, path, &[], Some(Body::Json(to_value(body)?)))
             .await
+    }
+
+    pub async fn put<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
+        self.json(Method::PUT, path, &[], Some(Body::Json(to_value(body)?)))
+            .await
+    }
+
+    /// `POST` with a JSON body, decoding the JSON answer, plus query parameters.
+    pub async fn post_query<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        body: &B,
+    ) -> Result<T> {
+        self.json(Method::POST, path, query, Some(Body::Json(to_value(body)?)))
+            .await
+    }
+
+    /// `DELETE` with query parameters.
+    pub async fn delete_query(&self, path: &str, query: &[(&str, String)]) -> Result<()> {
+        self.send(Method::DELETE, path, query, None).await.map(drop)
+    }
+
+    /// Raw bytes of a GET (redirects followed), at most `max` bytes.
+    pub async fn get_bytes(&self, path: &str, max: usize) -> Result<Vec<u8>> {
+        let mut response = self.send(Method::GET, path, &[], None).await?;
+        let mut out = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            out.extend_from_slice(&chunk);
+            if out.len() > max {
+                return Err(ApiError::Decode {
+                    status: 200,
+                    message: format!("download larger than {max} bytes"),
+                });
+            }
+        }
+        Ok(out)
     }
 
     pub async fn delete(&self, path: &str) -> Result<()> {
@@ -203,6 +246,19 @@ impl Client {
             request = match &body {
                 Some(Body::Json(value)) => request.json(value),
                 Some(Body::Form(form)) => request.form(form),
+                Some(Body::Bytes {
+                    content_type,
+                    headers,
+                    bytes,
+                }) => {
+                    let mut r = request
+                        .header(header::CONTENT_TYPE, content_type.as_str())
+                        .body(bytes.clone());
+                    for (k, v) in headers {
+                        r = r.header(k.as_str(), v.as_str());
+                    }
+                    r
+                }
                 None => request,
             };
             let result = request.send().await;

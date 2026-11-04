@@ -77,6 +77,7 @@ async fn heartbeat_and_lease_conflict() {
                 running: vec!["r1".into()],
                 capacity: 2,
                 paused_until: None,
+                local_mcp: None,
             },
         )
         .await
@@ -130,6 +131,8 @@ async fn register_returns_expiry_and_merge_result_body() {
             harnesses: vec!["claude-code".into()],
             max_parallel: 2,
             accept_team_jobs: false,
+            features: vec!["skills".into()],
+            local_mcp: vec![],
         })
         .await
         .unwrap();

@@ -5,13 +5,21 @@
 //! 30 s timeout, up to 3 retries on 429/5xx honouring `Retry-After`, a once-a-day warning when the server marks an
 //! endpoint with `Deprecation`, and [`ApiError::UpgradeRequired`] when the server answers 426.
 
+pub mod agents;
+pub mod automation;
 pub mod client;
+pub mod confirmations;
 pub mod error;
 pub mod factory;
+pub mod inbox;
+pub mod mcp_servers;
 pub mod notee;
 pub mod oauth;
+pub mod skills;
+pub mod templates;
 pub mod types;
 pub mod vocab;
+pub mod workflows;
 pub mod workspace;
 
 pub use client::{Client, user_agent};
