@@ -243,8 +243,9 @@ setup:
 - once a token is saved with `ttm runner config claude-token`, it also runs with an empty `CLAUDE_CONFIG_DIR` per run and
   `CLAUDE_CODE_OAUTH_TOKEN` set to that token, so it sees none of your hooks, plugins or personal skills
   (`~/.claude/skills`);
-- the runner announces `team_isolation` only when the token is saved. Without it the server sends no teammate job with
-  skills or MCP servers to this runner, and `ttm runner status` tells you what to run.
+- the runner announces `team_isolation` only when the token is saved. Without a token it **refuses** every teammate's
+  job (`unsupported_feature`, reported to the server; it never runs one with this machine's Claude setup), and
+  `ttm runner status` tells you what to run.
 
 Spike result (Claude Code 2.1.318, from `claude --help` only): `--setting-sources` exists, but the help does not say
 whether plugins and personal skills are left out, so the flag alone is **not enough**; hence the empty `CLAUDE_CONFIG_DIR`.

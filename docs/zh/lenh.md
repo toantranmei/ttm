@@ -572,7 +572,7 @@ JSON：`local_rev`、`server_rev`、`local_changes`、`server_changes`、`change
 | `ttm task show <KEY>` | | 标题、状态、角色、负责人、描述 | `factory:read` |
 | `ttm task claim <KEY>` | | 把任务分配给自己 | `factory:write` |
 | `ttm task done <KEY>` | | 转为 `done`（guard 和审批关卡仍然生效） | `factory:write` |
-| `ttm task approve <KEY>` | `--reject` | 批准/拒绝正在等待的步骤 | `factory:write` |
+| `ttm task approve <KEY>` | `--reject`、`-y/--yes` | 先显示任务并要求确认，再批准/拒绝正在等待的步骤；非终端需要 `--yes` | `factory:write` |
 | `ttm task split <KEY> -f <FILE>` | `-f`, `--file`（必填；`-` = stdin） | 从 JSON 创建子任务（键可用 camelCase 或 snake_case，见 [Factory](factory.md)） | `factory:write` |
 
 ```text

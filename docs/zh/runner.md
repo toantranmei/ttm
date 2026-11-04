@@ -221,8 +221,8 @@ Claude Code 以 `--strict-mcp-config`（agent 只看到这些服务器）和 `--
 - 始终带 `--setting-sources project,local` 运行（不读取你的 `~/.claude/settings.json`）；
 - 用 `ttm runner config claude-token` 保存 token 后，还会为每次 run 使用空的 `CLAUDE_CONFIG_DIR`，并把 `CLAUDE_CODE_OAUTH_TOKEN`
   设为该 token，因此看不到你的 hook、插件或个人 skill（`~/.claude/skills`）；
-- 只有保存了 token，runner 才上报 `team_isolation`。否则服务器不会把带 skill 或 MCP 的同事作业发给这台 runner，`ttm runner status`
-  会提示需要运行的命令。
+- 只有保存了 token，runner 才上报 `team_isolation`。没有 token 时 runner **拒绝**所有同事作业（`unsupported_feature`，上报服务器，
+  绝不使用本机的 Claude 配置运行），`ttm runner status` 会提示需要运行的命令。
 
 Spike 结果（Claude Code 2.1.318，仅阅读 `claude --help`）：存在 `--setting-sources`，但帮助没有说明是否排除插件和个人 skill，因此
 仅靠该标志**不够**；所以另外使用空的 `CLAUDE_CONFIG_DIR`。将在 M4 模拟阶段用真实作业确认。

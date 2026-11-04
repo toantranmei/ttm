@@ -577,7 +577,7 @@ Run inside a linked repo (except `show`, `claim`, `done`, `approve`, `split`, wh
 | `ttm task show <KEY>` | | Title, state, role, assignee, description | `factory:read` |
 | `ttm task claim <KEY>` | | Assign the task to yourself | `factory:write` |
 | `ttm task done <KEY>` | | Move to `done` (guards and approval gates still apply) | `factory:write` |
-| `ttm task approve <KEY>` | `--reject` | Approve / reject the pending step | `factory:write` |
+| `ttm task approve <KEY>` | `--reject`, `-y/--yes` | Shows the task, then asks for a confirmation before approving / rejecting the pending step; needs `--yes` without a terminal | `factory:write` |
 | `ttm task split <KEY> -f <FILE>` | `-f`, `--file` (required; `-` = stdin) | Create subtasks from JSON (camelCase or snake_case keys, see [Factory](factory.md)) | `factory:write` |
 
 ```text

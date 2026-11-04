@@ -233,8 +233,9 @@ Job của đồng đội (`team_job`: người giao không phải chủ runner) 
 - luôn chạy với `--setting-sources project,local` (bỏ `~/.claude/settings.json` của bạn);
 - khi đã lưu token bằng `ttm runner config claude-token`, chạy thêm với `CLAUDE_CONFIG_DIR` trống riêng cho mỗi run và
   `CLAUDE_CODE_OAUTH_TOKEN` là token đó, nên không thấy hook, plugin hay skill cá nhân `~/.claude/skills`;
-- runner chỉ báo tính năng `team_isolation` khi đã có token. Chưa có thì server không gửi job của đồng đội có skill hoặc
-  MCP tới runner này, và `ttm runner status` nhắc lệnh cần chạy.
+- runner chỉ báo tính năng `team_isolation` khi đã có token. Chưa có token thì runner **từ chối** mọi job của đồng đội
+  (`unsupported_feature`, báo lên server, không bao giờ chạy với cấu hình Claude của máy), và `ttm runner status` nhắc lệnh
+  cần chạy.
 
 Kết quả spike (Claude Code 2.1.318, chỉ đọc `claude --help`): `--setting-sources` có, nhưng tài liệu không nói rõ có bỏ
 plugin và skill cá nhân hay không, nên chỉ cờ này **chưa đủ**; vì vậy dùng thêm `CLAUDE_CONFIG_DIR` trống. Sẽ kiểm lại bằng

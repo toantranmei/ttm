@@ -573,7 +573,7 @@ Chạy trong repo đã liên kết (trừ `show`, `claim`, `done`, `approve`, `s
 | `ttm task show <KEY>` | | Tiêu đề, trạng thái, vai trò, người làm, mô tả | `factory:read` |
 | `ttm task claim <KEY>` | | Giao task cho chính bạn | `factory:write` |
 | `ttm task done <KEY>` | | Chuyển sang `done` (guard, cổng duyệt vẫn áp) | `factory:write` |
-| `ttm task approve <KEY>` | `--reject` | Duyệt / từ chối bước đang chờ | `factory:write` |
+| `ttm task approve <KEY>` | `--reject`, `-y/--yes` | Hiện task rồi hỏi xác nhận trước khi duyệt / từ chối bước đang chờ; không phải terminal thì cần `--yes` | `factory:write` |
 | `ttm task split <KEY> -f <FILE>` | `-f`, `--file` (bắt buộc; `-` = stdin) | Tạo task con từ JSON (khoá camelCase hoặc snake_case, xem [Factory](factory.md)) | `factory:write` |
 
 ```text
