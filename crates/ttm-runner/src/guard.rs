@@ -14,6 +14,30 @@ pub const INVALID_BRANCH: &str = "invalid_branch";
 /// Error code reported when the job's `worktree_hint` would put the worktree outside the runner's `worktree_root`.
 pub const INVALID_WORKTREE: &str = "invalid_worktree";
 
+/// Error code reported when a job needs a runner feature this runner does not have.
+pub const UNSUPPORTED_FEATURE: &str = "unsupported_feature";
+
+/// Refuses a job whose `requires` names a feature outside `features` (the server should not send one).
+pub fn check_requires(job: &JobSpec, features: &[String]) -> Result<(), Refused> {
+    let missing: Vec<&str> = job
+        .requires
+        .iter()
+        .filter(|r| !features.iter().any(|f| f == *r))
+        .map(String::as_str)
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(refuse(
+            UNSUPPORTED_FEATURE,
+            format!(
+                "this runner lacks {}; update ttm (ttm self-update)",
+                missing.join(", ")
+            ),
+        ))
+    }
+}
+
 /// `https://user@GitHub.com/a/b.git/`, `git@github.com:a/b.git`, `ssh://git@github.com/a/b` → `github.com/a/b`.
 pub fn normalize_url(url: &str) -> String {
     let mut u = url.trim().to_string();
@@ -334,5 +358,16 @@ mod tests {
             check(&other, Some(&repo), none).unwrap_err().code,
             REPO_NOT_CONFIGURED
         );
+    }
+
+    #[test]
+    fn requires_must_be_features() {
+        let job: JobSpec = serde_json::from_value(serde_json::json!({
+            "run_id": "r", "task_key": "A-1", "branch": "a-1", "prompt": "p", "requires": ["skills", "teleport"]
+        }))
+        .unwrap();
+        let err = check_requires(&job, &crate::features(false)).unwrap_err();
+        assert_eq!(err.code, UNSUPPORTED_FEATURE);
+        assert!(err.message.contains("teleport") && !err.message.contains("skills,"));
     }
 }

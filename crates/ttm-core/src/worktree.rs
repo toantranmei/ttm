@@ -55,6 +55,24 @@ pub fn git(dir: &Path, args: &[&str]) -> Result<String, GitError> {
     }
 }
 
+/// Like [`git`], with extra environment variables (commit identity, `core.hooksPath` through `GIT_CONFIG_*`).
+pub fn git_env(dir: &Path, args: &[&str], env: &[(String, String)]) -> Result<String, GitError> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .output()?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        Err(GitError::Failed {
+            args: args.join(" "),
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        })
+    }
+}
+
 /// Current branch name (`HEAD` when detached).
 pub fn current_branch(dir: &Path) -> Result<String, GitError> {
     git(dir, &["rev-parse", "--abbrev-ref", "HEAD"])

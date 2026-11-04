@@ -385,8 +385,8 @@ pub enum RunnerCommand {
     Down,
     /// Registration, capacity, harnesses, process state.
     Status,
-    /// Change runner settings.
-    Config(RunnerConfigArgs),
+    /// Change runner settings (flags), or local MCP servers (`mcp …`) and the team Claude token (`claude-token`).
+    Config(RunnerConfigCmd),
     /// Start the runner at login (launchd, systemd --user, Task Scheduler), with this shell's PATH.
     InstallService,
     /// Stop the runner service and remove it (plist, unit or scheduled task).
@@ -432,6 +432,68 @@ pub enum AgentCommand {
     /// Stop a run (kill switch).
     Stop { run: String },
 }
+/// `ttm runner config [flags] | mcp … | claude-token`.
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct RunnerConfigCmd {
+    #[command(subcommand)]
+    pub sub: Option<RunnerConfigSub>,
+    #[command(flatten)]
+    pub args: RunnerConfigArgs,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RunnerConfigSub {
+    /// Local MCP servers of this machine (`[mcp.local.*]` in runner.toml).
+    #[command(subcommand)]
+    Mcp(RunnerMcpCommand),
+    /// Save the Claude Code OAuth token used for teammates' jobs (from `claude setup-token`, read on stdin).
+    ClaudeToken {
+        /// Remove the saved token (teammates' jobs then run without isolation).
+        #[arg(long)]
+        remove: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RunnerMcpCommand {
+    /// Add (or replace) a local MCP server.
+    Add {
+        name: String,
+        /// Program to start, e.g. npx.
+        #[arg(long)]
+        command: String,
+        /// Argument (repeatable).
+        #[arg(long = "arg", value_name = "ARG", allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Environment: K=env:VAR (read at run time) or K=value for non-secret values (repeatable).
+        #[arg(long = "env", value_name = "K=V")]
+        env: Vec<String>,
+    },
+    /// Let an agent (handle) use local MCP servers (default: every one).
+    Allow {
+        agent: String,
+        #[arg(long = "mcp", value_name = "NAME")]
+        mcp: Vec<String>,
+    },
+    /// Stop an agent from using local MCP servers (default: every one).
+    Deny {
+        agent: String,
+        #[arg(long = "mcp", value_name = "NAME")]
+        mcp: Vec<String>,
+    },
+    /// Whether jobs delegated by someone else may use this server.
+    TeamJobs {
+        name: String,
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
+    /// Remove a local MCP server.
+    Remove { name: String },
+    /// Local MCP servers and who may use them.
+    List,
+}
+
 
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {

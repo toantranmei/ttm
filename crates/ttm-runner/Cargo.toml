@@ -23,6 +23,9 @@ toml.workspace = true
 tracing.workspace = true
 ttm-api.workspace = true
 ttm-core.workspace = true
+reqwest = { workspace = true, features = ["rustls"] }
+sha2.workspace = true
+toml_edit.workspace = true
 ttm-ui.workspace = true
 
 [dev-dependencies]

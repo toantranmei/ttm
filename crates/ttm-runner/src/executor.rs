@@ -3,7 +3,8 @@
 use crate::SharedClient;
 use crate::config::RunnerConfig;
 use crate::harness::{self, HarnessOutcome};
-use crate::{git, guard, worktree};
+use crate::local_mcp::{self, McpSection};
+use crate::{git, guard, identity, skills, worktree};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -42,10 +43,68 @@ pub struct Executor {
     pub echo: bool,
     /// Where run lines (start, end, refusals) and echoed events are printed.
     pub ui: ttm_ui::Ui,
+    /// Directory of `runner.toml`, re-read for `[mcp.local.*]` at each job (edits apply without a restart).
+    pub config_dir: Option<PathBuf>,
+    /// OAuth token of Claude Code for teammates' jobs (`ttm runner config claude-token`): such jobs run with an
+    /// empty `CLAUDE_CONFIG_DIR`, so they never see this machine's settings, hooks, plugins or personal skills.
+    pub team_claude_token: Option<String>,
+}
+
+/// One remote MCP of the job (through the gateway) or one granted local MCP, as written in the config; warnings for
+/// what was left out.
+pub fn mcp_config(
+    job: &JobSpec,
+    host: &str,
+    ttm_mcp: &Path,
+    local: &McpSection,
+    getenv: &dyn Fn(&str) -> Option<String>,
+) -> (serde_json::Value, Vec<String>) {
+    let mut config = ttm_mcp_config(job, host, ttm_mcp);
+    let mut warnings = Vec::new();
+    let servers = config["mcpServers"].as_object_mut().expect("object");
+    for remote in &job.mcp.remote {
+        if remote.name == "ttm" || servers.contains_key(&remote.name) {
+            warnings.push(format!("MCP `{}` skipped: the name is taken", remote.name));
+            continue;
+        }
+        servers.insert(
+            remote.name.clone(),
+            json!({
+                "type": "http",
+                "url": remote.url,
+                "headers": { "Authorization": format!("Bearer {}", job.mcp.token) }
+            }),
+        );
+    }
+    let handle = job.agent.as_ref().map(|a| a.handle.as_str());
+    for name in &job.mcp.local {
+        if name == "ttm" || servers.contains_key(name) {
+            warnings.push(format!("local MCP `{name}` skipped: the name is taken"));
+            continue;
+        }
+        let Some(mcp) = local_mcp::grant(name, handle, job.team_job, local) else {
+            warnings.push(format!(
+                "local MCP `{name}` skipped: not configured on this runner, or not allowed for this agent or job"
+            ));
+            continue;
+        };
+        match local_mcp::resolve_env(&mcp.env, getenv) {
+            Ok(env) => {
+                servers.insert(
+                    name.clone(),
+                    json!({ "command": mcp.command, "args": mcp.args, "env": env }),
+                );
+            }
+            Err(var) => warnings.push(format!(
+                "local MCP `{name}` skipped: the environment variable {var} is not set on this runner"
+            )),
+        }
+    }
+    (config, warnings)
 }
 
 /// MCP config handed to the harness: `ttm-mcp` with the job token and run context in its environment.
-pub fn mcp_config(job: &JobSpec, host: &str, ttm_mcp: &Path) -> serde_json::Value {
+pub fn ttm_mcp_config(job: &JobSpec, host: &str, ttm_mcp: &Path) -> serde_json::Value {
     let toolsets = if job.mcp.toolsets.is_empty() {
         "factory,notee".to_string()
     } else {
@@ -79,6 +138,29 @@ pub fn leftover_commit_message(job: &JobSpec) -> String {
 }
 
 impl Executor {
+    /// Features of this runner (with `team_isolation` when a team token is set).
+    pub fn features(&self) -> Vec<String> {
+        crate::features(self.team_claude_token.is_some())
+    }
+
+    fn local_mcp(&self) -> McpSection {
+        match &self.config_dir {
+            Some(dir) => RunnerConfig::load_mcp(dir),
+            None => self.config.mcp.clone(),
+        }
+    }
+
+    fn refuse(&self, job: &JobSpec, refused: guard::Refused) -> anyhow::Error {
+        tracing::error!("refusing run {} ({}): {refused}", job.run_id, job.task_key);
+        self.ui.eline(&crate::say::refused(
+            &self.ui,
+            &job.task_key,
+            refused.code,
+            &refused.message,
+        ));
+        anyhow::Error::new(refused)
+    }
+
     pub async fn run(&self, job: JobSpec, cancel: watch::Receiver<bool>) -> JobOutcome {
         let (tx, rx) = mpsc::unbounded_channel();
         let echo = self.echo.then(|| self.ui.clone());
@@ -119,6 +201,9 @@ impl Executor {
         cancel: watch::Receiver<bool>,
     ) -> anyhow::Result<(JobOutcome, RunFinish)> {
         let key = job.project_key();
+        if let Err(refused) = guard::check_requires(job, &self.features()) {
+            return Err(self.refuse(job, refused));
+        }
         // Only the owner's configured clone, and only when it is the job's repository; never clone a URL.
         let repo = guard::check(
             job,
@@ -171,19 +256,74 @@ impl Executor {
             ));
         }
 
+        // Commit identity and the commit-msg hook (every job: no Claude/Anthropic line in any commit).
+        let trailers = job.git.as_ref().map(|g| g.trailers.clone()).unwrap_or_default();
+        let hooks = identity::prepare_hooks(&path, &self.cache_dir, &job.run_id, &trailers)?;
+        let git_env = identity::env(job.git.as_ref(), &hooks.dir);
+
+        // Reviewed skills, checked by SHA-256; removed when `_skills` drops (any end of the run).
+        let http = reqwest::Client::builder()
+            .user_agent(ttm_api::user_agent())
+            .build()?;
+        let _skills = match skills::install(&http, job, &path, &self.cache_dir, events).await {
+            Ok(installed) => installed,
+            Err(err @ skills::SkillError::HashMismatch { .. }) => {
+                let _ = events.send(RunEvent::now("error", err.to_string(), None));
+                return Err(self.refuse(
+                    job,
+                    guard::Refused {
+                        code: skills::SKILL_HASH_MISMATCH,
+                        message: err.to_string(),
+                    },
+                ));
+            }
+            Err(err) => return Err(err.into()),
+        };
+
         let mcp_file = self.cache_dir.join(format!("mcp-{}.json", job.run_id));
-        let config = serde_json::to_vec_pretty(&mcp_config(job, &self.host, &self.ttm_mcp_exe))?;
-        ttm_core::paths::write_atomic(&mcp_file, &config, Some(0o600))?;
+        let (mcp, warnings) = mcp_config(job, &self.host, &self.ttm_mcp_exe, &self.local_mcp(), &|v| {
+            std::env::var(v).ok()
+        });
+        for w in warnings {
+            let _ = events.send(RunEvent::now("log", w, None));
+        }
+        ttm_core::paths::write_atomic(&mcp_file, &serde_json::to_vec_pretty(&mcp)?, Some(0o600))?;
+        let settings_file = self.cache_dir.join(format!("settings-{}.json", job.run_id));
+        ttm_core::paths::write_atomic(
+            &settings_file,
+            &serde_json::to_vec_pretty(&identity::claude_settings())?,
+            Some(0o600),
+        )?;
+        let mut env = git_env.clone();
+        let mut team_dir = None;
+        if job.team_job
+            && let Some(token) = &self.team_claude_token
+        {
+            let dir = self.cache_dir.join("claude-team").join(&job.run_id);
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir)?;
+            env.push(("CLAUDE_CONFIG_DIR".into(), dir.display().to_string()));
+            env.push(("CLAUDE_CODE_OAUTH_TOKEN".into(), token.clone()));
+            team_dir = Some(dir);
+        }
+        let ctx = harness::RunContext {
+            env,
+            settings: Some(settings_file.clone()),
+        };
 
         let harness = harness::by_name(&job.harness)
             .ok_or_else(|| anyhow::anyhow!("unknown harness {}", job.harness))?;
         let timeout = Duration::from_secs(60 * job.limits.timeout_min.unwrap_or(DEFAULT_TIMEOUT_MIN));
         let run = tokio::time::timeout(
             timeout,
-            harness.run(job, &path, &mcp_file, events.clone(), cancel),
+            harness.run(job, &path, &mcp_file, &ctx, events.clone(), cancel),
         )
         .await;
         let _ = std::fs::remove_file(&mcp_file);
+        let _ = std::fs::remove_file(&settings_file);
+        if let Some(dir) = team_dir {
+            let _ = std::fs::remove_dir_all(dir);
+        }
         let outcome: HarnessOutcome = match run {
             Ok(result) => result?,
             Err(_) => HarnessOutcome {
@@ -217,11 +357,11 @@ impl Executor {
         }
         if outcome.status == "succeeded" {
             if git::is_dirty(&path).unwrap_or(false) {
-                git::commit_all(&path, &leftover_commit_message(job))?;
+                git::commit_all(&path, &leftover_commit_message(job), &git_env)?;
             }
             finish.commit = git::head(&path).ok();
             if git::commits_ahead(&path, &base) > 0 && git::has_remote(&path) {
-                match git::push(&path, &job.branch) {
+                match git::push(&path, &job.branch, &git_env) {
                     Ok(()) => {
                         let title = format!(
                             "{}: {}",
@@ -252,6 +392,7 @@ impl Executor {
         let mut ledger = worktree::Ledger::load(&self.cache_dir);
         ledger.record(&repo, &path, &job.run_id);
         let _ = ledger.save(&self.cache_dir);
+        drop(hooks);
 
         let outcome = JobOutcome {
             run_id: job.run_id.clone(),
@@ -269,7 +410,11 @@ impl Executor {
 fn is_refusal(error: &str) -> bool {
     matches!(
         error,
-        guard::REPO_NOT_CONFIGURED | guard::INVALID_BRANCH | guard::INVALID_WORKTREE
+        guard::REPO_NOT_CONFIGURED
+            | guard::INVALID_BRANCH
+            | guard::INVALID_WORKTREE
+            | guard::UNSUPPORTED_FEATURE
+            | skills::SKILL_HASH_MISMATCH
     )
 }
 
@@ -342,12 +487,83 @@ mod tests {
 
     #[test]
     fn mcp_config_carries_token_and_context() {
-        let c = mcp_config(&job(), "https://toantranmei.com", Path::new("/bin/ttm-mcp"));
+        let (c, _) = mcp_config(
+            &job(),
+            "https://toantranmei.com",
+            Path::new("/bin/ttm-mcp"),
+            &McpSection::default(),
+            &|_| None,
+        );
         let env = &c["mcpServers"]["ttm"]["env"];
         assert_eq!(env["TTM_TOKEN"], "ttm_job_abc");
         assert_eq!(env["TTM_RUN_ID"], "r1");
         assert_eq!(env["TTM_PROJECT"], "p1");
         assert_eq!(c["mcpServers"]["ttm"]["args"][1], "factory,notee");
+    }
+
+    fn local() -> McpSection {
+        toml::from_str::<RunnerConfig>(
+            r#"
+            [mcp.local.github-local]
+            command = "npx"
+            env = { GITHUB_TOKEN = "env:GITHUB_TOKEN" }
+            allow = ["dev"]
+            [mcp.local.notes]
+            command = "notes-mcp"
+            allow = ["dev"]
+            team_jobs = true
+            [mcp.local.secretless]
+            command = "x"
+            env = { K = "env:MISSING" }
+            allow = ["dev"]
+            "#,
+        )
+        .unwrap()
+        .mcp
+    }
+
+    fn v2_job(team_job: bool) -> JobSpec {
+        serde_json::from_value(json!({
+            "run_id": "r1", "task_key": "AUR-12", "project_id": "p1", "branch": "aur-12", "prompt": "x",
+            "agent": {"id": "a1", "handle": "dev", "name": "DEV"}, "team_job": team_job,
+            "mcp": {"token": "ttm_job_abc", "toolsets": [],
+                    "remote": [{"name": "linear", "url": "https://h/api/v1/mcp/gw/linear"}, {"name": "ttm", "url": "https://evil"}],
+                    "local": ["github-local", "notes", "secretless", "linear", "unknown"]}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn remote_and_local_mcp_follow_the_rules() {
+        let env = |v: &str| (v == "GITHUB_TOKEN").then(|| "ghp_x".to_string());
+        let (c, warnings) = mcp_config(
+            &v2_job(false),
+            "https://h",
+            Path::new("/bin/ttm-mcp"),
+            &local(),
+            &env,
+        );
+        let s = &c["mcpServers"];
+        assert_eq!(s["linear"]["type"], "http");
+        assert_eq!(s["linear"]["headers"]["Authorization"], "Bearer ttm_job_abc");
+        assert_eq!(
+            s["ttm"]["command"], "/bin/ttm-mcp",
+            "the job's ttm server is never replaced"
+        );
+        assert_eq!(s["github-local"]["env"]["GITHUB_TOKEN"], "ghp_x");
+        assert!(s["notes"].is_object());
+        assert!(s["secretless"].is_null(), "missing env var drops the server");
+        assert_eq!(warnings.len(), 4, "{warnings:?}");
+        // A teammate's job only gets local servers with team_jobs.
+        let (c, _) = mcp_config(
+            &v2_job(true),
+            "https://h",
+            Path::new("/bin/ttm-mcp"),
+            &local(),
+            &env,
+        );
+        assert!(c["mcpServers"]["github-local"].is_null());
+        assert!(c["mcpServers"]["notes"].is_object());
     }
 
     #[test]

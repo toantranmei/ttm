@@ -7,6 +7,15 @@ use std::path::Path;
 use tokio::sync::{mpsc, watch};
 use ttm_api::factory::{JobSpec, RunEvent};
 
+/// What the runner adds around a job: git identity and hooks environment, Claude Code settings, team isolation.
+#[derive(Debug, Clone, Default)]
+pub struct RunContext {
+    /// Extra environment of the agent process (`GIT_*`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`).
+    pub env: Vec<(String, String)>,
+    /// `--settings` file (no Claude co-author or attribution lines).
+    pub settings: Option<std::path::PathBuf>,
+}
+
 /// How a harness run ended.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HarnessOutcome {
@@ -36,6 +45,7 @@ pub trait Harness: Send + Sync {
         job: &JobSpec,
         worktree: &Path,
         mcp_config: &Path,
+        ctx: &RunContext,
         events: mpsc::UnboundedSender<RunEvent>,
         cancel: watch::Receiver<bool>,
     ) -> anyhow::Result<HarnessOutcome>;
