@@ -12,6 +12,12 @@ use ttm_runner::RunnerConfig;
 use ttm_ui::{Callout, Token};
 
 pub async fn run(app: App, command: AgentCommand) -> Result<ExitCode> {
+    if !matches!(
+        command,
+        AgentCommand::Run { .. } | AgentCommand::Logs { .. } | AgentCommand::Stop { .. }
+    ) {
+        return super::agent_admin::run(app, command).await;
+    }
     match command {
         AgentCommand::Run { key } => {
             let mut config = RunnerConfig::load(&app.ctx.paths.config_dir)?;
@@ -102,6 +108,7 @@ pub async fn run(app: App, command: AgentCommand) -> Result<ExitCode> {
                 )
             });
         }
+        _ => unreachable!("handled by agent_admin"),
     }
     Ok(ExitCode::SUCCESS)
 }

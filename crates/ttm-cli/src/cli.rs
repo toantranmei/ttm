@@ -1,6 +1,7 @@
 //! Command line definition (clap derive). Every command accepts `--json`.
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+pub use crate::cli_v2::*;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -79,12 +80,32 @@ pub enum Command {
     /// Run agent jobs from the server on this machine.
     #[command(subcommand)]
     Runner(RunnerCommand),
-    /// Agent runs: start one now, follow its log, stop it.
+    /// Agents: list, show, create, edit, pause, resume, archive, skills, MCP; runs: run, logs, stop.
     #[command(subcommand)]
     Agent(AgentCommand),
     /// MCP client setup.
     #[command(subcommand)]
     Mcp(McpCommand),
+    /// Workflow of a project: show, validate, simulate, diff, publish, upgrade, copy.
+    #[command(subcommand)]
+    Workflow(WorkflowCommand),
+    /// Automation rules: list, show, test, enable, disable, runs.
+    #[command(subcommand)]
+    Automation(AutomationCommand),
+    /// Skills of the workspace: list, push, pull, show, review, import.
+    #[command(subcommand)]
+    Skill(SkillCommand),
+    /// Remote MCP servers of the workspace: list, add, connect, remove.
+    #[command(subcommand, name = "mcp-server")]
+    McpServer(McpServerCommand),
+    /// Change requests (plan and configuration): list, show, approve, reject.
+    #[command(subcommand)]
+    Cr(CrCommand),
+    /// Notifications: list, --watch, read.
+    Inbox(InboxArgs),
+    /// Template library: list, publish, install.
+    #[command(subcommand)]
+    Template(TemplateCommand),
     /// Download and install the latest release (SHA-256 checked).
     SelfUpdate(SelfUpdateArgs),
     /// Print a shell completion script.
@@ -118,6 +139,11 @@ pub enum WorkspaceCommand {
     Switch { workspace: String },
     /// The current workspace of this profile.
     Current,
+    /// Members of a workspace, with their Mei-er badge.
+    Members {
+        #[command(flatten)]
+        ws: WsArg,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -295,20 +321,8 @@ pub enum RowsCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ProjectCommand {
-    /// Create a project on the server for this repository and link it.
-    Init {
-        /// Task key prefix, e.g. AUR.
-        #[arg(long)]
-        key: String,
-        #[arg(long)]
-        name: Option<String>,
-        /// Repository URL (default: git remote origin).
-        #[arg(long)]
-        repo_url: Option<String>,
-        /// Workspace id (default: the current one).
-        #[arg(long)]
-        workspace: Option<String>,
-    },
+    /// Create a project for this repository and link it (a wizard in a terminal; every question has a flag).
+    Init(ProjectInitArgs),
     /// Link this repository to an existing project (key or id) and pull its plan.
     Link { project: String },
     /// Open the project on the web.
@@ -418,20 +432,6 @@ pub struct RunnerConfigArgs {
     pub auto_merge: Option<bool>,
 }
 
-#[derive(Debug, Subcommand)]
-pub enum AgentCommand {
-    /// Run a task now on this machine and stream its activity.
-    Run { key: String },
-    /// Events of a run.
-    Logs {
-        run: String,
-        /// Keep printing new events.
-        #[arg(short, long)]
-        follow: bool,
-    },
-    /// Stop a run (kill switch).
-    Stop { run: String },
-}
 /// `ttm runner config [flags] | mcp … | claude-token`.
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -494,6 +494,79 @@ pub enum RunnerMcpCommand {
     List,
 }
 
+#[derive(Debug, Subcommand)]
+pub enum AgentCommand {
+    /// Run a task now on this machine and stream its activity.
+    Run { key: String },
+    /// Events of a run.
+    Logs {
+        run: String,
+        /// Keep printing new events.
+        #[arg(short, long)]
+        follow: bool,
+    },
+    /// Stop a run (kill switch).
+    Stop { run: String },
+    /// Agents of the workspace.
+    List {
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    /// Identity, profile, skills, MCP of an agent.
+    Show {
+        agent: String,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    /// Create an agent (a wizard in a terminal; from a preset with --preset).
+    Create {
+        /// Preset code (see the project templates).
+        #[arg(long)]
+        preset: Option<String>,
+        #[command(flatten)]
+        fields: AgentFields,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    /// Change an agent (flags only).
+    Edit {
+        agent: String,
+        #[command(flatten)]
+        fields: AgentFields,
+        /// Commit email (admins; empty = default).
+        #[arg(long)]
+        git_email: Option<String>,
+        /// Commit name (empty = the agent name).
+        #[arg(long)]
+        git_name: Option<String>,
+        /// Short profile (≤ 280 characters).
+        #[arg(long)]
+        bio: Option<String>,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    Pause {
+        agent: String,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    Resume {
+        agent: String,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    Archive {
+        agent: String,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    /// Skills of an agent.
+    #[command(subcommand)]
+    Skills(AgentSkillsCommand),
+    /// MCP servers of an agent.
+    #[command(subcommand)]
+    Mcp(AgentMcpCommand),
+}
 
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {

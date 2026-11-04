@@ -18,6 +18,33 @@ struct Row<'a> {
 
 pub async fn run(mut app: App, command: WorkspaceCommand) -> Result<ExitCode> {
     match command {
+        WorkspaceCommand::Members { ws } => {
+            let ws = app.workspace_id(ws.workspace.as_deref())?;
+            let (client, _) = app.api().await?;
+            let members = client.workspace_members(&ws).await?;
+            emit(&app, &members, |ui| {
+                ui.line(&format!("{} member(s)", members.len()));
+                let mut table = Table::new(&[
+                    Col::new("NAME").flex(1).min(8),
+                    Col::new("EMAIL").flex(1).min(8),
+                    Col::new("ROLE"),
+                ])
+                .empty_text("No members.");
+                for m in &members {
+                    let mut name = format!("{} {}", ui.render(&ttm_ui::Badge::person()), m.user.name);
+                    if let Some(tier) = m.tier() {
+                        name.push(' ');
+                        name.push_str(&ui.render(&ttm_ui::Badge::member(tier)));
+                    }
+                    table.push(vec![
+                        Cell::new(name),
+                        Cell::token(m.user.email.as_str(), Token::Muted),
+                        Cell::new(m.role.as_str()),
+                    ]);
+                }
+                ui.print(&table);
+            });
+        }
         WorkspaceCommand::List => {
             let (client, _) = app.api().await?;
             let me = client.me().await?;

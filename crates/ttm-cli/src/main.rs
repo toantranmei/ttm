@@ -2,6 +2,8 @@
 
 mod app;
 mod cli;
+mod cli_v2;
+mod membership;
 mod commands;
 mod output;
 mod util;

@@ -13,6 +13,8 @@ struct WhoamiOutput {
     profile: String,
     user: ttm_api::MeUser,
     workspace: Option<ttm_api::WorkspaceSummary>,
+    /// `meta.membership` (0.2): the Mei-er membership, `null` for non-members.
+    meta: crate::membership::Meta,
 }
 
 pub async fn run(app: App) -> Result<ExitCode> {
@@ -23,6 +25,9 @@ pub async fn run(app: App) -> Result<ExitCode> {
     let out = WhoamiOutput {
         host: app.host().to_string(),
         profile: app.ctx.profile_name.clone(),
+        meta: crate::membership::Meta {
+            membership: me.user.membership.clone(),
+        },
         user: me.user,
         workspace,
     };
@@ -45,6 +50,11 @@ pub async fn run(app: App) -> Result<ExitCode> {
                     .unwrap_or_else(|| "not chosen".into()),
             );
         ui.print(&kv);
+        for line in
+            crate::membership::lines(ui, out.meta.membership.as_ref(), crate::membership::today(), true)
+        {
+            ui.line(&line);
+        }
         if out.workspace.is_none() {
             ui.line(&ttm_ui::next_line(ui.mode(), "ttm workspace switch <name>"));
         }

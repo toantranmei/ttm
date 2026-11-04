@@ -27,6 +27,8 @@ struct LoginOutput {
     method: &'static str,
     stored_in: TokenSource,
     user: Option<ttm_api::MeUser>,
+    /// `meta.membership` (0.2).
+    meta: crate::membership::Meta,
 }
 
 pub async fn run(mut app: App, args: LoginArgs) -> Result<ExitCode> {
@@ -74,6 +76,9 @@ pub async fn run(mut app: App, args: LoginArgs) -> Result<ExitCode> {
         profile: app.ctx.profile_name.clone(),
         method,
         stored_in,
+        meta: crate::membership::Meta {
+            membership: me.as_ref().and_then(|m| m.user.membership.clone()),
+        },
         user: me.map(|m| m.user),
     };
     let next = next_after_login();
@@ -82,14 +87,19 @@ pub async fn run(mut app: App, args: LoginArgs) -> Result<ExitCode> {
             Some(user) => Callout::success(format!("Signed in as {} <{}>", user.name, user.email)),
             None => Callout::success("Token saved (it cannot read your profile: no workspace:read scope)"),
         };
-        ui.print(
-            &callout
-                .detail(format!(
-                    "host {host} · profile {} · token in {}",
-                    out.profile, out.stored_in
-                ))
-                .next(next),
-        );
+        ui.print(&callout.detail(format!(
+            "host {host} · profile {} · token in {}",
+            out.profile, out.stored_in
+        )));
+        for line in crate::membership::lines(
+            ui,
+            out.meta.membership.as_ref(),
+            crate::membership::today(),
+            false,
+        ) {
+            ui.line(&line);
+        }
+        ui.line(&ttm_ui::next_line(ui.mode(), next));
     });
     Ok(ExitCode::SUCCESS)
 }

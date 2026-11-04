@@ -37,6 +37,49 @@ impl App {
         })
     }
 
+    /// An authenticated client for a v2 command: fails with `unsupported_feature` (exit 2) before calling any new
+    /// endpoint when the server's discovery does not list `feature`.
+    pub async fn api_for(&self, feature: &str, what: &str) -> Result<(Client, Discovery)> {
+        let (client, discovery) = self.api().await?;
+        if !discovery.has_feature(feature) {
+            return Err(ttm_ui::UsageError::unsupported_feature(feature, what).into());
+        }
+        Ok((client, discovery))
+    }
+
+    /// `--workspace`, else the current workspace of the profile.
+    pub fn workspace_id(&self, flag: Option<&str>) -> Result<String> {
+        flag.map(String::from)
+            .or_else(|| self.ctx.workspace())
+            .ok_or_else(|| {
+                ttm_ui::UsageError::missing_flag("--workspace", false)
+                    .fix("pass --workspace, or choose one with `ttm workspace switch <name>`")
+                    .into()
+            })
+    }
+
+    /// `--project <key|id>`, else the project linked to this directory: `(id, key)`.
+    pub async fn project_ref(&self, client: &Client, flag: Option<&str>) -> Result<(String, String)> {
+        match flag {
+            Some(p) => {
+                let found = client
+                    .find_project(p)
+                    .await?
+                    .ok_or_else(|| anyhow!("no project `{p}` in your workspaces; see the web"))?;
+                Ok((found.id, found.key))
+            }
+            None => {
+                let linked =
+                    crate::commands::project::linked().map_err(|_| {
+                        anyhow::Error::from(ttm_ui::UsageError::missing_flag("--project", false).fix(
+                            "pass --project <KEY>, or run inside a linked repository (ttm project link)",
+                        ))
+                    })?;
+                Ok((linked.file.project_id, linked.file.key))
+            }
+        }
+    }
+
     /// A wizard for this command: questions only at a terminal, `--yes` takes the defaults.
     #[allow(dead_code)] // used by the wizard commands
     pub fn wizard(&self) -> ttm_ui::Wizard<'_> {
