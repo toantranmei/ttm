@@ -79,6 +79,9 @@ pub fn command_args(job: &JobSpec, mcp_config: &Path) -> Vec<String> {
         "--verbose".into(),
         "--mcp-config".into(),
         mcp_config.display().to_string(),
+        // Only the ttm MCP servers of the job config: never the MCP servers configured on this machine, so a job
+        // delegated by a teammate cannot reach the owner's other tools.
+        "--strict-mcp-config".into(),
     ];
     if let Some(model) = &job.model {
         args.extend(["--model".into(), model.clone()]);
@@ -346,6 +349,7 @@ mod tests {
         let a = command_args(&job(), Path::new("/tmp/mcp.json"));
         assert_eq!(&a[..2], ["-p", "Fix login"]);
         assert!(a.windows(2).any(|w| w == ["--output-format", "stream-json"]));
+        assert!(a.iter().any(|x| x == "--strict-mcp-config"));
         assert!(a.windows(2).any(|w| w == ["--model", "sonnet"]));
         assert!(a.windows(2).any(|w| w == ["--max-turns", "30"]));
         assert!(
