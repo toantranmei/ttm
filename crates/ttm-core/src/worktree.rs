@@ -90,8 +90,13 @@ pub fn default_branch(dir: &Path) -> String {
     }
 }
 
-/// Creates `path` on a new `branch` from `origin/<base>` (after a fetch), falling back to the local `<base>`.
+/// Creates `path` on a new `branch` from `origin/<base>` (after a fetch), falling back to the local `<base>`. A
+/// worktree already at `path` on `branch` (an earlier run of the same task: planner, then DEV, then review) is
+/// reused as it is, so the next run continues from the previous one's commits.
 pub fn add(repo: &Path, path: &Path, branch: &str, base: &str) -> Result<(), GitError> {
+    if path.join(".git").exists() && current_branch(path).is_ok_and(|current| current == branch) {
+        return Ok(());
+    }
     let _ = git(repo, &["fetch", "--quiet", "origin", base]);
     let remote = format!("origin/{base}");
     let start = if git(repo, &["rev-parse", "--verify", "--quiet", &remote]).is_ok() {
@@ -156,6 +161,10 @@ mod tests {
         let wt = worktree_path(&dir.path().join("wt"), "AUR", "ttm/resolve-1");
         add(&repo, &wt, "ttm/resolve-1", "main").unwrap();
         assert_eq!(current_branch(&wt).unwrap(), "ttm/resolve-1");
+        // a second run of the same task reuses the worktree and keeps its work
+        std::fs::write(wt.join("work.txt"), "from run 1").unwrap();
+        add(&repo, &wt, "ttm/resolve-1", "main").unwrap();
+        assert_eq!(std::fs::read_to_string(wt.join("work.txt")).unwrap(), "from run 1");
         remove(&repo, &wt).unwrap();
         assert!(!wt.exists());
     }
