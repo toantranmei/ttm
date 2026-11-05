@@ -1,0 +1,14 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+2 thread(s)
+
+Thread t1
+  > Ra mắt
+  👤 An: Ngày nào?
+
+Thread t2 ✓ resolved
+  👤 Lan: Xong
+
+Next: ttm notes comment pg1 --thread <id> -m <reply>

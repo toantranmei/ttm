@@ -152,7 +152,7 @@ async fn agent_list_show_and_create() {
     let (text, _, _) = run(root.path(), &repo, &host, &["agent", "list"], &[]).await;
     assert!(text.starts_with("2 agent(s)"), "{text}");
     assert!(
-        text.contains("🤖 DEV · Code ✦✦ Sponsor") && text.contains("◐ ttm-open-pr"),
+        text.contains("🤖 DEV · Code ✦✦ Sponsor") && text.contains("◐ ttm-"),
         "{text}"
     );
     insta::assert_snapshot!("agent_list", text);
@@ -540,4 +540,31 @@ async fn project_init_without_a_terminal_works_like_0_1_6() {
     )
     .await;
     assert_eq!(code, 2, "{err}");
+}
+
+#[tokio::test]
+async fn project_init_without_a_terminal_refuses_agents_without_a_workflow() {
+    let (server, root, _) = setup(&["notee", "workflow_v2"], me_body()).await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/factory/projects"))
+        .respond_with(ok(
+            json!({"id": "p2", "key": "WEB", "name": "web-todo", "rev": 1}),
+        ))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let repo = root.path().join("web-todo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let host = server.uri();
+    let (_, err, code) = run(
+        root.path(),
+        &repo,
+        &host,
+        &["project", "init", "--key", "WEB", "--agents", "create"],
+        &[],
+    )
+    .await;
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("--workflow"), "{err}");
+    assert!(err.contains("--agents needs a template"), "{err}");
 }

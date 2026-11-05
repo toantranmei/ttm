@@ -1,0 +1,9 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+2 workspace(s), current: Team Aurora
+   NAME         SLUG    ROLE    KIND      ID
+────────────────────────────────────────────────
+   Cá nhân      -       owner   personal  w1
+●  Team Aurora  aurora  member  team      w2

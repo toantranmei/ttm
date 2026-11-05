@@ -1,0 +1,21 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+› Dry run for Cursor: nothing written
+--- a/[ROOT]/.cursor/mcp.json
++++ b/[ROOT]/.cursor/mcp.json
+@@ -1,3 +1,11 @@
+ {
+-  "mcpServers": {}
++  "mcpServers": {
++    "ttm": {
++      "command": "ttm-mcp",
++      "args": [
++        "--host",
++        "[HOST]"
++      ]
++    }
++  }
+ }
+Next: ttm mcp install --client cursor

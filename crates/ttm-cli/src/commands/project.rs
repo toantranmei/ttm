@@ -202,9 +202,18 @@ async fn init(app: &App, args: crate::cli::ProjectInitArgs) -> Result<()> {
         .and_then(|n| n.to_str())
         .unwrap_or("Project")
         .to_string();
+    // No terminal and no `--yes`: the 0.1.6 form, where `--key` is the only flag needed and every other answer is
+    // its 0.1.6 default (the folder name, no template, no agents, no runner).
+    let legacy = !wizard.interactive() && !wizard.yes();
+    // `--agents` picks the agents of a template: without a terminal there is no template unless `--workflow` names it.
+    if legacy && args.agents.is_some() && args.workflow.is_none() {
+        return Err(ttm_ui::UsageError::missing_flag("--workflow", false)
+            .fix("--agents needs a template: pass --workflow <template> (e.g. --workflow balanced), or --yes for the default")
+            .into());
+    }
     let name = wizard.text(
         Ask::new("Project name", "--name")
-            .value(args.name.clone())
+            .value(args.name.clone().or_else(|| legacy.then(|| dir_name.clone())))
             .default(dir_name)
             .validate(not_empty),
     )?;
@@ -246,7 +255,7 @@ async fn init(app: &App, args: crate::cli::ProjectInitArgs) -> Result<()> {
     let mut template = None;
     let mut agents = std::collections::BTreeMap::new();
     let mut presets = Vec::new();
-    if v2 {
+    if v2 && !(legacy && args.workflow.is_none()) {
         let wf = wizard.select(
             Ask::new("Workflow", "--workflow")
                 .value(args.workflow.clone())
@@ -283,7 +292,11 @@ async fn init(app: &App, args: crate::cli::ProjectInitArgs) -> Result<()> {
             };
             let choice = wizard.select(
                 Ask::new("Agents of the template", "--agents")
-                    .value(args.agents.map(AgentsWord))
+                    .value(
+                        args.agents
+                            .map(AgentsWord)
+                            .or(legacy.then_some(AgentsWord(AgentsChoice::None))),
+                    )
                     .default(AgentsWord(default)),
                 &[
                     Choice::new(AgentsWord(AgentsChoice::Create), "Create them"),

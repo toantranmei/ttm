@@ -187,7 +187,10 @@ mod tests {
         // a second run of the same task reuses the worktree and keeps its work
         std::fs::write(wt.join("work.txt"), "from run 1").unwrap();
         add(&repo, &wt, "ttm/resolve-1", "main").unwrap();
-        assert_eq!(std::fs::read_to_string(wt.join("work.txt")).unwrap(), "from run 1");
+        assert_eq!(
+            std::fs::read_to_string(wt.join("work.txt")).unwrap(),
+            "from run 1"
+        );
         // several jobs start at once in the same repository
         let handles: Vec<_> = (0..4)
             .map(|i| {

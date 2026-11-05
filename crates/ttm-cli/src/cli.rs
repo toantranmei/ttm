@@ -32,7 +32,7 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub json: bool,
     /// Plain text for logs: no colour, frames, glyphs or emoji (also TTM_PLAIN=1).
-    #[arg(long, global = true, env = "TTM_PLAIN")]
+    #[arg(long, global = true, env = "TTM_PLAIN", value_parser = clap::builder::FalseyValueParser::new())]
     pub plain: bool,
     /// Answer yes to confirmations and take defaults instead of asking (scripts, CI).
     #[arg(short = 'y', long, global = true)]

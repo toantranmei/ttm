@@ -1,0 +1,7 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+✓ Current workspace: Team Aurora
+  id w2 · profile default
+Next: ttm project init

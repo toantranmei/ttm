@@ -1,0 +1,9 @@
+---
+source: crates/ttm-cli/tests/v2_commands.rs
+expression: text
+---
+2 member(s)
+NAME              EMAIL             ROLE
+──────────────────────────────────────────
+👤 An ✦✦ Sponsor  an@example.com    owner
+👤 Bình           binh@example.com  member

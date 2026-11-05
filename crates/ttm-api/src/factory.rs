@@ -205,7 +205,9 @@ pub fn parse_change_request_answer(value: Value) -> Result<ChangeRequest> {
     };
     // The server answers the 0.1 `ChangeRequestView` with `config_requests` added (S5 contract): a plan change request
     // is in the object itself (its `id`); only the `{change_request?, …}` shape nests it.
-    if value.get("change_request").is_some() || (value.get("config_requests").is_some() && value.get("id").is_none()) {
+    if value.get("change_request").is_some()
+        || (value.get("config_requests").is_some() && value.get("id").is_none())
+    {
         let mut cr: ChangeRequest = match value.get("change_request") {
             Some(v) if !v.is_null() => serde_json::from_value(v.clone()).map_err(decode)?,
             _ => ChangeRequest {

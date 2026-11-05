@@ -28,6 +28,21 @@ async fn signed_in() -> (MockServer, tempfile::TempDir) {
 
 const PLAIN: &[(&str, &str)] = &[("TTM_PLAIN", "1")];
 
+/// The `profile` row of `ttm status` holds the config file path, cut at 80 columns where the temporary root's length
+/// decides: replaced by `[CONFIG]` so the snapshot is the same on every machine.
+fn config_path_out(text: &str) -> String {
+    text.lines()
+        .map(|l| match l.find("profile") {
+            Some(i) if l[..i].trim().is_empty() && l.contains(" (") => {
+                format!("{}[CONFIG])", &l[..=l.find(" (").unwrap() + 1])
+            }
+            _ => l.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + if text.ends_with('\n') { "\n" } else { "" }
+}
+
 #[tokio::test]
 async fn login_whoami_logout() {
     let server = server().await;
@@ -85,10 +100,10 @@ async fn status_and_doctor() {
     let (text, _, _) = run(root.path(), &host, &["status"], &[]).await;
     assert!(text.starts_with("✓ Signed in to [HOST]"), "{text}");
     assert!(text.contains("token  ✓ ttm_pat_"), "{text}");
-    insta::assert_snapshot!("status", text);
+    insta::assert_snapshot!("status", config_path_out(&text));
     let (text, _, _) = run(root.path(), &host, &["status"], PLAIN).await;
     assert!(text.contains("token: ok ttm_pat_"), "{text}");
-    insta::assert_snapshot!("status_plain", text);
+    insta::assert_snapshot!("status_plain", config_path_out(&text));
 
     // Doctor depends on the tools installed on this machine: check the shape, not a snapshot.
     let (text, _, _) = run(root.path(), &host, &["doctor"], &[]).await;

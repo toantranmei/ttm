@@ -481,7 +481,11 @@ mod tests {
         let a = map_line_with(&mut st, &block("one"));
         let b = map_line_with(&mut st, &block("two"));
         assert_eq!((a.tokens_in, a.tokens_out), (1010, 5));
-        assert_eq!((b.tokens_in, b.tokens_out), (0, 0), "the same message's usage again");
+        assert_eq!(
+            (b.tokens_in, b.tokens_out),
+            (0, 0),
+            "the same message's usage again"
+        );
         assert_eq!(b.events.len(), 1, "its content still maps");
         let other = map_line_with(&mut st, &block("three").replace("msg_1", "msg_2"));
         assert_eq!(other.tokens_in, 1010);
@@ -523,7 +527,9 @@ mod tests {
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let mut job = job();
         job.limits.budget_tokens = Some(2000);
-        let harness = ClaudeCode { program: Some(program) };
+        let harness = ClaudeCode {
+            program: Some(program),
+        };
         let (tx, mut rx) = mpsc::unbounded_channel();
         let (_stop, cancel) = watch::channel(false);
         let ctx = RunContext::default();
@@ -535,7 +541,11 @@ mod tests {
         .expect("stopped, not left running")
         .unwrap();
         assert_eq!(out.status, "failed");
-        assert_eq!(out.tokens_in + out.tokens_out, 2400, "stopped at the first message past 2000");
+        assert_eq!(
+            out.tokens_in + out.tokens_out,
+            2400,
+            "stopped at the first message past 2000"
+        );
         assert!(out.summary.unwrap().contains("budget exhausted"));
         let mut logs = Vec::new();
         while let Ok(e) = rx.try_recv() {
@@ -561,7 +571,9 @@ while true; do o=$((o+100)); echo '{\"type\":\"assistant\",\"message\":{\"id\":\
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let mut job = job();
         job.limits.budget_tokens = Some(1000);
-        let harness = ClaudeCode { program: Some(program) };
+        let harness = ClaudeCode {
+            program: Some(program),
+        };
         let (tx, _rx) = mpsc::unbounded_channel();
         let (_stop, cancel) = watch::channel(false);
         let ctx = RunContext::default();
@@ -588,7 +600,12 @@ while true; do o=$((o+100)); echo '{\"type\":\"assistant\",\"message\":{\"id\":\
         let program = dir.path().join("claude");
         std::fs::write(&program, format!("#!/bin/sh\n{script}\n")).unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        (dir, ClaudeCode { program: Some(program) })
+        (
+            dir,
+            ClaudeCode {
+                program: Some(program),
+            },
+        )
     }
 
     /// Waits up to 5 s for process `pid` to be gone.
@@ -645,12 +662,17 @@ sleep 60"#,
         .unwrap();
         assert_eq!(out.status, "failed");
         let pid = child_pid(dir.path()).await;
-        assert!(gone(&pid).await, "the agent's child {pid} survived the budget stop");
+        assert!(
+            gone(&pid).await,
+            "the agent's child {pid} survived the budget stop"
+        );
         let mut kinds = Vec::new();
         while let Ok(e) = rx.try_recv() {
             kinds.push((e.kind, e.message));
         }
-        let thought = kinds.iter().position(|(k, m)| k == "thought" && m.contains("about to pass"));
+        let thought = kinds
+            .iter()
+            .position(|(k, m)| k == "thought" && m.contains("about to pass"));
         let stop = kinds.iter().position(|(_, m)| m.starts_with("budget exhausted"));
         assert!(thought.is_some() && thought < stop, "{kinds:?}");
     }

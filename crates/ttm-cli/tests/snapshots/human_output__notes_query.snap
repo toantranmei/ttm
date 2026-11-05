@@ -1,0 +1,10 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+ID  NAME                                      STATUS  TAGS
+───────────────────────────────────────────────────────────────
+r1  Đăng nhập bằng Google cho người dùng mới  Done    auth, web
+r2  登录页面                                  -
+2 row(s) · more rows
+Next: ttm notes query db1 --sql 'SELECT * FROM rows' --cursor c2
