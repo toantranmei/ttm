@@ -108,6 +108,10 @@ pub enum WorkflowCommand {
         /// Release note (≤ 280 characters).
         #[arg(long)]
         note: Option<String>,
+        /// Publish even though Automation rules name statuses this version removes or changes (needed with --json,
+        /// where nobody sees the list).
+        #[arg(long)]
+        acknowledge_rules: bool,
     },
     /// Move the project to a newer workflow version (tasks are remapped as previewed).
     Upgrade {
@@ -115,6 +119,10 @@ pub enum WorkflowCommand {
         project: ProjectArg,
         #[arg(long)]
         to: Option<i64>,
+        /// Upgrade even though the project's Automation rules name statuses this version removes or changes (needed
+        /// with --json, where nobody sees the list).
+        #[arg(long)]
+        acknowledge_rules: bool,
     },
     /// Copy the workflow into an editable one of this workspace.
     Copy {

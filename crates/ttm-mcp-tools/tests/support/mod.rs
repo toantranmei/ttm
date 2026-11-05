@@ -12,6 +12,8 @@ use ttm_mcp_tools::{Backend, BackendError, FactoryScope, SelfInfo};
 pub struct Fake {
     pub run_id: Option<String>,
     pub calls: Mutex<Vec<String>>,
+    /// Bodies sent, with their `METHOD path`.
+    pub bodies: Mutex<Vec<(String, Value)>>,
 }
 
 impl Fake {
@@ -24,6 +26,17 @@ impl Fake {
 
     pub fn calls(&self) -> Vec<String> {
         self.calls.lock().unwrap().clone()
+    }
+
+    /// The body of the last `call` (`METHOD path`).
+    pub fn body(&self, call: &str) -> Option<Value> {
+        self.bodies
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|(c, _)| c == call)
+            .map(|(_, b)| b.clone())
     }
 }
 
@@ -56,8 +69,15 @@ pub fn answer(method: &str, path: &str) -> Option<Value> {
             "draft": {"definition": {"states": [{"id": "done", "name": "Done", "category": "done"}], "transitions": []}}
         }),
         ("GET", "/factory/workflows/wf1/diff") => {
-            json!({"states": {"added": [{"id": "qc2", "name": "QC 2"}], "removed": [], "changed": []}})
+            json!({"states": {"added": [{"id": "qc2", "name": "QC 2"}], "removed": [], "changed": []},
+            "affected_rules": [{"id": "r9", "slug": "qc-notify", "name": "QC → notify", "scope": "project", "project_key": "AUR",
+                "field": "trigger.to", "state": "qc", "reason": "state_renamed", "new_state": "qc2"}]})
         }
+        ("GET", "/factory/projects/p1/workflow-upgrade") => json!({
+            "workflow_id": "wf1", "name": "Professional", "from_version": 2, "to_version": 3, "preview_hash": "h1",
+            "diff": {"states": {"added": [], "removed": [{"id": "qc", "name": "QC"}], "changed": []}},
+            "remap": [], "counts": {"tasks_total": 0, "tasks_moved": 0}, "affected_rules": []
+        }),
         ("POST", "/confirmations") => json!({"confirm_id": "c1", "expires_at": "2026-11-05T10:10:00Z"}),
         ("GET", "/confirmations/c1") => {
             json!({"confirm_id": "c1", "summary": "Publish workflow Professional v3", "status": "pending"})
@@ -149,9 +169,15 @@ impl Backend for Fake {
         method: &str,
         path: &str,
         _query: &[(String, String)],
-        _body: Option<Value>,
+        body: Option<Value>,
     ) -> Result<Value, BackendError> {
         self.calls.lock().unwrap().push(format!("{method} {path}"));
+        if let Some(body) = body {
+            self.bodies
+                .lock()
+                .unwrap()
+                .push((format!("{method} {path}"), body));
+        }
         answer(method, path).ok_or_else(|| BackendError::new("not_found", format!("{method} {path}")))
     }
 

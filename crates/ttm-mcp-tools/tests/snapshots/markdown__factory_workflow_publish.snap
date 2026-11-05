@@ -2,13 +2,19 @@
 source: crates/ttm-mcp-tools/tests/markdown.rs
 expression: "md(\"factory-workflow-publish\", json!({\"note\": \"QC 2\"})).await"
 ---
-**! Confirm: Publish workflow Professional v3**
+**! Confirm: Publish workflow Professional v3 (1 Automation rule(s) stop firing)**
 
 **◐ v2 → v3 (draft)**
 
 | Change | Item |
 | --- | --- |
 | + states | QC 2 |
+
+⚠ 1 Automation rule(s) name states this version removes or changes; they stop firing until they are fixed (rules are not versioned with the workflow). Show them to the user: confirming acknowledges them.
+
+| Rule | Slug | Where | Why |
+| --- | --- | --- | --- |
+| QC → notify (AUR) | qc-notify | trigger.to | qc renamed to qc2 |
 
 - **note:** QC 2
 

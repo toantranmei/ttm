@@ -18,6 +18,8 @@ pub struct UsageError {
     pub message: String,
     pub fix: Option<String>,
     pub next: Option<String>,
+    /// Values for scripts, as JSON text (`--json` prints them as `error.params`).
+    pub params: Option<String>,
 }
 
 impl std::fmt::Display for UsageError {
@@ -44,7 +46,14 @@ impl UsageError {
             message: message.into(),
             fix: None,
             next: None,
+            params: None,
         }
+    }
+
+    /// Values a script reads under `--json` (`error.params`).
+    pub fn params(mut self, params: &serde_json::Value) -> Self {
+        self.params = Some(params.to_string());
+        self
     }
 
     pub fn field(mut self, field: impl Into<String>) -> Self {
@@ -143,6 +152,9 @@ pub fn hint(rule: &str) -> Option<&'static str> {
         "approval-required" => "a person must approve this step: ttm task approve <KEY>",
         "agent-own-runner" => "this agent runs only on its delegator's runners: start one with ttm runner up",
         "no-upgrade" => "the project already uses the latest workflow version",
+        "rules_affected" => {
+            "these Automation rules stop firing (params.rules): fix them, or pass --acknowledge-rules"
+        }
         "rule-published" => "a published rule cannot change: edit the draft and publish again",
         "too_many_blocks" => "the page is too long for one call: read it by parts (--block)",
         "upgrade_required" => "update ttm: ttm self-update",

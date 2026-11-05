@@ -83,7 +83,9 @@ async fn admin_tools_only_stage() {
     );
     assert_eq!(v["action"]["path"], "/factory/workflows/wf1/publish");
     assert!(
-        text(&staged).starts_with("**! Confirm: Publish workflow Professional v3**"),
+        text(&staged).starts_with(
+            "**! Confirm: Publish workflow Professional v3 (1 Automation rule(s) stop firing)**"
+        ),
         "{}",
         text(&staged)
     );
@@ -229,4 +231,31 @@ fn errors_after_a_used_confirmation_say_to_start_again() {
         applied: false,
     };
     assert_eq!(ttm_mcp_tools::confirm::apply_error(&step).code, "confirm_expired");
+}
+
+#[tokio::test]
+async fn publishing_past_a_rule_state_lists_the_rules_and_acknowledges_them_on_confirm() {
+    let set = people();
+    let staged = check(&set, "factory-workflow-publish", json!({"note": "QC 2"})).await;
+    let md = text(&staged);
+    assert!(md.contains("1 Automation rule(s) name states"), "{md}");
+    assert!(
+        md.contains("| QC → notify (AUR) | qc-notify | trigger.to | qc renamed to qc2 |"),
+        "{md}"
+    );
+    let v = staged.structured_content.unwrap();
+    assert_eq!(
+        v["summary"],
+        "Publish workflow Professional v3 (1 Automation rule(s) stop firing)"
+    );
+    assert_eq!(v["preview"]["affected_rules"][0]["id"], "r9");
+    let sent = set.backend().body("POST /confirmations").unwrap();
+    assert_eq!(sent["body"]["acknowledged_rules"], json!(["r9"]), "{sent}");
+
+    // No rule left behind: the body stays as before (no flag), no warning.
+    let upgrade = check(&set, "factory-workflow-upgrade", json!({"project": "AUR"})).await;
+    assert!(!text(&upgrade).contains("Automation rule"), "{}", text(&upgrade));
+    let sent = set.backend().body("POST /confirmations").unwrap();
+    assert_eq!(sent["path"], "/factory/projects/p1/workflow-upgrade");
+    assert!(sent["body"].get("acknowledged_rules").is_none(), "{sent}");
 }
