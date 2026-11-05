@@ -152,6 +152,19 @@ pub fn ttm_mcp_config(job: &JobSpec, host: &str, ttm_mcp: &Path) -> serde_json::
     })
 }
 
+/// Outcome of a run stopped by the job timeout: the harness future was dropped (which stops the agent's process
+/// group), so the tokens are the ones it had counted until then.
+pub fn timed_out(usage: &harness::UsageMeter) -> HarnessOutcome {
+    let (tokens_in, tokens_out) = usage.get();
+    HarnessOutcome {
+        status: "failed".into(),
+        summary: Some("timed out".into()),
+        tokens_in,
+        tokens_out,
+        ..HarnessOutcome::default()
+    }
+}
+
 /// Commit message for what the agent left uncommitted.
 pub fn leftover_commit_message(job: &JobSpec) -> String {
     format!(
@@ -351,6 +364,7 @@ impl Executor {
         let ctx = harness::RunContext {
             env,
             settings: Some(settings_file.clone()),
+            ..harness::RunContext::default()
         };
 
         let harness = harness::by_name(&job.harness)
@@ -368,11 +382,7 @@ impl Executor {
         }
         let outcome: HarnessOutcome = match run {
             Ok(result) => result?,
-            Err(_) => HarnessOutcome {
-                status: "failed".into(),
-                summary: Some("timed out".into()),
-                ..HarnessOutcome::default()
-            },
+            Err(_) => timed_out(&ctx.usage),
         };
 
         let mut finish = RunFinish {
@@ -606,6 +616,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let exe = dir.path().join("ttm-mcp");
         std::fs::write(&exe, "").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let (c, _) = mcp_config(&v2_job(false), "https://h", &exe, &local(), &|_| None);
         let ttm = &c["mcpServers"]["ttm"];
         let command = Path::new(ttm["command"].as_str().unwrap());

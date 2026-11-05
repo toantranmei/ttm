@@ -38,6 +38,7 @@ fn setup() -> Setup {
     let ctx = RunContext {
         env: identity::env(Some(&agent), &hooks.dir),
         settings: None,
+        ..RunContext::default()
     };
     Setup {
         repo,

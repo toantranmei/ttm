@@ -21,9 +21,9 @@ pub const UNSUPPORTED_FEATURE: &str = "unsupported_feature";
 pub const TTM_MCP_MISSING: &str = "ttm_mcp_missing";
 
 /// Refuses a job when `ttm_mcp` (the command of the agent's `ttm` MCP server) is not an absolute path to an existing
-/// file: without it the agent cannot read its task or report progress and would only spend tokens.
+/// executable file: without it the agent cannot read its task or report progress and would only spend tokens.
 pub fn check_ttm_mcp(ttm_mcp: &Path) -> Result<(), Refused> {
-    if ttm_mcp.is_absolute() && ttm_mcp.is_file() {
+    if ttm_mcp.is_absolute() && is_executable(ttm_mcp) {
         return Ok(());
     }
     Err(refuse(
@@ -125,6 +125,17 @@ pub fn valid_branch(name: &str) -> bool {
 pub struct Refused {
     pub code: &'static str,
     pub message: String,
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
 }
 
 fn refuse(code: &'static str, message: impl Into<String>) -> Refused {
@@ -267,10 +278,16 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn ttm_mcp_must_be_an_existing_absolute_file() {
+    fn ttm_mcp_must_be_an_existing_absolute_executable() {
         let dir = tempfile::tempdir().unwrap();
         let exe = dir.path().join("ttm-mcp");
         std::fs::write(&exe, "").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert!(check_ttm_mcp(&exe).is_err(), "not executable");
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         assert_eq!(check_ttm_mcp(&exe), Ok(()));
         for bad in [
             Path::new("ttm-mcp").to_path_buf(),

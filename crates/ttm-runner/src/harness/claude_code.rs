@@ -10,7 +10,7 @@
 //!
 //! A usage-limit message (`… usage limit reached|<unix time>`) ends the run as `paused` until that time.
 
-use super::{Harness, HarnessOutcome, RunContext};
+use super::{Harness, HarnessOutcome, ProcessGroup, RunContext, STOP_GRACE};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -33,6 +33,8 @@ pub struct Mapped {
     pub tokens_out: u64,
     /// Set by the final `result` message.
     pub result: Option<(bool, String)>,
+    /// Session totals `(input incl. cache, output)` of the final `result` message, when it has `usage`.
+    pub result_usage: Option<(u64, u64)>,
     pub paused_until: Option<String>,
 }
 
@@ -193,10 +195,7 @@ pub fn map_line_with(state: &mut StreamState, line: &str) -> Mapped {
                 }
             }
             if let Some(usage) = msg["message"].get("usage") {
-                let tokens_in = usage["input_tokens"].as_u64().unwrap_or(0)
-                    + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
-                    + usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
-                let tokens_out = usage["output_tokens"].as_u64().unwrap_or(0);
+                let (tokens_in, tokens_out) = usage_tokens(usage);
                 let counted = match msg["message"]["id"].as_str() {
                     Some(id) => {
                         let seen = state.usage_seen.entry(id.to_string()).or_default();
@@ -243,6 +242,7 @@ pub fn map_line_with(state: &mut StreamState, line: &str) -> Mapped {
                 "num_turns": msg["num_turns"], "total_cost_usd": msg["total_cost_usd"], "subtype": msg["subtype"]
             }))));
             out.result = Some((ok, text));
+            out.result_usage = msg.get("usage").filter(|u| u.is_object()).map(usage_tokens);
         }
         _ => {}
     }
@@ -273,15 +273,20 @@ impl Harness for ClaudeCode {
             .clone()
             .or_else(|| find_on_path("claude"))
             .ok_or_else(|| anyhow::anyhow!("`claude` is not installed"))?;
-        let mut child = tokio::process::Command::new(program)
+        let mut command = tokio::process::Command::new(program);
+        command
             .args(command_args(job, mcp_config, ctx))
             .envs(ctx.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .current_dir(worktree)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()?;
+            .kill_on_drop(true);
+        // Its own process group: a stop (budget, cancel, job timeout) reaches what the agent started too.
+        ProcessGroup::prepare(&mut command);
+        let mut child = command.spawn()?;
+        let mut group = ProcessGroup::of(&child);
+        ctx.usage.set(0, 0);
         let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
         let stderr = child.stderr.take();
         let err_events = events.clone();
@@ -310,10 +315,23 @@ impl Harness for ClaudeCode {
                         let mapped = map_line_with(&mut state, &line);
                         outcome.tokens_in += mapped.tokens_in;
                         outcome.tokens_out += mapped.tokens_out;
-                        // The job's token budget is a hard stop: the agent is stopped as soon as it is passed.
-                        if let Some(budget) = over_budget(&outcome, job.limits.budget_tokens) {
+                        // Claude Code's own session totals, when it reports them, win over a smaller running sum.
+                        if let Some((total_in, total_out)) = mapped.result_usage {
+                            outcome.tokens_in = outcome.tokens_in.max(total_in);
+                            outcome.tokens_out = outcome.tokens_out.max(total_out);
+                        }
+                        ctx.usage.set(outcome.tokens_in, outcome.tokens_out);
+                        // The job's token budget is a hard stop: the agent is stopped as soon as it is passed (a
+                        // final `result` only settles the totals: the agent is already done).
+                        if let Some(budget) = over_budget(&outcome, job.limits.budget_tokens)
+                            .filter(|_| mapped.result.is_none())
+                        {
                             let used = outcome.tokens_in + outcome.tokens_out;
-                            let _ = child.kill().await;
+                            // What that line said still reaches the run's events.
+                            for e in mapped.events {
+                                let _ = events.send(e);
+                            }
+                            group.stop(&mut child, STOP_GRACE).await;
                             let _ = events.send(RunEvent::now(
                                 "log",
                                 format!("budget exhausted: {used} of {budget} tokens, the agent was stopped"),
@@ -339,7 +357,7 @@ impl Harness for ClaudeCode {
                 },
                 changed = cancel.changed() => {
                     if changed.is_err() || *cancel.borrow() {
-                        let _ = child.kill().await;
+                        group.stop(&mut child, STOP_GRACE).await;
                         outcome.status = "cancelled".into();
                         return Ok(outcome);
                     }
@@ -347,6 +365,7 @@ impl Harness for ClaudeCode {
             }
         }
         let status = child.wait().await?;
+        group.release();
         if let Ok(Some(until)) = stderr_task.await {
             outcome.paused_until.get_or_insert(until);
         }
@@ -362,6 +381,15 @@ impl Harness for ClaudeCode {
         };
         Ok(outcome)
     }
+}
+
+/// `(input + cache creation + cache read, output)` of a `usage` object.
+fn usage_tokens(usage: &Value) -> (u64, u64) {
+    let n = |k: &str| usage[k].as_u64().unwrap_or(0);
+    (
+        n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens"),
+        n("output_tokens"),
+    )
 }
 
 /// The budget when the tokens used so far passed it.
@@ -392,8 +420,8 @@ mod tests {
     #[test]
     fn args() {
         let ctx = RunContext {
-            env: vec![],
             settings: Some("/c/settings-r1.json".into()),
+            ..RunContext::default()
         };
         let a = command_args(&job(), Path::new("/tmp/mcp.json"), &ctx);
         assert!(a.windows(2).any(|w| w == ["--settings", "/c/settings-r1.json"]));
@@ -498,7 +526,7 @@ mod tests {
         let harness = ClaudeCode { program: Some(program) };
         let (tx, mut rx) = mpsc::unbounded_channel();
         let (_stop, cancel) = watch::channel(false);
-        let ctx = RunContext { env: vec![], settings: None };
+        let ctx = RunContext::default();
         let out = tokio::time::timeout(
             std::time::Duration::from_secs(20),
             harness.run(&job, dir.path(), &dir.path().join("mcp.json"), &ctx, tx, cancel),
@@ -536,7 +564,7 @@ while true; do o=$((o+100)); echo '{\"type\":\"assistant\",\"message\":{\"id\":\
         let harness = ClaudeCode { program: Some(program) };
         let (tx, _rx) = mpsc::unbounded_channel();
         let (_stop, cancel) = watch::channel(false);
-        let ctx = RunContext { env: vec![], settings: None };
+        let ctx = RunContext::default();
         let out = tokio::time::timeout(
             std::time::Duration::from_secs(20),
             harness.run(&job, dir.path(), &dir.path().join("mcp.json"), &ctx, tx, cancel),
@@ -550,6 +578,158 @@ while true; do o=$((o+100)); echo '{\"type\":\"assistant\",\"message\":{\"id\":\
             (500, 600),
             "input once, output at its latest count, stopped past 1000"
         );
+    }
+
+    /// A fake `claude` (a shell script) in a temp dir; `pidfile` is where it may write a child's pid.
+    #[cfg(unix)]
+    fn fake_claude(script: &str) -> (tempfile::TempDir, ClaudeCode) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("claude");
+        std::fs::write(&program, format!("#!/bin/sh\n{script}\n")).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (dir, ClaudeCode { program: Some(program) })
+    }
+
+    /// Waits up to 5 s for process `pid` to be gone.
+    #[cfg(unix)]
+    async fn gone(pid: &str) -> bool {
+        for _ in 0..50 {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", pid])
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            if !alive {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    #[cfg(unix)]
+    async fn child_pid(dir: &Path) -> String {
+        for _ in 0..50 {
+            if let Ok(pid) = std::fs::read_to_string(dir.join("child.pid")) {
+                let pid = pid.trim().to_string();
+                if !pid.is_empty() {
+                    return pid;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("the fake claude wrote no child pid");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_budget_stop_ends_what_the_agent_started_and_keeps_its_last_line() {
+        let (dir, harness) = fake_claude(
+            r#"sleep 60 & echo $! > child.pid
+sleep 0.3
+echo '{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"about to pass the budget"}],"usage":{"input_tokens":900,"output_tokens":200}}}'
+sleep 60"#,
+        );
+        let mut job = job();
+        job.limits.budget_tokens = Some(1000);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (_stop, cancel) = watch::channel(false);
+        let ctx = RunContext::default();
+        let out = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            harness.run(&job, dir.path(), &dir.path().join("mcp.json"), &ctx, tx, cancel),
+        )
+        .await
+        .expect("stopped")
+        .unwrap();
+        assert_eq!(out.status, "failed");
+        let pid = child_pid(dir.path()).await;
+        assert!(gone(&pid).await, "the agent's child {pid} survived the budget stop");
+        let mut kinds = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            kinds.push((e.kind, e.message));
+        }
+        let thought = kinds.iter().position(|(k, m)| k == "thought" && m.contains("about to pass"));
+        let stop = kinds.iter().position(|(_, m)| m.starts_with("budget exhausted"));
+        assert!(thought.is_some() && thought < stop, "{kinds:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cancel_ends_what_the_agent_started() {
+        let (dir, harness) = fake_claude("sleep 60 & echo $! > child.pid\nsleep 60");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (stop, cancel) = watch::channel(false);
+        let ctx = RunContext::default();
+        let job = job();
+        let mcp = dir.path().join("mcp.json");
+        let run = harness.run(&job, dir.path(), &mcp, &ctx, tx, cancel);
+        let pid_dir = dir.path().to_path_buf();
+        let (out, pid) = tokio::join!(run, async move {
+            let pid = child_pid(&pid_dir).await;
+            let _ = stop.send(true);
+            pid
+        });
+        assert_eq!(out.unwrap().status, "cancelled");
+        assert!(gone(&pid).await, "the agent's child {pid} survived the cancel");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_dropped_run_reports_its_tokens_and_ends_the_group() {
+        // the job timeout drops the harness future
+        let (dir, harness) = fake_claude(
+            r#"sleep 60 & echo $! > child.pid
+echo '{"type":"assistant","message":{"id":"m1","content":[],"usage":{"input_tokens":300,"cache_read_input_tokens":700,"output_tokens":50}}}'
+sleep 60"#,
+        );
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_stop, cancel) = watch::channel(false);
+        let ctx = RunContext::default();
+        let job = job();
+        let timed = tokio::time::timeout(
+            std::time::Duration::from_millis(1500),
+            harness.run(&job, dir.path(), &dir.path().join("mcp.json"), &ctx, tx, cancel),
+        )
+        .await;
+        assert!(timed.is_err(), "still running at the timeout");
+        let outcome = crate::executor::timed_out(&ctx.usage);
+        assert_eq!((outcome.tokens_in, outcome.tokens_out), (1000, 50));
+        assert_eq!(outcome.summary.as_deref(), Some("timed out"));
+        let pid = child_pid(dir.path()).await;
+        assert!(gone(&pid).await, "the agent's child {pid} survived the timeout");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_result_totals_win_over_a_smaller_running_sum() {
+        let (dir, harness) = fake_claude(
+            r#"echo '{"type":"assistant","message":{"id":"m1","content":[],"usage":{"input_tokens":100,"output_tokens":1}}}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"done","usage":{"input_tokens":120,"cache_read_input_tokens":2000,"output_tokens":340}}'"#,
+        );
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_stop, cancel) = watch::channel(false);
+        let ctx = RunContext::default();
+        let mut job = job();
+        // the totals pass the budget only at the final result: the agent is done, the run is not failed for it
+        job.limits.budget_tokens = Some(1000);
+        let out = harness
+            .run(&job, dir.path(), &dir.path().join("mcp.json"), &ctx, tx, cancel)
+            .await
+            .unwrap();
+        assert_eq!((out.tokens_in, out.tokens_out), (2120, 340));
+        assert_eq!(out.status, "succeeded");
+        assert_eq!(ctx.usage.get(), (2120, 340));
+    }
+
+    #[test]
+    fn result_usage_is_read() {
+        let m = map_line(
+            r#"{"type":"result","subtype":"success","result":"ok","usage":{"input_tokens":1,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}"#,
+        );
+        assert_eq!(m.result_usage, Some((6, 4)));
+        assert_eq!(map_line(r#"{"type":"result","result":"ok"}"#).result_usage, None);
     }
 
     #[test]
