@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use serde_json::Value;
 use std::process::ExitCode;
 use ttm_api::Client;
-use ttm_api::workflows::{SimActor, SimulateInput, Workflow, WorkflowDiff, item_label};
+use ttm_api::workflows::{AffectedRule, SimActor, SimulateInput, Workflow, WorkflowDiff, item_label};
 use ttm_ui::{Ask, Callout, Cell, Change, Col, Diff, Header, Status, Table, Token, Ui, next_line};
 
 const FEATURE: &str = "workflow_v2";
@@ -221,6 +221,7 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
                 &Header::new(format!("{} · v{base} → v{}", wf.name, base + 1)).summary("Publish the draft"),
             );
             app.ui.print(&changes(&diff));
+            print_affected(&app, &diff.affected_rules);
             let note = wizard.text(
                 Ask::new("Release note", "--note")
                     .value(note)
@@ -233,11 +234,18 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
                         .into(),
                 );
             }
-            if !wizard.confirm(&format!("Publish {} v{}?", wf.name, base + 1))? {
+            if !wizard.confirm(&format!(
+                "Publish {} v{}?{}",
+                wf.name,
+                base + 1,
+                affected_ask(&diff.affected_rules)
+            ))? {
                 bail!("cancelled");
             }
             wizard.print_equivalent("workflow publish");
-            let out = client.workflow_publish(&wf_id, &note, base).await?;
+            let out = client
+                .workflow_publish(&wf_id, &note, base, !diff.affected_rules.is_empty())
+                .await?;
             emit(&app, &out, |ui| {
                 let v = out["version"].as_i64().unwrap_or(base + 1);
                 let n = out["notified_projects"]
@@ -282,13 +290,24 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
                 }
                 app.ui.print(&t);
             }
+            print_affected(&app, &preview.affected_rules);
             let mut wizard = app.wizard();
             wizard.record("--to", Some(preview.to_version.to_string()));
-            if !wizard.confirm(&format!("Upgrade {key} to v{}?", preview.to_version))? {
+            if !wizard.confirm(&format!(
+                "Upgrade {key} to v{}?{}",
+                preview.to_version,
+                affected_ask(&preview.affected_rules)
+            ))? {
                 bail!("cancelled");
             }
             let out = client
-                .workflow_upgrade(&project_id, preview.to_version, &preview.preview_hash, None)
+                .workflow_upgrade(
+                    &project_id,
+                    preview.to_version,
+                    &preview.preview_hash,
+                    None,
+                    !preview.affected_rules.is_empty(),
+                )
                 .await?;
             emit(&app, &out, |ui| {
                 ui.print(
@@ -316,6 +335,38 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The Automation rules a new version leaves behind (rules are not versioned with the workflow), as a table.
+fn print_affected(app: &App, rules: &[AffectedRule]) {
+    if rules.is_empty() {
+        return;
+    }
+    app.ui.print(&Callout::warning(format!(
+        "{} Automation rule(s) name statuses this version removes or changes: they stop firing until fixed",
+        rules.len()
+    )));
+    let mut t = Table::new(&[
+        Col::new("RULE").flex(2).min(8),
+        Col::new("WHERE"),
+        Col::new("WHY").flex(2).min(8),
+    ]);
+    for r in rules {
+        t.push(vec![
+            Cell::token(r.label().as_str(), Token::Ink),
+            Cell::new(r.field.as_str()),
+            Cell::token(r.why().as_str(), Token::Yellow),
+        ]);
+    }
+    app.ui.print(&t);
+}
+
+fn affected_ask(rules: &[AffectedRule]) -> String {
+    if rules.is_empty() {
+        String::new()
+    } else {
+        format!(" ({} rule(s) listed above stop firing)", rules.len())
+    }
 }
 
 fn version_label(v: &str) -> String {

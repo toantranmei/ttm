@@ -11,8 +11,8 @@ use crate::Backend;
 use crate::backend::BackendError;
 use crate::common::{ToolFailure, ToolOutput, ToolResult, parse_required, writes};
 use crate::factory_read::{
-    diff_rows, enc, find_agent, find_rule, find_skill, get, install_md, project, rule_md, str_of, upgrade_md,
-    workflow_id, workspace,
+    affected_rules, affected_rules_md, diff_rows, enc, find_agent, find_rule, find_skill, get, install_md,
+    project, rule_md, str_of, upgrade_md, workflow_id, workspace,
 };
 use crate::md::{Md, glyph};
 use crate::out::{ActionOut, ConfirmOut};
@@ -288,14 +288,14 @@ pub fn tools() -> Vec<Tool> {
         ),
         t(
             WORKFLOW_PUBLISH,
-            "Publish the draft of a workflow as a new version. Returns the diff and a confirm_id; projects are told to upgrade only after factory-confirm.",
+            "Publish the draft of a workflow as a new version. Returns the diff, the Automation rules naming states the version removes or changes (they stop firing; confirming acknowledges them) and a confirm_id; projects are told to upgrade only after factory-confirm.",
             schema_for_type::<PublishArgs>(),
             "Publish workflow",
             false,
         ),
         t(
             WORKFLOW_UPGRADE,
-            "Move a project to a newer workflow version. Returns where each task would move and a confirm_id.",
+            "Move a project to a newer workflow version. Returns where each task would move, the project's Automation rules naming states the version removes or changes (they stop firing; confirming acknowledges them) and a confirm_id.",
             schema_for_type::<UpgradeArgs>(),
             "Upgrade project workflow",
             true,
@@ -471,25 +471,40 @@ async fn publish<B: Backend + ?Sized>(b: &B, a: PublishArgs) -> ToolResult {
         &[("from", base.to_string()), ("to", "draft".into())],
     )
     .await?;
+    let affected = affected_rules(&diff);
     let md = Md::title("◐", format!("v{base} → v{} (draft)", base + 1))
-        .table(&["Change", "Item"], &diff_rows(&diff))
-        .kv(&[("note", a.note.clone())]);
+        .table(&["Change", "Item"], &diff_rows(&diff));
+    let md = affected_rules_md(md, &affected).kv(&[("note", a.note.clone())]);
     let summary = format!(
-        "Publish workflow {} v{}",
+        "Publish workflow {} v{}{}",
         str_of(&w, "name").unwrap_or(&id),
-        base + 1
+        base + 1,
+        rules_note(&affected)
     );
-    let body = json!({ "note": a.note, "base_version": base });
+    // The rules are in the preview the user confirms: confirming acknowledges them (else the server answers 409
+    // `rules_affected`).
+    let mut body = json!({ "note": a.note, "base_version": base });
+    if !affected.is_empty() {
+        body["acknowledge_rules"] = json!(true);
+    }
     stage(
         b,
         "POST",
         &format!("/factory/workflows/{id}/publish"),
         body,
         summary,
-        json!({ "diff": diff }),
+        json!({ "diff": diff, "affected_rules": affected }),
         md,
     )
     .await
+}
+
+fn rules_note(affected: &[Value]) -> String {
+    if affected.is_empty() {
+        String::new()
+    } else {
+        format!(" ({} Automation rule(s) stop firing)", affected.len())
+    }
 }
 
 async fn upgrade<B: Backend + ?Sized>(b: &B, a: UpgradeArgs) -> ToolResult {
@@ -498,10 +513,15 @@ async fn upgrade<B: Backend + ?Sized>(b: &B, a: UpgradeArgs) -> ToolResult {
     let q: Vec<(&str, String)> = a.to.map(|t| vec![("to", t.to_string())]).unwrap_or_default();
     let preview = get(b, &format!("/factory/projects/{}/workflow-upgrade", enc(&id)), &q).await?;
     let to = preview.get("to_version").and_then(Value::as_i64).unwrap_or(0);
-    let body = json!({ "to_version": to, "preview_hash": str_of(&preview, "preview_hash") });
+    let affected = affected_rules(&preview);
+    let mut body = json!({ "to_version": to, "preview_hash": str_of(&preview, "preview_hash") });
+    if !affected.is_empty() {
+        body["acknowledge_rules"] = json!(true);
+    }
     let summary = format!(
-        "Upgrade project {} to workflow v{to}",
-        str_of(&p, "key").unwrap_or(&id)
+        "Upgrade project {} to workflow v{to}{}",
+        str_of(&p, "key").unwrap_or(&id),
+        rules_note(&affected)
     );
     let md = upgrade_md(&preview);
     stage(

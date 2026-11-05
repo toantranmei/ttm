@@ -345,7 +345,7 @@ pub fn tools() -> Vec<Tool> {
         ),
         t(
             WORKFLOW_UPGRADE_PREVIEW,
-            "What upgrading a project to a newer workflow version changes: the diff and where each task would move.",
+            "What upgrading a project to a newer workflow version changes: the diff, where each task would move and the project's Automation rules naming states the version removes or changes (they stop firing).",
             schema_for_type::<UpgradePreviewArgs>(),
             "Preview workflow upgrade",
             false,
@@ -762,6 +762,32 @@ pub fn diff_rows(diff: &Value) -> Vec<Vec<String>> {
     rows
 }
 
+/// The Automation rules a new workflow version leaves behind (`affected_rules` of a diff or an upgrade preview).
+pub fn affected_rules(v: &Value) -> Vec<Value> {
+    v.get("affected_rules")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Rules are not versioned with the workflow: a rule naming a state the new version removes or changes stops firing.
+/// Adds the warning and the table (nothing when none).
+pub fn affected_rules_md(md: Md, rules: &[Value]) -> Md {
+    if rules.is_empty() {
+        return md;
+    }
+    let rows: Vec<Vec<String>> = rules
+        .iter()
+        .filter_map(|r| serde_json::from_value::<ttm_api::workflows::AffectedRule>(r.clone()).ok())
+        .map(|r| vec![r.label(), r.slug.clone(), r.field.clone(), r.why()])
+        .collect();
+    md.text(format!(
+        "⚠ {} Automation rule(s) name states this version removes or changes; they stop firing until they are fixed (rules are not versioned with the workflow). Show them to the user: confirming acknowledges them.",
+        rows.len()
+    ))
+    .table(&["Rule", "Slug", "Where", "Why"], &rows)
+}
+
 pub fn upgrade_md(preview: &Value) -> Md {
     let remap: Vec<Vec<String>> = preview
         .get("remap")
@@ -777,7 +803,7 @@ pub fn upgrade_md(preview: &Value) -> Md {
             ]
         })
         .collect();
-    Md::title(
+    let md = Md::title(
         "◐",
         format!(
             "Upgrade {} v{} → v{}",
@@ -790,7 +816,8 @@ pub fn upgrade_md(preview: &Value) -> Md {
         &["Change", "Item"],
         &diff_rows(preview.get("diff").unwrap_or(&Value::Null)),
     )
-    .table(&["Task", "Title", "Moves", "Why"], &remap)
+    .table(&["Task", "Title", "Moves", "Why"], &remap);
+    affected_rules_md(md, &affected_rules(preview))
 }
 
 async fn rules_of<B: Backend + ?Sized>(b: &B, project_arg: Option<&str>) -> BackendResult<Vec<Value>> {
