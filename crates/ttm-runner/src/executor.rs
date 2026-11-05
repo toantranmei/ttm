@@ -156,11 +156,14 @@ pub fn ttm_mcp_config(job: &JobSpec, host: &str, ttm_mcp: &Path) -> serde_json::
 /// group), so the tokens are the ones it had counted until then.
 pub fn timed_out(usage: &harness::UsageMeter) -> HarnessOutcome {
     let (tokens_in, tokens_out) = usage.get();
+    let (cache_creation, cache_read) = usage.cache();
     HarnessOutcome {
         status: "failed".into(),
         summary: Some("timed out".into()),
         tokens_in,
         tokens_out,
+        cache_creation,
+        cache_read,
         ..HarnessOutcome::default()
     }
 }
@@ -390,6 +393,11 @@ impl Executor {
             branch: Some(job.branch.clone()),
             tokens_in: outcome.tokens_in,
             tokens_out: outcome.tokens_out,
+            // Sent only when there is a cache count: a report without them counts as before.
+            cache_creation_tokens: (outcome.cache_creation > 0 || outcome.cache_read > 0)
+                .then_some(outcome.cache_creation),
+            cache_read_tokens: (outcome.cache_creation > 0 || outcome.cache_read > 0)
+                .then_some(outcome.cache_read),
             summary: outcome.summary.clone(),
             paused_until: outcome.paused_until.clone(),
             tests_pass: outcome.tests_pass,

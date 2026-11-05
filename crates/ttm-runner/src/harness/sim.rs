@@ -10,7 +10,7 @@
 //!     { "write": { "path": "src/x.ts", "content": "…" } },
 //!     { "run": "pnpm vitest run", "report_tests": true },
 //!     { "mcp": { "tool": "factory-task-comment", "args": { "task": "{{task.key}}", "body": "Model done" } } },
-//!     { "usage": { "input": 12000, "output": 2400 } },
+//!     { "usage": { "input": 12000, "output": 2400, "cache_read": 30000 } },
 //!     { "sleep_ms": 1500 },
 //!     { "commit": "feat: clear completed" } ],
 //!   "outcome": "succeeded" }
@@ -95,12 +95,17 @@ pub struct McpStep {
     pub server: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 pub struct Usage {
+    /// Plain input (the cache counts are on top, as in Claude Code's `usage`).
     #[serde(default)]
     pub input: u64,
     #[serde(default)]
     pub output: u64,
+    #[serde(default)]
+    pub cache_creation: u64,
+    #[serde(default)]
+    pub cache_read: u64,
 }
 
 /// One step of a script (the key of the object says which).
@@ -303,10 +308,26 @@ async fn wait(cancel: &mut watch::Receiver<bool>, dur: Option<Duration>) -> bool
 }
 
 fn usage_event(input: u64, output: u64) -> RunEvent {
+    cached_usage_event(&Usage {
+        input,
+        output,
+        ..Usage::default()
+    })
+}
+
+/// A `usage` event; cache counts only when there are some (`cache_*_input_tokens`, as Claude Code names them).
+fn cached_usage_event(usage: &Usage) -> RunEvent {
+    let mut counts = json!({ "input_tokens": usage.input, "output_tokens": usage.output });
+    if usage.cache_creation > 0 {
+        counts["cache_creation_input_tokens"] = json!(usage.cache_creation);
+    }
+    if usage.cache_read > 0 {
+        counts["cache_read_input_tokens"] = json!(usage.cache_read);
+    }
     RunEvent::now(
         "usage",
-        format!("usage: {input} in, {output} out"),
-        Some(json!({ "usage": { "input_tokens": input, "output_tokens": output } })),
+        format!("usage: {} in, {} out", usage.input, usage.output),
+        Some(json!({ "usage": counts })),
     )
 }
 
@@ -446,9 +467,11 @@ async fn step(
             }
         }
         Step::Usage { usage } => {
-            out.tokens_in += usage.input;
+            out.tokens_in += usage.input + usage.cache_creation + usage.cache_read;
             out.tokens_out += usage.output;
-            c.send(usage_event(usage.input, usage.output));
+            out.cache_creation += usage.cache_creation;
+            out.cache_read += usage.cache_read;
+            c.send(cached_usage_event(usage));
         }
         Step::Sleep { sleep_ms } => {
             if wait(cancel, Some(Duration::from_millis(*sleep_ms))).await {
@@ -595,7 +618,7 @@ impl Harness for SimHarness {
                     out.tokens_in += input;
                     out.tokens_out += output;
                     c.send(usage_event(input, output));
-                    if out.tokens_in + out.tokens_out > budget {
+                    if out.weighted_tokens() > budget {
                         break;
                     }
                     if wait(&mut cancel, Some(interval)).await {
@@ -705,5 +728,20 @@ mod tests {
         assert!(inside(root, "src/a.ts").is_ok());
         assert!(inside(root, "../a").is_err());
         assert!(inside(root, "/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn usage_events_carry_cache_counts_only_when_there_are_some() {
+        let plain = usage_event(5, 7);
+        assert_eq!(
+            plain.data.unwrap()["usage"],
+            json!({ "input_tokens": 5, "output_tokens": 7 })
+        );
+        let cached: Usage =
+            serde_json::from_value(json!({ "input": 5, "output": 7, "cache_read": 900 })).unwrap();
+        assert_eq!(
+            cached_usage_event(&cached).data.unwrap()["usage"],
+            json!({ "input_tokens": 5, "output_tokens": 7, "cache_read_input_tokens": 900 })
+        );
     }
 }
