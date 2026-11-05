@@ -143,7 +143,8 @@ pub fn json(output: &Output) -> serde_json::Value {
     })
 }
 
-/// stdout with the mock host and the temporary root replaced by `[HOST]` and `[ROOT]`, for snapshots.
+/// stdout with the mock host and the temporary root replaced by `[HOST]` and `[ROOT]`, for snapshots (see
+/// [`normalize`]).
 pub fn human(output: &Output, root: &Path, host: &str) -> String {
     normalize(&String::from_utf8_lossy(&output.stdout), root, host)
 }
@@ -153,8 +154,12 @@ pub fn human_err(output: &Output, root: &Path, host: &str) -> String {
     normalize(&String::from_utf8_lossy(&output.stderr), root, host)
 }
 
+/// Replaces the mock host, the temporary root and this build's version (`ttm [VERSION]`), so snapshots do not change
+/// with a release.
 pub fn normalize(text: &str, root: &Path, host: &str) -> String {
-    let mut out = text.replace(host, "[HOST]");
+    let mut out = text
+        .replace(host, "[HOST]")
+        .replace(&format!("ttm {}", env!("CARGO_PKG_VERSION")), "ttm [VERSION]");
     let mut roots = vec![root.display().to_string()];
     if let Ok(canonical) = root.canonicalize() {
         roots.push(canonical.display().to_string());

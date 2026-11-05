@@ -1,0 +1,10 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+AUR · linked at [ROOT]/repo
+project  AUR (p1)
+   host  [HOST]
+    rev  5
+   sync  ✓ no pending change request
+Next: ttm sync --check

@@ -1,0 +1,5 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: err
+---
+✕ not signed in to [HOST] (profile default); run `ttm login`

@@ -1,0 +1,20 @@
+---
+source: crates/ttm-cli/tests/v2_commands.rs
+expression: text
+---
+╭─ DEV · Code · @dev ─────╮
+│ DEV · sonnet · ● active │
+╰─────────────────────────╯
+       id  a1
+ git name  DEV · Code
+git email  default
+
+SKILL        VERSION  STATE
+────────────────────────────────────
+ttm-tdd      -        ok
+ttm-open-pr  -        pending review
+
+MCP     TOOLS  REQUIRED
+───────────────────────
+m1      *      no
+Next: ttm agent edit @dev --model <model>

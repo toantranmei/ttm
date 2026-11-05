@@ -1,0 +1,25 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+╭─ AUR-12 · Login with Google ─╮
+│ ● Doing                      │
+╰──────────────────────────────╯
+   status  Doing (in-progress)
+     role  DEV
+ assignee  🤖 Mei
+delegator  👤 An ✦✦ Sponsor
+   sprint  Sprint 4
+   labels  auth, web
+ estimate  3
+
+Acceptance criteria
+  ✓ Button shows
+  ○ Email is verified
+
+Use the Google button.
+
+Comments (1)
+  👤 An: Ngày nào xong?
+
+Next: ttm agent run AUR-12

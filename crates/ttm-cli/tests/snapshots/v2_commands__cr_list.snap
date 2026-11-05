@@ -1,0 +1,10 @@
+---
+source: crates/ttm-cli/tests/v2_commands.rs
+expression: text
+---
+AUR · 2 change request(s)
+ID        KIND   TARGET  STATUS     AUTHOR          FILES  AGE
+──────────────────────────────────────────────────────────────
+cfg1      agent  dev     ◐ pending  👤 An ✦ Mei-er      0   3d
+cr1-long  plan   -       ◐ pending  -                   1   4d
+Next: ttm cr show cfg1

@@ -1,0 +1,10 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+Team Aurora
+     id  w2
+   slug  aurora
+   role  member
+   kind  team
+profile  default

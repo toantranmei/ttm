@@ -1,0 +1,7 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+✓ Signed out of [HOST]
+  profile default · revoked on the server: yes
+Next: ttm login

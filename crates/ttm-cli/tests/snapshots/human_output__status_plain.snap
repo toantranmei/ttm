@@ -1,0 +1,13 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: config_path_out(&text)
+---
+OK: Signed in to [HOST]
+version: ttm [VERSION]
+host: [HOST]
+profile: default ([CONFIG])
+token: ok ttm_pat_go… from credentials.toml
+keyring: warn disabled (TTM_NO_KEYRING)
+workspace: not chosen
+server: ok API v1 (min ttm 0.0.1), features: notee
+Next: ttm workspace switch <name>

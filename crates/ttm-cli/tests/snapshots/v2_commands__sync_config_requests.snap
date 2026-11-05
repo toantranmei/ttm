@@ -1,0 +1,16 @@
+---
+source: crates/ttm-cli/tests/v2_commands.rs
+expression: text
+---
+╭─ AUR · rev 5 local / 5 server ─────────╮
+│ 1 local change(s) · 0 server change(s) │
+╰────────────────────────────────────────╯
+✓ Plan at rev 5 (0 file(s) updated from the server)
+SIDE   FILE
+──────────────────────
+local  agents/dev.yaml
+✓ 1 configuration request(s) created; they apply once approved
+KIND   TARGET  ID
+───────────────────
+agent  dev     cfg1
+Next: ttm cr show cfg1
