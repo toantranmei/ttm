@@ -203,7 +203,9 @@ pub fn parse_change_request_answer(value: Value) -> Result<ChangeRequest> {
         status: 200,
         message: e.to_string(),
     };
-    if value.get("config_requests").is_some() || value.get("change_request").is_some() {
+    // The server answers the 0.1 `ChangeRequestView` with `config_requests` added (S5 contract): a plan change request
+    // is in the object itself (its `id`); only the `{change_request?, …}` shape nests it.
+    if value.get("change_request").is_some() || (value.get("config_requests").is_some() && value.get("id").is_none()) {
         let mut cr: ChangeRequest = match value.get("change_request") {
             Some(v) if !v.is_null() => serde_json::from_value(v.clone()).map_err(decode)?,
             _ => ChangeRequest {
@@ -1236,5 +1238,21 @@ mod tests {
         assert_eq!(cr.skipped.len(), 1);
         assert_eq!(bundle_path("tasks/A.md"), "plan/tasks/A.md");
         assert_eq!(bundle_path("plan/index.md"), "plan/index.md");
+    }
+
+    #[test]
+    fn a_plan_change_request_with_config_requests_is_not_empty() {
+        let answer = serde_json::json!({
+            "id": "cr1", "status": "pending", "base_rev": 7,
+            "changes": [{"key": "T05-2", "op": "update", "fields": {"title": "x"}, "server": {"title": "y"}}],
+            "rev": null, "created_at": null, "skipped": [], "config_requests": []
+        });
+        let cr = parse_change_request_answer(answer).unwrap();
+        assert!(!cr.is_empty());
+        assert_eq!(cr.id, "cr1");
+        let only_config = serde_json::json!({ "id": "", "status": "empty", "changes": [], "config_requests": [{"id": "c1", "kind": "rule", "target": "x"}] });
+        let cr = parse_change_request_answer(only_config).unwrap();
+        assert!(cr.is_empty());
+        assert_eq!(cr.config_requests.len(), 1);
     }
 }
