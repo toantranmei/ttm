@@ -113,7 +113,10 @@ impl McpGate {
         let was = std::mem::replace(&mut self.ok, now.is_ok());
         match (was, now) {
             (true, Err(refused)) => Some(format!("{}; not taking jobs until it is back", refused.message)),
-            (false, Ok(())) => Some(format!("ttm-mcp is back ({}); taking jobs again", ttm_mcp.display())),
+            (false, Ok(())) => Some(format!(
+                "ttm-mcp is back ({}); taking jobs again",
+                ttm_mcp.display()
+            )),
             _ => None,
         }
     }
