@@ -283,6 +283,19 @@ mod tests {
         }
     }
 
+    /// Project keys are unique per workspace only: a server may offer a job of another workspace's project with the
+    /// same key to a runner announcing that key. The origin check refuses it (the clone is not that repository).
+    #[test]
+    fn the_same_key_in_another_workspace_is_refused_by_the_origin_check() {
+        let repo = PathBuf::from("/code/aurora");
+        let origin = |_: &Path| Some("git@github.com:team-a/aurora.git".to_string());
+        let other_workspace = job(Some("https://github.com/team-b/aur"), "github", "aur-1");
+        assert_eq!(
+            check(&other_workspace, Some(&repo), origin).unwrap_err().code,
+            REPO_NOT_CONFIGURED
+        );
+    }
+
     #[test]
     fn remote_must_match_the_configured_clone() {
         let repo = PathBuf::from("/code/aurora");

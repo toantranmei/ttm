@@ -79,6 +79,7 @@ async fn heartbeat_and_lease_conflict() {
                 paused_until: None,
                 local_mcp: None,
                 projects: None,
+                features: None,
             },
         )
         .await

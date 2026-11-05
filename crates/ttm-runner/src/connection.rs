@@ -69,6 +69,9 @@ pub struct ConfigAnnounce {
     pub projects: Vec<String>,
 }
 
+/// `runner.toml` as seen when the loop starts: never, so the first heartbeat announces it.
+pub const START_SEEN: Option<std::time::SystemTime> = None;
+
 /// The announce to send now: `Some` when `runner.toml` changed since `seen` (updated in place).
 pub fn config_changed(
     config_file: Option<&std::path::Path>,
@@ -107,8 +110,9 @@ impl Runner {
         // The long-poll in flight. It lives across loop turns: a heartbeat or a finished run must not drop a poll
         // the server may already have answered with a claimed job.
         let mut poll: Option<PollFuture> = None;
-        // Registration already announced the current file.
-        let mut config_seen = self.config_file.as_deref().and_then(mtime);
+        // Nothing announced yet: the first heartbeat sends the current `runner.toml` and the features (a restart with
+        // a still valid token does not register again, so changes made while it was down would be missed).
+        let mut config_seen = START_SEEN;
         tracing::info!(runner = %self.runner_id, capacity = self.capacity, "runner up");
         loop {
             if paused_until
@@ -140,6 +144,7 @@ impl Runner {
                         capacity: self.capacity,
                         paused_until: paused_until.as_ref().map(|(s, _)| s.clone()),
                         local_mcp: changed.as_ref().map(|c| c.local_mcp.clone()),
+                        features: changed.as_ref().map(|_| self.executor.features()),
                         projects: changed.map(|c| c.projects),
                     };
                     match self.client.get().heartbeat(&self.runner_id, &beat).await {
@@ -401,5 +406,20 @@ mod tests {
         assert_eq!(sent.local_mcp[0].name, "notes");
         assert_eq!(sent.projects, vec!["AUR".to_string()]);
         assert!(config_changed(None, &mut seen).is_none());
+    }
+
+    #[test]
+    fn a_restarted_runner_announces_the_current_list_on_its_first_heartbeat() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("runner.toml");
+        // changed while the runner was down (its token still valid: no registration on start)
+        std::fs::write(&file, "[repos]\nAUR = \"/code/aurora\"\nNOTE = \"/code/notes\"\n").unwrap();
+        let mut seen = START_SEEN;
+        let sent = config_changed(Some(&file), &mut seen).expect("the first heartbeat announces");
+        assert_eq!(sent.projects, vec!["AUR".to_string(), "NOTE".to_string()]);
+        assert!(
+            config_changed(Some(&file), &mut seen).is_none(),
+            "then only on changes"
+        );
     }
 }
