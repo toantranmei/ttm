@@ -23,8 +23,17 @@ pub mod skills;
 pub mod worktree;
 
 /// Features of this runner, announced to the server; `team_isolation` is added when a team Claude token is set
-/// (see [`features`]).
-pub const FEATURES: [&str; 4] = ["git_identity", "skills", "mcp_gateway", "mcp_local"];
+/// (see [`features`]). `project_scope`: the runner announces the projects it has a local clone for
+/// ([`RunnerConfig::announced_projects`]) and gets only their jobs.
+pub const FEATURES: [&str; 5] = [
+    "git_identity",
+    "skills",
+    "mcp_gateway",
+    "mcp_local",
+    PROJECT_SCOPE,
+];
+/// The runner announces its projects (`projects` of register and heartbeat).
+pub const PROJECT_SCOPE: &str = "project_scope";
 /// Isolated configuration for teammates' jobs (needs `ttm runner config claude-token`).
 pub const TEAM_ISOLATION: &str = "team_isolation";
 

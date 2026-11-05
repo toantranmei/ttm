@@ -167,6 +167,16 @@ impl Executor {
         crate::features(self.team_claude_token.is_some())
     }
 
+    /// `runner.toml` as it is now (its `[repos]` are announced again when it changes, so jobs use the same clones
+    /// without a restart); the configuration given at start when there is no file to read.
+    fn current_config(&self) -> RunnerConfig {
+        self.config_dir
+            .as_deref()
+            .filter(|dir| RunnerConfig::path(dir).exists())
+            .and_then(|dir| RunnerConfig::load(dir).ok())
+            .unwrap_or_else(|| self.config.clone())
+    }
+
     fn local_mcp(&self) -> McpSection {
         match &self.config_dir {
             Some(dir) => RunnerConfig::load_mcp(dir),
@@ -232,11 +242,10 @@ impl Executor {
             return Err(self.refuse(job, refused));
         }
         // Only the owner's configured clone, and only when it is the job's repository; never clone a URL.
-        let repo = guard::check(
-            job,
-            self.config.repo_for(&key, job.project_id.as_deref()),
-            |dir| ttm_core::worktree::git(dir, &["remote", "get-url", "origin"]).ok(),
-        )
+        let current = self.current_config();
+        let repo = guard::check(job, current.repo_for(&key, job.project_id.as_deref()), |dir| {
+            ttm_core::worktree::git(dir, &["remote", "get-url", "origin"]).ok()
+        })
         .inspect_err(|refused| {
             tracing::error!("refusing run {} ({}): {refused}", job.run_id, job.task_key);
             self.ui.eline(&crate::say::refused(

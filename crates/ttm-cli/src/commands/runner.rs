@@ -67,9 +67,14 @@ impl Registrar {
     /// Registers (the server keeps the id for the same name and revokes the previous token) and saves the token
     /// with its expiry.
     pub async fn register(&self) -> Result<(String, Client, Option<OffsetDateTime>)> {
+        // A renewal hours later announces runner.toml as it is now, not as it was at start.
+        let body = match RunnerConfig::load(&self.config_dir) {
+            Ok(current) => register_body(&self.body, &current),
+            Err(_) => self.body.clone(),
+        };
         let reg = self
             .user
-            .register_runner(&self.body)
+            .register_runner(&body)
             .await
             .context("registering this runner")?;
         let expires = reg.expires_at.as_deref().and_then(parse_rfc3339);
@@ -104,6 +109,15 @@ fn parse_rfc3339(s: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok()
 }
 
+/// The registration body with what `runner.toml` says now: local MCP servers and projects with a local clone.
+pub fn register_body(base: &RegisterRunner, config: &RunnerConfig) -> RegisterRunner {
+    RegisterRunner {
+        local_mcp: ttm_runner::local_mcp::announce(&config.mcp),
+        projects: Some(config.announced_projects()),
+        ..base.clone()
+    }
+}
+
 /// Registers this machine when there is no runner token or it is about to expire; returns the runner id, a client
 /// using the runner token, its expiry, and the registrar for later renewals.
 pub async fn ensure_registered(
@@ -131,6 +145,7 @@ pub async fn ensure_registered(
             accept_team_jobs: config.accept_team_jobs,
             features: ttm_runner::features(team_claude_token(app).is_some()),
             local_mcp: ttm_runner::local_mcp::announce(&config.mcp),
+            projects: Some(config.announced_projects()),
         },
     };
     let fresh =
@@ -152,7 +167,14 @@ pub async fn ensure_registered(
 /// token (404 / 401 from then on), and a later `ttm runner up` must register again instead of polling 404 forever.
 async fn token_alive(registrar: &Registrar, id: &str, token: &StoredToken) -> Result<bool> {
     let client = registrar.client(token.access_token.clone())?;
-    let beat = ttm_api::factory::Heartbeat { running: Vec::new(), capacity: 0, paused_until: None, local_mcp: None };
+    let beat = ttm_api::factory::Heartbeat {
+        running: Vec::new(),
+        capacity: 0,
+        paused_until: None,
+        local_mcp: None,
+        projects: None,
+        features: None,
+    };
     match client.heartbeat(id, &beat).await {
         Ok(_) => Ok(true),
         Err(err) if matches!(err.status(), Some(401 | 403 | 404)) => {
@@ -286,6 +308,7 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 "accept_team_jobs": config.accept_team_jobs,
                 "harnesses": harness::installed(),
                 "repos": config.repos,
+                "projects": config.announced_projects(),
                 "worktree_root": config.worktree_root(app.ctx.config.worktree_root()),
                 "features": ttm_runner::features(team_claude_token(&app).is_some()),
                 "local_mcp": ttm_runner::local_mcp::announce(&config.mcp),
@@ -796,6 +819,38 @@ fn run_checked(program: &str, args: &[&str]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_renewal_registers_with_the_current_runner_toml() {
+        let base = RegisterRunner {
+            name: "mac".into(),
+            os: "macos".into(),
+            arch: "aarch64".into(),
+            version: "0.2.0".into(),
+            harnesses: vec!["claude-code".into()],
+            max_parallel: 2,
+            accept_team_jobs: false,
+            features: ttm_runner::features(false),
+            local_mcp: vec![],
+            projects: Some(vec!["AUR".into()]),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            RunnerConfig::path(dir.path()),
+            "[repos]\nAUR = \"/code/aurora\"\nNOTE = \"/code/notes\"\n",
+        )
+        .unwrap();
+        let body = register_body(&base, &RunnerConfig::load(dir.path()).unwrap());
+        assert_eq!(
+            body.projects,
+            Some(vec!["AUR".to_string(), "NOTE".to_string()]),
+            "the clone added since start"
+        );
+        assert_eq!(
+            (body.name.as_str(), body.features.clone()),
+            ("mac", base.features.clone())
+        );
+    }
 
     #[test]
     fn config_flags() {

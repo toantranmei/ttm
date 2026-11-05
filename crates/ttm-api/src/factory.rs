@@ -690,6 +690,11 @@ pub struct RegisterRunner {
     /// Local MCP servers of this machine: names and who may use them, never commands or environment.
     #[serde(default)]
     pub local_mcp: Vec<LocalMcpAnnounce>,
+    /// Project keys (or ids) this machine has a local clone for (`[repos]` of `runner.toml`), with the
+    /// `project_scope` feature: the server offers it only jobs of these projects. `None`: not announced (the server
+    /// offers every project, as before).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
 }
 
 /// `{name, allow, team_jobs}` of a local MCP server, as announced to the server.
@@ -913,6 +918,13 @@ pub struct Heartbeat {
     /// Sent again when `runner.toml` changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_mcp: Option<Vec<LocalMcpAnnounce>>,
+    /// Project keys with a local clone, sent again when `runner.toml` changed (see [`RegisterRunner::projects`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+    /// What this runner can do, sent with the first heartbeat after start (a restart keeping its token does not
+    /// register again, e.g. after an upgrade that brought `project_scope`) and whenever `runner.toml` changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<Vec<String>>,
 }
 
 /// Heartbeat answer : runs to stop (kill switch) and whether to shut down (turned off from the web).

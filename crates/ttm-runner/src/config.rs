@@ -116,6 +116,19 @@ impl RunnerConfig {
             .map(|(_, v)| v)
     }
 
+    /// The projects announced to the server (`projects` of register and heartbeat): the keys (or ids) of
+    /// `[repos]`, trimmed, without empty ones or duplicates (case-insensitive, first spelling kept). The server offers
+    /// this runner only their jobs; an empty list means none.
+    pub fn announced_projects(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for key in self.repos.keys().map(|k| k.trim()).filter(|k| !k.is_empty()) {
+            if !out.iter().any(|seen| seen.eq_ignore_ascii_case(key)) {
+                out.push(key.to_string());
+            }
+        }
+        out
+    }
+
     /// Worktree root: runner setting, else `config.toml`'s, else `~/.ttm/worktrees`.
     pub fn worktree_root(&self, fallback: Option<PathBuf>) -> Option<PathBuf> {
         self.worktree_root
@@ -144,5 +157,24 @@ mod tests {
         assert_eq!(loaded.repo_for("aur", None), Some(&PathBuf::from("/code/aurora")));
         assert_eq!(loaded.repo_for("XYZ", None), None);
         assert_eq!(RunnerConfig::load(&dir.path().join("none")).unwrap().keep_days, 3);
+    }
+
+    #[test]
+    fn announced_projects_come_from_the_configured_clones() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            RunnerConfig::path(dir.path()),
+            "name = \"mac\"\n[repos]\nAUR = \"/code/aurora\"\naur = \"/code/other\"\nNOTE = \"/code/notes\"\n\" \" = \"/x\"\n",
+        )
+        .unwrap();
+        let loaded = RunnerConfig::load(dir.path()).unwrap();
+        assert_eq!(
+            loaded.announced_projects(),
+            vec!["AUR".to_string(), "NOTE".to_string()]
+        );
+        assert!(
+            RunnerConfig::default().announced_projects().is_empty(),
+            "no clone: no project"
+        );
     }
 }
