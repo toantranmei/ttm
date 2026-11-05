@@ -30,6 +30,8 @@ pub struct RunContext {
 pub struct UsageMeter {
     tokens_in: AtomicU64,
     tokens_out: AtomicU64,
+    cache_creation: AtomicU64,
+    cache_read: AtomicU64,
 }
 
 impl UsageMeter {
@@ -37,6 +39,22 @@ impl UsageMeter {
     pub fn set(&self, tokens_in: u64, tokens_out: u64) {
         self.tokens_in.store(tokens_in, Ordering::Relaxed);
         self.tokens_out.store(tokens_out, Ordering::Relaxed);
+    }
+
+    /// Sets the totals of an outcome, prompt cache counts included.
+    pub fn set_outcome(&self, outcome: &HarnessOutcome) {
+        self.set(outcome.tokens_in, outcome.tokens_out);
+        self.cache_creation
+            .store(outcome.cache_creation, Ordering::Relaxed);
+        self.cache_read.store(outcome.cache_read, Ordering::Relaxed);
+    }
+
+    /// `(cache_creation, cache_read)` so far (both part of `tokens_in`).
+    pub fn cache(&self) -> (u64, u64) {
+        (
+            self.cache_creation.load(Ordering::Relaxed),
+            self.cache_read.load(Ordering::Relaxed),
+        )
     }
 
     /// `(tokens_in, tokens_out)` so far.
@@ -120,8 +138,12 @@ fn signal_group(_pgid: Option<u32>, _kill: bool) {}
 pub struct HarnessOutcome {
     /// `succeeded`, `failed`, `cancelled`, `paused`.
     pub status: String,
+    /// Input tokens, prompt cache writes and reads included.
     pub tokens_in: u64,
     pub tokens_out: u64,
+    /// Of `tokens_in`: prompt cache writes and reads (Claude Code reports them; other harnesses leave 0).
+    pub cache_creation: u64,
+    pub cache_read: u64,
     /// Final message of the agent.
     pub summary: Option<String>,
     /// Usage limit reached: retry after this RFC 3339 time.
@@ -130,6 +152,18 @@ pub struct HarnessOutcome {
     pub tests_pass: Option<bool>,
     /// That test command.
     pub tests_command: Option<String>,
+}
+
+impl HarnessOutcome {
+    /// Tokens counted against a budget: [`ttm_api::factory::weighted_tokens`] (cache by price).
+    pub fn weighted_tokens(&self) -> u64 {
+        ttm_api::factory::weighted_tokens(
+            self.tokens_in,
+            self.tokens_out,
+            self.cache_creation,
+            self.cache_read,
+        )
+    }
 }
 
 #[async_trait]

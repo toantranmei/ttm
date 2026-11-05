@@ -31,22 +31,55 @@ pub struct Mapped {
     pub events: Vec<RunEvent>,
     pub tokens_in: u64,
     pub tokens_out: u64,
+    /// Of `tokens_in`: prompt cache writes and reads.
+    pub cache_creation: u64,
+    pub cache_read: u64,
     /// Set by the final `result` message.
     pub result: Option<(bool, String)>,
-    /// Session totals `(input incl. cache, output)` of the final `result` message, when it has `usage`.
-    pub result_usage: Option<(u64, u64)>,
+    /// Session totals of the final `result` message, when it has `usage`.
+    pub result_usage: Option<Usage>,
     pub paused_until: Option<String>,
+}
+
+/// Token counts of a `usage` object: `input` includes the cache writes and reads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Usage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_creation: u64,
+    pub cache_read: u64,
+}
+
+impl Usage {
+    fn max(self, other: Usage) -> Usage {
+        Usage {
+            input: self.input.max(other.input),
+            output: self.output.max(other.output),
+            cache_creation: self.cache_creation.max(other.cache_creation),
+            cache_read: self.cache_read.max(other.cache_read),
+        }
+    }
+
+    /// What `self` adds past `counted`, count by count.
+    fn past(self, counted: Usage) -> Usage {
+        Usage {
+            input: self.input.saturating_sub(counted.input),
+            output: self.output.saturating_sub(counted.output),
+            cache_creation: self.cache_creation.saturating_sub(counted.cache_creation),
+            cache_read: self.cache_read.saturating_sub(counted.cache_read),
+        }
+    }
 }
 
 /// What survives between lines: test commands waiting for their result, and the last test outcome.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamState {
     pending_tests: std::collections::HashMap<String, String>,
-    /// Usage counted so far per API message id, `(input incl. cache, output)`: Claude Code repeats one message's
+    /// Usage counted so far per API message id: Claude Code repeats one message's
     /// `usage` on every content block it streams as its own `assistant` line, and the output count can grow from one
     /// line to the next (the first line often carries the count at the start of the message). Each message is counted
     /// once, at its largest usage: a line only adds what goes past what was already counted.
-    usage_seen: std::collections::HashMap<String, (u64, u64)>,
+    usage_seen: std::collections::HashMap<String, Usage>,
     pub tests_pass: Option<bool>,
     pub tests_command: Option<String>,
 }
@@ -195,18 +228,21 @@ pub fn map_line_with(state: &mut StreamState, line: &str) -> Mapped {
                 }
             }
             if let Some(usage) = msg["message"].get("usage") {
-                let (tokens_in, tokens_out) = usage_tokens(usage);
+                let usage = usage_tokens(usage);
                 let counted = match msg["message"]["id"].as_str() {
                     Some(id) => {
                         let seen = state.usage_seen.entry(id.to_string()).or_default();
                         let before = *seen;
-                        *seen = (seen.0.max(tokens_in), seen.1.max(tokens_out));
+                        *seen = seen.max(usage);
                         before
                     }
-                    None => (0, 0),
+                    None => Usage::default(),
                 };
-                out.tokens_in += tokens_in.saturating_sub(counted.0);
-                out.tokens_out += tokens_out.saturating_sub(counted.1);
+                let added = usage.past(counted);
+                out.tokens_in += added.input;
+                out.tokens_out += added.output;
+                out.cache_creation += added.cache_creation;
+                out.cache_read += added.cache_read;
             }
         }
         Some("user") => {
@@ -315,18 +351,23 @@ impl Harness for ClaudeCode {
                         let mapped = map_line_with(&mut state, &line);
                         outcome.tokens_in += mapped.tokens_in;
                         outcome.tokens_out += mapped.tokens_out;
+                        outcome.cache_creation += mapped.cache_creation;
+                        outcome.cache_read += mapped.cache_read;
                         // Claude Code's own session totals, when it reports them, win over a smaller running sum.
-                        if let Some((total_in, total_out)) = mapped.result_usage {
-                            outcome.tokens_in = outcome.tokens_in.max(total_in);
-                            outcome.tokens_out = outcome.tokens_out.max(total_out);
+                        if let Some(total) = mapped.result_usage {
+                            outcome.tokens_in = outcome.tokens_in.max(total.input);
+                            outcome.tokens_out = outcome.tokens_out.max(total.output);
+                            outcome.cache_creation = outcome.cache_creation.max(total.cache_creation);
+                            outcome.cache_read = outcome.cache_read.max(total.cache_read);
                         }
-                        ctx.usage.set(outcome.tokens_in, outcome.tokens_out);
+                        ctx.usage.set_outcome(&outcome);
                         // The job's token budget is a hard stop: the agent is stopped as soon as it is passed (a
-                        // final `result` only settles the totals: the agent is already done).
+                        // final `result` only settles the totals: the agent is already done). The cache counts by
+                        // price (`weighted_tokens`).
                         if let Some(budget) = over_budget(&outcome, job.limits.budget_tokens)
                             .filter(|_| mapped.result.is_none())
                         {
-                            let used = outcome.tokens_in + outcome.tokens_out;
+                            let used = outcome.weighted_tokens();
                             // What that line said still reaches the run's events.
                             for e in mapped.events {
                                 let _ = events.send(e);
@@ -335,7 +376,15 @@ impl Harness for ClaudeCode {
                             let _ = events.send(RunEvent::now(
                                 "log",
                                 format!("budget exhausted: {used} of {budget} tokens, the agent was stopped"),
-                                Some(json!({ "budget_tokens": budget, "tokens": used })),
+                                // The raw counts sit under `at_stop`: a server reads `tokens_in` / `usage` at the top
+                                // of an event's data as usage to add, and these were already counted.
+                                Some(json!({
+                                    "budget_tokens": budget, "tokens": used, "at_stop": {
+                                        "tokens_in": outcome.tokens_in, "tokens_out": outcome.tokens_out,
+                                        "cache_creation_tokens": outcome.cache_creation,
+                                        "cache_read_tokens": outcome.cache_read
+                                    }
+                                })),
                             ));
                             outcome.status = "failed".into();
                             outcome.summary = Some(format!("budget exhausted ({used} of {budget} tokens)"));
@@ -383,18 +432,22 @@ impl Harness for ClaudeCode {
     }
 }
 
-/// `(input + cache creation + cache read, output)` of a `usage` object.
-fn usage_tokens(usage: &Value) -> (u64, u64) {
+/// The counts of a `usage` object, `input` = input + cache creation + cache read.
+fn usage_tokens(usage: &Value) -> Usage {
     let n = |k: &str| usage[k].as_u64().unwrap_or(0);
-    (
-        n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens"),
-        n("output_tokens"),
-    )
+    let cache_creation = n("cache_creation_input_tokens");
+    let cache_read = n("cache_read_input_tokens");
+    Usage {
+        input: n("input_tokens") + cache_creation + cache_read,
+        output: n("output_tokens"),
+        cache_creation,
+        cache_read,
+    }
 }
 
-/// The budget when the tokens used so far passed it.
+/// The budget when the tokens used so far passed it, counted by price ([`HarnessOutcome::weighted_tokens`]).
 pub fn over_budget(outcome: &HarnessOutcome, budget: Option<u64>) -> Option<u64> {
-    budget.filter(|b| outcome.tokens_in + outcome.tokens_out > *b)
+    budget.filter(|b| outcome.weighted_tokens() > *b)
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
@@ -492,6 +545,34 @@ mod tests {
     }
 
     #[test]
+    fn the_budget_counts_the_cache_by_price() {
+        let mut st = StreamState::default();
+        let line = |id: &str| {
+            format!(
+                r#"{{"type":"assistant","message":{{"id":"{id}","content":[],"usage":{{"input_tokens":100,"cache_creation_input_tokens":400,"cache_read_input_tokens":10000,"output_tokens":10}}}}}}"#
+            )
+        };
+        let mut outcome = HarnessOutcome::default();
+        for id in ["m1", "m1", "m2"] {
+            let m = map_line_with(&mut st, &line(id));
+            outcome.tokens_in += m.tokens_in;
+            outcome.tokens_out += m.tokens_out;
+            outcome.cache_creation += m.cache_creation;
+            outcome.cache_read += m.cache_read;
+        }
+        // two messages: raw 2 x 10 510, counted 2 x (100 + 10 + 500 + 1000)
+        assert_eq!((outcome.tokens_in, outcome.tokens_out), (21_000, 20));
+        assert_eq!((outcome.cache_creation, outcome.cache_read), (800, 20_000));
+        assert_eq!(outcome.weighted_tokens(), 3220);
+        assert_eq!(
+            over_budget(&outcome, Some(5000)),
+            None,
+            "the raw 21 020 would have stopped it"
+        );
+        assert_eq!(over_budget(&outcome, Some(3000)), Some(3000));
+    }
+
+    #[test]
     fn counts_a_message_at_its_final_output() {
         let mut st = StreamState::default();
         let line = |id: &str, out: u64| {
@@ -548,10 +629,21 @@ mod tests {
         );
         assert!(out.summary.unwrap().contains("budget exhausted"));
         let mut logs = Vec::new();
+        let mut stop_data = None;
         while let Ok(e) = rx.try_recv() {
+            if e.message.starts_with("budget exhausted") {
+                stop_data = e.data.clone();
+            }
             logs.push(e.message);
         }
         assert!(logs.iter().any(|m| m.starts_with("budget exhausted")), "{logs:?}");
+        // the raw counts are nested: a server must not add them as usage again
+        let data = stop_data.unwrap();
+        assert!(
+            data.get("tokens_in").is_none() && data.get("usage").is_none(),
+            "{data}"
+        );
+        assert_eq!(data["at_stop"]["tokens_in"], 2000);
     }
 
     #[cfg(unix)]
@@ -718,6 +810,7 @@ sleep 60"#,
         assert!(timed.is_err(), "still running at the timeout");
         let outcome = crate::executor::timed_out(&ctx.usage);
         assert_eq!((outcome.tokens_in, outcome.tokens_out), (1000, 50));
+        assert_eq!((outcome.cache_creation, outcome.cache_read), (0, 700));
         assert_eq!(outcome.summary.as_deref(), Some("timed out"));
         let pid = child_pid(dir.path()).await;
         assert!(gone(&pid).await, "the agent's child {pid} survived the timeout");
@@ -734,8 +827,9 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"done","usa
         let (_stop, cancel) = watch::channel(false);
         let ctx = RunContext::default();
         let mut job = job();
-        // the totals pass the budget only at the final result: the agent is done, the run is not failed for it
-        job.limits.budget_tokens = Some(1000);
+        // the totals pass the budget only at the final result (120 + 340 + 0.1 x 2000 = 660 counted): the agent is
+        // done, the run is not failed for it
+        job.limits.budget_tokens = Some(500);
         let out = harness
             .run(&job, dir.path(), &dir.path().join("mcp.json"), &ctx, tx, cancel)
             .await
@@ -743,6 +837,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"done","usa
         assert_eq!((out.tokens_in, out.tokens_out), (2120, 340));
         assert_eq!(out.status, "succeeded");
         assert_eq!(ctx.usage.get(), (2120, 340));
+        assert_eq!((out.cache_read, out.weighted_tokens()), (2000, 660));
     }
 
     #[test]
@@ -750,7 +845,15 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"done","usa
         let m = map_line(
             r#"{"type":"result","subtype":"success","result":"ok","usage":{"input_tokens":1,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}"#,
         );
-        assert_eq!(m.result_usage, Some((6, 4)));
+        assert_eq!(
+            m.result_usage,
+            Some(Usage {
+                input: 6,
+                output: 4,
+                cache_creation: 2,
+                cache_read: 3
+            })
+        );
         assert_eq!(map_line(r#"{"type":"result","result":"ok"}"#).result_usage, None);
     }
 

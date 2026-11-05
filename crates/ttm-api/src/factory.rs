@@ -951,10 +951,18 @@ pub struct RunFinish {
     pub commit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
+    /// Input tokens, prompt cache writes and reads included.
     #[serde(default)]
     pub tokens_in: u64,
     #[serde(default)]
     pub tokens_out: u64,
+    /// Of `tokens_in`: tokens written to the prompt cache. With `cache_read_tokens`, the server counts the run against
+    /// budgets by [`weighted_tokens`]; a report without them (runners before 0.2) counts `tokens_in + tokens_out`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_creation_tokens: Option<u64>,
+    /// Of `tokens_in`: tokens read from the prompt cache.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -966,6 +974,18 @@ pub struct RunFinish {
     pub ci_green: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// Tokens a run counts against a token budget (`job.limits.budget_tokens`, the task's and the agent's daily budget),
+/// weighted by price: `input + output + 1.25 × cache_creation + 0.1 × cache_read`, rounded up. `tokens_in` includes
+/// both cache counts (as Claude Code's usage adds up to), so the plain input is what is left of it once they are taken
+/// out.
+pub fn weighted_tokens(tokens_in: u64, tokens_out: u64, cache_creation: u64, cache_read: u64) -> u64 {
+    let plain = tokens_in.saturating_sub(cache_creation.saturating_add(cache_read));
+    let cached = (cache_creation.saturating_mul(125))
+        .saturating_add(cache_read.saturating_mul(10))
+        .div_ceil(100);
+    plain.saturating_add(tokens_out).saturating_add(cached)
 }
 
 /// Lease answer `{granted, paths, expires_at}`; a 409 `{held_by: {run_id, task, paths}}` comes back as `granted:
@@ -1268,5 +1288,30 @@ mod tests {
         let cr = parse_change_request_answer(only_config).unwrap();
         assert!(cr.is_empty());
         assert_eq!(cr.config_requests.len(), 1);
+    }
+
+    #[test]
+    fn weighted_tokens_count_the_cache_by_price() {
+        // 1000 plain input, 200 output, 400 cache writes at 1.25, 10000 cache reads at 0.1
+        assert_eq!(weighted_tokens(11_400, 200, 400, 10_000), 1000 + 200 + 500 + 1000);
+        // rounded up
+        assert_eq!(weighted_tokens(3, 0, 0, 3), 1);
+        // no cache: input + output as before
+        assert_eq!(weighted_tokens(1500, 300, 0, 0), 1800);
+        // inconsistent counts never underflow
+        assert_eq!(weighted_tokens(10, 0, 0, 100), 10);
+    }
+
+    #[test]
+    fn a_finish_without_cache_counts_reads_as_before() {
+        let old: RunFinish =
+            serde_json::from_value(serde_json::json!({"status": "succeeded", "tokens_in": 5})).unwrap();
+        assert_eq!((old.cache_creation_tokens, old.cache_read_tokens), (None, None));
+        let sent = serde_json::to_value(RunFinish {
+            status: "failed".into(),
+            ..RunFinish::default()
+        })
+        .unwrap();
+        assert!(sent.get("cache_read_tokens").is_none() && sent.get("cache_creation_tokens").is_none());
     }
 }
