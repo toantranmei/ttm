@@ -62,11 +62,18 @@ pub fn mtime(path: &std::path::Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
-/// The local MCP announce to send now: `Some` when `runner.toml` changed since `seen` (updated in place).
-pub fn local_mcp_changed(
+/// What `runner.toml` announces to the server: local MCP servers and the projects with a local clone.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConfigAnnounce {
+    pub local_mcp: Vec<ttm_api::factory::LocalMcpAnnounce>,
+    pub projects: Vec<String>,
+}
+
+/// The announce to send now: `Some` when `runner.toml` changed since `seen` (updated in place).
+pub fn config_changed(
     config_file: Option<&std::path::Path>,
     seen: &mut Option<std::time::SystemTime>,
-) -> Option<Vec<ttm_api::factory::LocalMcpAnnounce>> {
+) -> Option<ConfigAnnounce> {
     let file = config_file?;
     let now = mtime(file);
     if now == *seen {
@@ -74,7 +81,11 @@ pub fn local_mcp_changed(
     }
     *seen = now;
     let dir = file.parent()?;
-    Some(crate::local_mcp::announce(&crate::RunnerConfig::load_mcp(dir)))
+    let config = crate::RunnerConfig::load(dir).unwrap_or_default();
+    Some(ConfigAnnounce {
+        local_mcp: crate::local_mcp::announce(&config.mcp),
+        projects: config.announced_projects(),
+    })
 }
 
 /// Whether the token should be renewed now.
@@ -123,11 +134,13 @@ impl Runner {
                     {
                         tracing::warn!("could not renew the runner token: {err:#}");
                     }
+                    let changed = config_changed(self.config_file.as_deref(), &mut config_seen);
                     let beat = Heartbeat {
                         running: running.keys().cloned().collect(),
                         capacity: self.capacity,
                         paused_until: paused_until.as_ref().map(|(s, _)| s.clone()),
-                        local_mcp: local_mcp_changed(self.config_file.as_deref(), &mut config_seen),
+                        local_mcp: changed.as_ref().map(|c| c.local_mcp.clone()),
+                        projects: changed.map(|c| c.projects),
                     };
                     match self.client.get().heartbeat(&self.runner_id, &beat).await {
                         Ok(reply) => {
@@ -373,19 +386,20 @@ mod tests {
     }
 
     #[test]
-    fn local_mcp_is_announced_again_when_the_file_changes() {
+    fn local_mcp_and_projects_are_announced_again_when_the_file_changes() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("runner.toml");
         std::fs::write(
             &file,
-            "[mcp.local.notes]\ncommand = \"notes\"\nallow = [\"dev\"]\n",
+            "[repos]\nAUR = \"/code/aurora\"\n\n[mcp.local.notes]\ncommand = \"notes\"\nallow = [\"dev\"]\n",
         )
         .unwrap();
         let mut seen = mtime(&file);
-        assert!(local_mcp_changed(Some(&file), &mut seen).is_none(), "unchanged");
+        assert!(config_changed(Some(&file), &mut seen).is_none(), "unchanged");
         let mut seen = None;
-        let sent = local_mcp_changed(Some(&file), &mut seen).unwrap();
-        assert_eq!(sent[0].name, "notes");
-        assert!(local_mcp_changed(None, &mut seen).is_none());
+        let sent = config_changed(Some(&file), &mut seen).unwrap();
+        assert_eq!(sent.local_mcp[0].name, "notes");
+        assert_eq!(sent.projects, vec!["AUR".to_string()]);
+        assert!(config_changed(None, &mut seen).is_none());
     }
 }

@@ -131,6 +131,7 @@ pub async fn ensure_registered(
             accept_team_jobs: config.accept_team_jobs,
             features: ttm_runner::features(team_claude_token(app).is_some()),
             local_mcp: ttm_runner::local_mcp::announce(&config.mcp),
+            projects: Some(config.announced_projects()),
         },
     };
     let fresh =
@@ -152,7 +153,13 @@ pub async fn ensure_registered(
 /// token (404 / 401 from then on), and a later `ttm runner up` must register again instead of polling 404 forever.
 async fn token_alive(registrar: &Registrar, id: &str, token: &StoredToken) -> Result<bool> {
     let client = registrar.client(token.access_token.clone())?;
-    let beat = ttm_api::factory::Heartbeat { running: Vec::new(), capacity: 0, paused_until: None, local_mcp: None };
+    let beat = ttm_api::factory::Heartbeat {
+        running: Vec::new(),
+        capacity: 0,
+        paused_until: None,
+        local_mcp: None,
+        projects: None,
+    };
     match client.heartbeat(id, &beat).await {
         Ok(_) => Ok(true),
         Err(err) if matches!(err.status(), Some(401 | 403 | 404)) => {
@@ -286,6 +293,7 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                 "accept_team_jobs": config.accept_team_jobs,
                 "harnesses": harness::installed(),
                 "repos": config.repos,
+                "projects": config.announced_projects(),
                 "worktree_root": config.worktree_root(app.ctx.config.worktree_root()),
                 "features": ttm_runner::features(team_claude_token(&app).is_some()),
                 "local_mcp": ttm_runner::local_mcp::announce(&config.mcp),
