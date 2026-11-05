@@ -97,6 +97,29 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base: &str) -> Result<(), Git
     if path.join(".git").exists() && current_branch(path).is_ok_and(|current| current == branch) {
         return Ok(());
     }
+    // A runner starts several jobs at once in the same repository: `git worktree add` writes .git/config (upstream
+    // of the new branch), so two at a time fail on its lock. One at a time in this process; another process holding
+    // the lock: retried.
+    static ADDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ADDING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut attempt = 0;
+    loop {
+        // the worktree may exist from a failed attempt (created, then the upstream config write failed)
+        if path.join(".git").exists() && current_branch(path).is_ok_and(|current| current == branch) {
+            return Ok(());
+        }
+        match add_once(repo, path, branch, base) {
+            Err(GitError::Failed { stderr, .. }) if stderr.contains("could not lock") && attempt < 5 => {
+                attempt += 1;
+                let _ = git(repo, &["worktree", "prune"]);
+                std::thread::sleep(std::time::Duration::from_millis(200 * attempt));
+            }
+            other => return other,
+        }
+    }
+}
+
+fn add_once(repo: &Path, path: &Path, branch: &str, base: &str) -> Result<(), GitError> {
     let _ = git(repo, &["fetch", "--quiet", "origin", base]);
     let remote = format!("origin/{base}");
     let start = if git(repo, &["rev-parse", "--verify", "--quiet", &remote]).is_ok() {
@@ -165,6 +188,20 @@ mod tests {
         std::fs::write(wt.join("work.txt"), "from run 1").unwrap();
         add(&repo, &wt, "ttm/resolve-1", "main").unwrap();
         assert_eq!(std::fs::read_to_string(wt.join("work.txt")).unwrap(), "from run 1");
+        // several jobs start at once in the same repository
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                let repo = repo.clone();
+                let root = dir.path().join("wt");
+                std::thread::spawn(move || {
+                    let branch = format!("ttm/aur-{i}");
+                    add(&repo, &worktree_path(&root, "AUR", &branch), &branch, "main")
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
         remove(&repo, &wt).unwrap();
         assert!(!wt.exists());
     }
