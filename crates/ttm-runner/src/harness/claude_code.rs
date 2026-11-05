@@ -40,9 +40,11 @@ pub struct Mapped {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamState {
     pending_tests: std::collections::HashMap<String, String>,
-    /// Ids of the API messages whose usage was counted: Claude Code repeats one message's `usage` on every content
-    /// block it streams as its own `assistant` line, so it is counted once per message id.
-    usage_seen: std::collections::HashSet<String>,
+    /// Usage counted so far per API message id, `(input incl. cache, output)`: Claude Code repeats one message's
+    /// `usage` on every content block it streams as its own `assistant` line, and the output count can grow from one
+    /// line to the next (the first line often carries the count at the start of the message). Each message is counted
+    /// once, at its largest usage: a line only adds what goes past what was already counted.
+    usage_seen: std::collections::HashMap<String, (u64, u64)>,
     pub tests_pass: Option<bool>,
     pub tests_command: Option<String>,
 }
@@ -190,15 +192,22 @@ pub fn map_line_with(state: &mut StreamState, line: &str) -> Mapped {
                     _ => {}
                 }
             }
-            let first_time = match msg["message"]["id"].as_str() {
-                Some(id) => state.usage_seen.insert(id.to_string()),
-                None => true,
-            };
-            if let Some(usage) = msg["message"].get("usage").filter(|_| first_time) {
-                out.tokens_in += usage["input_tokens"].as_u64().unwrap_or(0)
+            if let Some(usage) = msg["message"].get("usage") {
+                let tokens_in = usage["input_tokens"].as_u64().unwrap_or(0)
                     + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
                     + usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
-                out.tokens_out += usage["output_tokens"].as_u64().unwrap_or(0);
+                let tokens_out = usage["output_tokens"].as_u64().unwrap_or(0);
+                let counted = match msg["message"]["id"].as_str() {
+                    Some(id) => {
+                        let seen = state.usage_seen.entry(id.to_string()).or_default();
+                        let before = *seen;
+                        *seen = (seen.0.max(tokens_in), seen.1.max(tokens_out));
+                        before
+                    }
+                    None => (0, 0),
+                };
+                out.tokens_in += tokens_in.saturating_sub(counted.0);
+                out.tokens_out += tokens_out.saturating_sub(counted.1);
             }
         }
         Some("user") => {
@@ -450,6 +459,27 @@ mod tests {
         assert_eq!(other.tokens_in, 1010);
     }
 
+    #[test]
+    fn counts_a_message_at_its_final_output() {
+        let mut st = StreamState::default();
+        let line = |id: &str, out: u64| {
+            format!(
+                r#"{{"type":"assistant","message":{{"id":"{id}","content":[{{"type":"text","text":"x"}}],"usage":{{"input_tokens":10,"cache_read_input_tokens":1000,"output_tokens":{out}}}}}}}"#
+            )
+        };
+        // One message streamed as three lines whose output count grows, then the same count again.
+        let got: Vec<(u64, u64)> = [1, 40, 312, 312]
+            .into_iter()
+            .map(|n| map_line_with(&mut st, &line("msg_1", n)))
+            .map(|m| (m.tokens_in, m.tokens_out))
+            .collect();
+        assert_eq!(got, [(1010, 1), (0, 39), (0, 272), (0, 0)]);
+        // A smaller count later (out of order) never takes tokens back.
+        assert_eq!(map_line_with(&mut st, &line("msg_1", 5)).tokens_out, 0);
+        let next = map_line_with(&mut st, &line("msg_2", 7));
+        assert_eq!((next.tokens_in, next.tokens_out), (1010, 7));
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn the_budget_stops_the_agent() {
@@ -484,6 +514,42 @@ mod tests {
             logs.push(e.message);
         }
         assert!(logs.iter().any(|m| m.starts_with("budget exhausted")), "{logs:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_message_growing_output_counts_toward_the_budget() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("claude");
+        // a fake claude: one message repeated on every streamed block, its output count growing by 100 each line
+        std::fs::write(
+            &program,
+            "#!/bin/sh
+o=0
+while true; do o=$((o+100)); echo '{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[],\"usage\":{\"input_tokens\":500,\"output_tokens\":'$o'}}}'; sleep 0.05; done\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut job = job();
+        job.limits.budget_tokens = Some(1000);
+        let harness = ClaudeCode { program: Some(program) };
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_stop, cancel) = watch::channel(false);
+        let ctx = RunContext { env: vec![], settings: None };
+        let out = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            harness.run(&job, dir.path(), &dir.path().join("mcp.json"), &ctx, tx, cancel),
+        )
+        .await
+        .expect("stopped, not left running")
+        .unwrap();
+        assert_eq!(out.status, "failed");
+        assert_eq!(
+            (out.tokens_in, out.tokens_out),
+            (500, 600),
+            "input once, output at its latest count, stopped past 1000"
+        );
     }
 
     #[test]
