@@ -23,9 +23,23 @@ toml.workspace = true
 tracing.workspace = true
 ttm-api.workspace = true
 ttm-core.workspace = true
+reqwest = { workspace = true, features = ["rustls"] }
+sha2.workspace = true
+toml_edit.workspace = true
+ttm-ui.workspace = true
+# Already in the tree (via other crates): pull request titles are cut on grapheme clusters.
+unicode-segmentation = "1.13.3"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", features = ["process"] }
 
 [dev-dependencies]
 wiremock.workspace = true
+
+[features]
+# Scripted fake harness `ttm-sim` for the end-to-end simulation (M4). Never in `default`, never built by cargo-dist
+# (it builds default features), so no released binary has it.
+sim-harness = []
 
 [lints]
 workspace = true

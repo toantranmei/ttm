@@ -29,6 +29,12 @@ pub fn user_agent() -> String {
 pub enum Body {
     Json(serde_json::Value),
     Form(Vec<(String, String)>),
+    /// Raw bytes (`application/zip` skill uploads) with extra headers.
+    Bytes {
+        content_type: String,
+        headers: Vec<(String, String)>,
+        bytes: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +114,43 @@ impl Client {
             .await
     }
 
+    pub async fn put<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
+        self.json(Method::PUT, path, &[], Some(Body::Json(to_value(body)?)))
+            .await
+    }
+
+    /// `POST` with a JSON body, decoding the JSON answer, plus query parameters.
+    pub async fn post_query<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        body: &B,
+    ) -> Result<T> {
+        self.json(Method::POST, path, query, Some(Body::Json(to_value(body)?)))
+            .await
+    }
+
+    /// `DELETE` with query parameters.
+    pub async fn delete_query(&self, path: &str, query: &[(&str, String)]) -> Result<()> {
+        self.send(Method::DELETE, path, query, None).await.map(drop)
+    }
+
+    /// Raw bytes of a GET (redirects followed), at most `max` bytes.
+    pub async fn get_bytes(&self, path: &str, max: usize) -> Result<Vec<u8>> {
+        let mut response = self.send(Method::GET, path, &[], None).await?;
+        let mut out = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            out.extend_from_slice(&chunk);
+            if out.len() > max {
+                return Err(ApiError::Decode {
+                    status: 200,
+                    message: format!("download larger than {max} bytes"),
+                });
+            }
+        }
+        Ok(out)
+    }
+
     pub async fn delete(&self, path: &str) -> Result<()> {
         self.send(Method::DELETE, path, &[], None).await.map(drop)
     }
@@ -164,6 +207,36 @@ impl Client {
         Ok((status, value))
     }
 
+    /// Like [`Client::json_raw`] (no retries, error statuses returned as data), also answering the response
+    /// headers (`X-Confirmation: applied` of a confirmation apply).
+    pub async fn json_raw_headers<B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        body: &B,
+    ) -> Result<(u16, serde_json::Value, HeaderMap)> {
+        let mut request = self
+            .http
+            .request(method, self.url(path))
+            .header(header::ACCEPT, "application/json");
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.json(&to_value(body)?).send().await?;
+        let status = response.status().as_u16();
+        if status == 426 {
+            return Err(error_from(response).await);
+        }
+        let headers = response.headers().clone();
+        let bytes = response.bytes().await?;
+        let value = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+        };
+        Ok((status, value, headers))
+    }
+
     /// Sends with retries; non-success statuses become [`ApiError`].
     pub async fn send(
         &self,
@@ -203,6 +276,19 @@ impl Client {
             request = match &body {
                 Some(Body::Json(value)) => request.json(value),
                 Some(Body::Form(form)) => request.form(form),
+                Some(Body::Bytes {
+                    content_type,
+                    headers,
+                    bytes,
+                }) => {
+                    let mut r = request
+                        .header(header::CONTENT_TYPE, content_type.as_str())
+                        .body(bytes.clone());
+                    for (k, v) in headers {
+                        r = r.header(k.as_str(), v.as_str());
+                    }
+                    r
+                }
                 None => request,
             };
             let result = request.send().await;

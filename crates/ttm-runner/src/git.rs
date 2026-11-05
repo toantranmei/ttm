@@ -1,17 +1,17 @@
 //! Git steps of a job (thin wrappers over the `git` and `gh` CLIs).
 
 use std::path::Path;
-use ttm_core::worktree::{GitError, git};
+use ttm_core::worktree::{GitError, git, git_env};
 
 /// Whether the worktree has uncommitted changes.
 pub fn is_dirty(dir: &Path) -> Result<bool, GitError> {
     Ok(!git(dir, &["status", "--porcelain"])?.is_empty())
 }
 
-/// Commits everything left uncommitted by the agent.
-pub fn commit_all(dir: &Path, message: &str) -> Result<(), GitError> {
-    git(dir, &["add", "-A"])?;
-    git(dir, &["commit", "-q", "-m", message]).map(drop)
+/// Commits everything left uncommitted by the agent, with the job's identity and hooks (`env`).
+pub fn commit_all(dir: &Path, message: &str, env: &[(String, String)]) -> Result<(), GitError> {
+    git_env(dir, &["add", "-A"], env)?;
+    git_env(dir, &["commit", "-q", "-m", message], env).map(drop)
 }
 
 pub fn head(dir: &Path) -> Result<String, GitError> {
@@ -31,12 +31,37 @@ pub fn has_remote(dir: &Path) -> bool {
     git(dir, &["remote", "get-url", "origin"]).is_ok()
 }
 
-pub fn push(dir: &Path, branch: &str) -> Result<(), GitError> {
-    git(dir, &["push", "-u", "origin", branch]).map(drop)
+/// Pushes with the job's environment (its hooks, e.g. `pre-push`, are chained).
+pub fn push(dir: &Path, branch: &str, env: &[(String, String)]) -> Result<(), GitError> {
+    git_env(dir, &["push", "-u", "origin", branch], env).map(drop)
 }
 
-/// Opens a pull request with the `gh` CLI when available; returns its URL.
+/// Opens a pull request with the `gh` CLI when available; returns its URL. When the branch already has an open pull
+/// request (a later run on the same task: the push updated it), returns that one's URL.
 pub fn open_pull_request(dir: &Path, branch: &str, base: &str, title: &str, body: &str) -> Option<String> {
+    create_pull_request(dir, branch, base, title, body).or_else(|| existing_pull_request(dir, branch))
+}
+
+/// URL of the open pull request of `branch`, if any.
+fn existing_pull_request(dir: &Path, branch: &str) -> Option<String> {
+    let out = std::process::Command::new("gh")
+        .current_dir(dir)
+        .args([
+            "pr",
+            "view",
+            branch,
+            "--json",
+            "url,state",
+            "--jq",
+            "select(.state == \"OPEN\") | .url",
+        ])
+        .output()
+        .ok()?;
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && url.starts_with("http")).then_some(url)
+}
+
+fn create_pull_request(dir: &Path, branch: &str, base: &str, title: &str, body: &str) -> Option<String> {
     let out = std::process::Command::new("gh")
         .current_dir(dir)
         .args([

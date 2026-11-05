@@ -1,0 +1,14 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+╭─ Aurora · rev 43 ─────────────────────────────────╮
+│ 12 tasks · 3 in progress · 1 waiting for approval │
+╰───────────────────────────────────────────────────╯
+
+╭─ Dự án Cá nhân ─╮
+╰─────────────────╯
+
+╭─ Very long project name xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… ─╮
+│ A summary that is far longer than the terminal yyyyyyyyyyyyyyyyyyyyyyyyyyyy… │
+╰──────────────────────────────────────────────────────────────────────────────╯

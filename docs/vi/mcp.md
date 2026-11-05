@@ -220,7 +220,7 @@ Usage: ttm-mcp [OPTIONS]
 | --- | --- | --- |
 | `--host <URL>` | `TTM_HOST` | Máy chủ |
 | `--profile <NAME>` | `TTM_PROFILE` | Profile trong `config.toml` |
-| `--toolsets <LIST>` | `TTM_TOOLSETS` | Nhóm tool bật, cách nhau bằng dấu phẩy: `notee`, `factory`. `workspace` luôn bật. Không đặt = tất cả. |
+| `--toolsets <LIST>` | `TTM_TOOLSETS` | Nhóm tool bật, cách nhau bằng dấu phẩy: `notee`, `factory`, `admin`. `workspace` luôn bật. Không đặt = tất cả. Trong một run (`TTM_RUN_ID`) `admin` luôn bị bỏ. |
 | `-v`, `-vv` | `TTM_LOG` | Log ra stderr |
 | `-V`, `--version` | | In phiên bản |
 
@@ -233,7 +233,8 @@ nó dùng endpoint mặc định `<host>/api/v1`.
 | --- | --- | --- |
 | `workspace` (luôn bật) | `workspace-get-self`, `workspace-list`, `workspace-get-users` | `workspace:read` |
 | `notee` (alias `notes`) | `notee-search`, `notee-fetch`, `notee-query-database`, `notee-get-comments`, `notee-create-pages`, `notee-update-page`, `notee-move-pages`, `notee-duplicate-page`, `notee-create-database`, `notee-update-database`, `notee-upsert-rows`, `notee-delete-rows`, `notee-create-comment`, `notee-get-suggestions`, `notee-resolve-suggestion`; resource `notee://spec/markdown` | `notee:read` / `notee:comment` / `notee:write` |
-| `factory` | `factory-get-task`, `factory-get-context`, `factory-report-progress`, `factory-request-approval`, `factory-create-subtasks`, `factory-attach-artifact`, `factory-get-rules`, `factory-renew-lease` | `factory:read` / `factory:run` |
+| `factory` | 8 tool của run (`factory-get-task`, `factory-get-context`, `factory-report-progress`, `factory-request-approval`, `factory-create-subtasks`, `factory-attach-artifact`, `factory-get-rules`, `factory-renew-lease`) + tool đọc 0.2.0 (`factory-workflow-*`, `factory-automation-list/get/test`, `factory-agent-list/get`, `factory-skill-list/get`, `factory-template-search`, `factory-template-install-preview`, `factory-inbox`) | `factory:read` / `factory:run` |
+| `admin` | Tool sửa cấu hình có xác nhận hai bước (`factory-workflow-draft-update`, `factory-workflow-publish`, `factory-workflow-upgrade`, `factory-automation-draft`, `factory-automation-set-enabled`, `factory-agent-draft`, `factory-agent-set-status`, `factory-skill-review`, `factory-template-install`, `factory-task-approve`, `factory-confirm`, `factory-confirm-cancel`). Không bao giờ có trong một run của agent | `factory:admin` (`factory-task-approve`: `factory:write`) |
 
 ```sh
 ttm-mcp --toolsets notee            # workspace + notee
@@ -242,6 +243,11 @@ ttm-mcp --toolsets ""               # chỉ workspace
 
 Tham số, kết quả và lỗi của từng tool: [Tool MCP](mcp-cong-cu.md). Ít tool hơn giúp model chọn đúng tool và tốn ít context
 hơn; bật `factory` chủ yếu cho agent chạy trong runner.
+
+`ttm mcp install --toolsets <LIST>` ghi cùng danh sách vào cấu hình của client (ví dụ
+`ttm mcp install --client claude-desktop --toolsets notee,factory,admin`). Bỏ `admin` nếu không muốn quản trị qua MCP.
+Token cũ (đăng nhập trước 0.2.0) thiếu scope `factory:admin`: tool admin trả `insufficient_scope`, chạy `ttm login` lại.
+Xem [Tool MCP](mcp-cong-cu.md).
 
 Máy chủ tự giới thiệu với client là `ttm` kèm hướng dẫn: *Start with workspace-get-self to learn who the user is and which
 workspace is current.* Tên ứng dụng client (ví dụ `claude-code`) được ghi vào lịch sử page khi tool sửa page: “An (via
@@ -308,6 +314,12 @@ Token của ứng dụng từ xa sống **1 giờ**; ứng dụng chỉ có refr
 
 Mỗi lần gọi tool trên MCP từ xa đi qua cùng kiểm tra token, scope và quyền như một request API. MCP từ xa bật mọi nhóm
 tool; các tool Factory cần run trả `no_run` ở đây.
+
+### Thay đổi cấu hình qua MCP từ xa
+
+MCP từ xa có cùng nhóm `admin` (token người dùng có `factory:admin`). Vì máy chủ từ xa không lưu phiên nên không hỏi ngược
+(elicitation): tool admin luôn trả `confirm_id`, model hỏi người dùng rồi gọi `factory-confirm`. Token của job chỉ có nhóm
+`factory,notee`.
 
 ## Giới hạn
 

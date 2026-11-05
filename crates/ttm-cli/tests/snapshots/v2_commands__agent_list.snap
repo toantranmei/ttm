@@ -1,0 +1,10 @@
+---
+source: crates/ttm-cli/tests/v2_commands.rs
+expression: text
+---
+2 agent(s)
+NAME                      HANDLE  ROLE  MODEL   SKILLS             MCP  STATUS
+────────────────────────────────────────────────────────────────────────────────
+🤖 DEV · Code ✦✦ Sponsor  @dev    DEV   sonnet  ttm-tdd, ◐ ttm-o…    1  ● active
+🤖 QA · Test              @qa     QA    haiku   -                    0  ⏸ paused
+Next: ttm agent show <handle>

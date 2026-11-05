@@ -27,12 +27,26 @@ section: reference
 | `rule` | 具体违反的规则（用于 `bad_request`、`conflict`、`precondition_failed`），例如 `split-limit` |
 | `params` | 相关的值，例如 `{"required": "notee:write"}`、`{"max_depth": 2, "per_run": 10}` |
 
-`ttm` 向 stderr 输出 `error: <title> (<code>, rule <rule>, field <field>, HTTP <status>) <params>`（`rule`、`field`、
-`params` 部分仅在服务器发送时出现），例如：
+`ttm` 以统一格式将错误输出到 stderr（自 0.2.0 起）：
 
 ```text
-error: At most 10 subtasks per run (10 already). (conflict, rule `split-limit`, HTTP 409) {"depth":1,"max_depth":2,"per_root":30,"per_run":10,"root_count":12,"run_count":10}
+✕ <摘要>
+  rule: <rule>  field: <field>
+  Fix: <修复方法>
+  Help: https://toantranmei.com/help/ttm/ma-loi#<rule>
 ```
+
+`rule` 取服务器的 `rule`，没有则取 `code`。示例：
+
+```text
+✕ At most 10 subtasks per run (10 already).
+  rule: split-limit
+  Fix: split into fewer subtasks (see params.per_run)
+  Help: https://toantranmei.com/help/ttm/ma-loi#split-limit
+```
+
+用法错误（`missing_flag`、`confirmation_required`、`unsupported_feature`、`invalid_flag`）退出码为 **2**；其他错误为 1。
+使用 `--plain` 时第一行为 `ERROR: <摘要>`。
 
 使用 `--json` 时，stdout 还会输出 `{"error": {"code", "message", "status", "rule", "field", "params"}}`（后三个字段仅在
 服务器发送时出现），方便脚本按 `rule` 分支。MCP 工具返回 `isError: true`、文本 `<消息> (<code>)`，以及带有相同字段的
@@ -165,6 +179,7 @@ error: At most 10 subtasks per run (10 already). (conflict, rule `split-limit`, 
 | `repo_not_configured` | 作业（job）所属项目在 `runner.toml` 中没有 clone，或 clone 的 `origin` 与作业的仓库不一致 | `ttm runner config --repo KEY=<đường dẫn clone>` |
 | `invalid_branch` | 作业的分支名不符合 git 规则 | 在网页上修改任务/分支 |
 | `invalid_worktree` | 作业的 `worktree_hint` 是绝对路径、含 `..`，或指向 `worktree_root` 之外 | 作为服务器问题反馈；runner 绝不会在 `worktree_root` 之外创建 worktree |
+| `ttm_mcp_missing` | runner 找不到 `ttm-mcp` 可执行文件（在 `ttm` 旁边或 `PATH` 上），它是 agent 的 `ttm` MCP server | 重新安装 ttm（同时包含 `ttm` 和 `ttm-mcp`）；缺少时 `ttm runner up` 不会启动，运行中的 runner 在它恢复前不接作业 |
 
 这两个错误码会在 run 结束时作为 `error` 上报给服务器。
 
@@ -190,3 +205,379 @@ error: At most 10 subtasks per run (10 already). (conflict, rule `split-limit`, 
 | ``no agent harness found; install Claude Code (`claude`) first`` | Runner 的 `PATH` 中没有 `claude` |
 | `timed out after 5 minutes waiting for the browser` | 没有及时点击 **允许** |
 | `invalid TOML in <file>: …` | `config.toml`/`credentials.toml`/`runner.toml` 语法错误 |
+
+## Rule 与修复方法
+
+以下每个条目都是 `Help:` 行的链接目标。**Fix** 是 `ttm` 打印的句子。
+
+### `missing_flag`
+
+缺少必需的标志且无法询问（使用了 `--yes` 或不是终端）。退出码 2。
+
+**Fix:** pass the flag shown in field, or run in a terminal to be asked
+
+### `confirmation_required`
+
+操作需要确认，但没有终端也没有 `--yes`。退出码 2。
+
+**Fix:** confirm in a terminal, or pass --yes
+
+### `invalid_flag`
+
+标志的值无效（例如 key 不符合 `^[A-Z][A-Z0-9]{1,9}$`）。退出码 2。
+
+**Fix:** fix the value of the flag shown in field (ttm <command> --help lists the choices)
+
+### `unsupported_feature`
+
+服务器（或 runner）尚无此功能（`discovery.features` 缺少对应字符串，或作业 `requires` runner 没有的功能）。`ttm` 不会调用 API。退出码 2。
+
+**Fix:** this server is older than this ttm: update the server or use another host
+
+### `rev-conflict`
+
+对象在你读取后已被修改（`If-Match`/`rev` 过期）。
+
+**Fix:** someone changed it meanwhile: fetch it again (ttm sync) and redo the change
+
+### `draft-stale`
+
+工作流草稿在你读取后已被修改（`base_version` 过期）。
+
+**Fix:** the draft changed since you read it: show it again and reapply your edit
+
+### `upgrade-preview-stale`
+
+升级预览之后工作流已变更（`preview_hash` 不匹配）。
+
+**Fix:** the workflow changed since the preview: run the upgrade preview again
+
+### `no-upgrade`
+
+项目已在使用最新的工作流版本。
+
+**Fix:** the project already uses the latest workflow version
+
+### `dry-run-required`
+
+启用规则前必须先试运行。
+
+**Fix:** test the rule first: ttm automation test <rule> --task <KEY>
+
+### `rule-published`
+
+已发布的规则不能直接修改。
+
+**Fix:** a published rule cannot change: edit the draft and publish again
+
+### `input_required`
+
+需要更多输入（模板、规则）。
+
+**Fix:** this needs more input: pass the missing value shown in field
+
+### `stale`
+
+变更请求相对服务器已过期。
+
+**Fix:** the change request is out of date: sync again and send a new one
+
+### `secret_in_file`
+
+as-code 文件（`.ttm/agents/*.yaml`）含有类似密钥的键（`token`、`*_token`、`secret`、`password`、`api_key`）。
+
+**Fix:** remove the secret from the file and use a secret reference instead
+
+### `invalid_file`
+
+as-code 文件不符合服务器要求。
+
+**Fix:** fix the file at the path shown (ttm workflow validate --file … lists every issue)
+
+### `yaml`
+
+`.ttm/` 中的 YAML 文件无法解析（`ttm sync` 发送前在本地检查；带行号）。
+
+**Fix:** fix the YAML at the line shown, then run ttm sync again
+
+### `purchase_required`
+
+模板需付费且你尚未购买。
+
+**Fix:** buy the template on the web first, then install it again
+
+### `sponsors_only`
+
+模板仅供 Sponsor 使用。
+
+**Fix:** this template is for Sponsors: see https://toantranmei.com/mei-er
+
+### `insufficient_scope`
+
+令牌缺少 scope（`params.required`）。0.2.0 之前创建的令牌没有 `factory:admin`。
+
+**Fix:** sign in again with the missing scope: ttm login --scope '<scopes>'
+
+### `unauthorized`
+
+没有令牌或令牌无效。
+
+**Fix:** sign in again: ttm login
+
+### `forbidden`
+
+你在工作区中的角色不允许此操作。
+
+**Fix:** your role in this workspace does not allow it: ask an owner or admin
+
+### `token_not_allowed`
+
+该路由不对令牌开放（只能在网页上操作）。
+
+**Fix:** this action is not open to tokens: do it on the web
+
+### `job_token_not_allowed`
+
+正在运行作业的 agent 的令牌不能执行此操作（管理、确认）。
+
+**Fix:** agents running a job cannot do this: run it yourself with your own token
+
+### `not_found`
+
+对象不存在（或不属于你）。
+
+**Fix:** check the id or key (list commands show them)
+
+### `seat_limit`
+
+工作区没有空余席位给成员或 agent。
+
+**Fix:** the workspace has no free seat: free one or upgrade the plan on the web
+
+### `plan_limit`
+
+已达到套餐上限（MCP 服务器、规则等）。
+
+**Fix:** the plan limit is reached: upgrade the plan on the web
+
+### `handle_taken`
+
+该 agent handle 在工作区中已被使用。
+
+**Fix:** pick another --handle
+
+### `skill_unchanged`
+
+新的 skill 版本与最新版本完全相同（SHA-256 相同）。
+
+**Fix:** nothing changed since the last version: edit the skill, then push again
+
+### `skill_limit`
+
+agent 或工作区上的 skill 过多。
+
+**Fix:** too many skills on this agent or workspace: remove one first
+
+### `self_review`
+
+你不能审核自己上传的 skill 版本（工作区有 2 位及以上管理员）。
+
+**Fix:** someone else must review your own skill version
+
+### `skill_md_missing`
+
+skill 根目录没有 `SKILL.md`。
+
+**Fix:** add a SKILL.md with a name and description front matter
+
+### `front_matter`
+
+`SKILL.md` 的 front matter 缺少 `name`/`description` 或 `ttm.tags` 无效。
+
+**Fix:** fix the front matter of SKILL.md
+
+### `path_unsafe`
+
+skill 中的路径不安全（`..`、绝对路径、`\`、`.git/`、符号链接）。
+
+**Fix:** remove the file or rename it to a plain relative path
+
+### `too_large`
+
+skill 解压后超过 5 MB（或压缩比大于 100）。
+
+**Fix:** make the skill smaller (at most 5 MB)
+
+### `too_many_files`
+
+skill 文件超过 200 个。
+
+**Fix:** keep at most 200 files (list build output in .gitignore)
+
+### `zip_invalid`
+
+skill 包不是有效的 zip。
+
+**Fix:** pack the skill again with ttm skill push <dir>
+
+### `skill_hash_mismatch`
+
+runner 下载的 skill 与作业的 SHA-256 不一致：作业被拒绝。
+
+**Fix:** the skill download is corrupt: run the job again
+
+### `ttm_mcp_missing`
+
+runner 找不到可执行的 `ttm-mcp`（在 `ttm` 旁边或 `PATH` 上）。没有它 agent 就没有 Factory 工具，因此作业在 agent 启动前被拒绝；`ttm runner up` 不会启动，已运行的 runner 在它恢复前不接作业。
+
+**Fix:** ttm-mcp is missing next to ttm: reinstall ttm (it ships both), then restart the runner
+
+### `secrets_disabled`
+
+服务器未启用密钥加密。
+
+**Fix:** secrets are turned off on this server: ask its operator
+
+### `storage_disabled`
+
+服务器未启用文件存储。
+
+**Fix:** file storage is turned off on this server: ask its operator
+
+### `oauth_client_unavailable`
+
+该 MCP 服务器无法使用 OAuth 登录。
+
+**Fix:** this MCP server cannot sign in by OAuth: use --auth workspace with a secret
+
+### `repo_not_configured`
+
+runner 的 `runner.toml` 中没有该项目的克隆，或 `origin` 不匹配。
+
+**Fix:** link the repository first: ttm project link <KEY>
+
+### `invalid_branch`
+
+作业的分支名无效。
+
+**Fix:** fix the task or branch on the web
+
+### `invalid_worktree`
+
+作业的 `worktree_hint` 超出 `worktree_root`。
+
+**Fix:** report it: the runner never creates worktrees outside its root
+
+### `confirm_expired`
+
+确认已超过 10 分钟。
+
+**Fix:** the confirmation expired (10 minutes): start the action again
+
+### `confirm_used`
+
+确认已被应用（每个确认只运行一次，即使操作失败）。
+
+**Fix:** this confirmation was already applied: start the action again for a new one
+
+### `confirm_cancelled`
+
+确认已被取消。
+
+**Fix:** this confirmation was cancelled: start the action again
+
+### `confirm_tampered`
+
+已暂存的请求与确认的哈希不一致。
+
+**Fix:** the staged request does not match its confirmation: start the action again
+
+### `confirm_stale`
+
+（仅 ttm）请求在确认与应用之间发生变化。服务器不返回此码：草稿变化时目标路由返回 `draft-stale`/`upgrade-preview-stale`。
+
+**Fix:** the request changed since it was confirmed: start the action again
+
+### `bearer_required`
+
+两步确认只接受 Bearer 令牌（不接受浏览器 cookie）。
+
+**Fix:** confirmations need a token: use ttm or an MCP client, not the browser session
+
+### `not_confirmable`
+
+`(method, path)` 不在可确认操作列表中。
+
+**Fix:** this change cannot go through a confirmation: run it directly
+
+### `payload_too_large`
+
+请求体超过 256 KiB 或预览超过 64 KiB。
+
+**Fix:** the request is too large: send a smaller change
+
+### `split-limit`
+
+超过拆分子任务的上限（`params.per_run`）。
+
+**Fix:** split into fewer subtasks (see params.per_run)
+
+### `approval-required`
+
+此步骤需要人工批准。
+
+**Fix:** a person must approve this step: ttm task approve <KEY>
+
+### `agent-own-runner`
+
+完全/自定义工具权限的 agent 只能在委派者的 runner 上运行。
+
+**Fix:** this agent runs only on its delegator's runners: start one with ttm runner up
+
+### `too_many_blocks`
+
+页面太长，无法一次读取。
+
+**Fix:** the page is too long for one call: read it by parts (--block)
+
+### `upgrade_required`
+
+`ttm` 低于服务器的 `min_cli`。
+
+**Fix:** update ttm: ttm self-update
+
+### `network`
+
+网络错误或主机错误。
+
+**Fix:** check the network and the host (ttm doctor)
+
+### `rate_limited`
+
+请求过多（例如每分钟超过 30 次确认）。
+
+**Fix:** wait a little and retry
+
+### `conflict`
+
+编辑期间对象已被修改。
+
+**Fix:** it changed meanwhile: fetch it again and retry
+
+### `bad_request`
+
+输入无效（见 `field`、`rule`）。
+
+**Fix:** fix the input named in field
+
+### `authorization_pending`
+
+设备登录尚未获批。
+
+**Fix:** finish signing in on the web page, then retry
+
+### `invalid_grant`
+
+授权码或刷新令牌已过期或已使用。
+
+**Fix:** sign in again: ttm login

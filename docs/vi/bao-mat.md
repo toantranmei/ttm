@@ -75,6 +75,32 @@ nói chuyện trực tiếp với Anthropic bằng tài khoản của bạn, kh�
   sandbox: chỉ chạy runner cho project bạn tin, xem lại pull request trước khi merge, và cân nhắc chạy runner bằng một tài
   khoản hệ điều hành riêng hoặc trong máy ảo.
 - Kill switch: nút dừng trên web hoặc `ttm agent stop <run>`; runner nhận lệnh trong ≤ 20 giây.
+- **Không dòng Claude/Anthropic trong commit**: mọi job chạy git qua hook `commit-msg` riêng của run, hook này xoá các dòng
+  `Co-Authored-By: Claude…`, `Generated with Claude…`, `noreply@anthropic.com`; Claude Code chạy với cài đặt tắt dòng
+  ghi công trong commit và PR. Commit của agent mang tên và email của agent (không phải của bạn hay của Anthropic).
+- **Skill chỉ là bản đã được duyệt** trên web, tải bằng URL ký có hạn 10 phút, kiểm SHA-256 (lệch là từ chối job), giải
+  nén an toàn, không bao giờ được commit (`info/exclude`) và bị xoá sau run.
+- **MCP local tắt mặc định**: chỉ agent có trong `allow` dùng được, job của người khác chỉ khi `team_jobs = true`. Server
+  chỉ biết tên, `allow` và `team_jobs`; lệnh, tham số và biến môi trường (secret qua `env:VAR`) không rời máy.
+- **Job của đồng đội không thấy cấu hình Claude của bạn** (`--setting-sources project,local`, và `CLAUDE_CONFIG_DIR`
+  trống khi đã lưu token bằng `ttm runner config claude-token`).
+
+## MCP server và secret
+
+Secret của MCP server từ xa (token OAuth, header bí mật) được lưu **mã hoá trên server** và chỉ dùng ở MCP gateway của
+server. Agent gọi gateway bằng token của job; secret không bao giờ xuống máy chạy runner hay vào prompt. Khi thêm server
+bằng `ttm mcp-server add`, secret chỉ đi qua `--secret-env TEN_BIEN` hoặc nhập ẩn trong terminal, không bao giờ là giá trị
+cờ (để không lọt vào lịch sử shell).
+
+## Quản trị qua MCP: xác nhận hai bước
+
+- Tool quản trị (sửa workflow, Tự động hoá, agent, duyệt skill, cài mẫu, duyệt cổng người của task) cần scope
+  `factory:admin` và nằm trong toolset `admin`.
+- **Agent đang chạy job không bao giờ có các tool này**: token của job không có `factory:admin`, `ttm-mcp` bỏ toolset
+  `admin` khi có `TTM_RUN_ID`, server từ chối token job ở mọi endpoint xác nhận (`job_token_not_allowed`).
+- Mỗi tool quản trị chỉ **xem trước và tạo một xác nhận** (`confirm_id`, hạn 10 phút); thay đổi chỉ áp dụng khi bạn đồng ý
+  và client gọi `factory-confirm`. Server phát lại đúng request đã xem trước với quyền của chính bạn, mỗi xác nhận chạy
+  đúng một lần, request bị sửa sau khi xác nhận bị từ chối (`confirm_tampered`).
 
 ## Cập nhật an toàn
 

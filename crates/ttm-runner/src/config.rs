@@ -11,8 +11,13 @@
 //!
 //! [repos]                    # project key → local clone
 //! AUR = "/Users/me/code/aurora"
+//!
+//! [mcp.local.github-local]   # local MCP servers (see `local_mcp`)
+//! command = "npx"
+//! allow = ["dev"]
 //! ```
 
+use crate::local_mcp::McpSection;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -38,6 +43,9 @@ pub struct RunnerConfig {
     pub auto_merge: bool,
     #[serde(default)]
     pub repos: BTreeMap<String, PathBuf>,
+    /// Local MCP servers (`[mcp.local.<name>]`).
+    #[serde(default, skip_serializing_if = "McpSection::is_empty")]
+    pub mcp: McpSection,
 }
 
 fn three() -> u32 {
@@ -71,6 +79,7 @@ impl Default for RunnerConfig {
             runner_id: None,
             auto_merge: false,
             repos: BTreeMap::new(),
+            mcp: McpSection::default(),
         }
     }
 }
@@ -88,6 +97,11 @@ impl RunnerConfig {
         }
     }
 
+    /// Only the `[mcp]` section of `runner.toml` (fresh from disk: jobs see edits without a restart).
+    pub fn load_mcp(config_dir: &Path) -> McpSection {
+        Self::load(config_dir).map(|c| c.mcp).unwrap_or_default()
+    }
+
     pub fn save(&self, config_dir: &Path) -> anyhow::Result<()> {
         let text = toml::to_string_pretty(self)?;
         ttm_core::paths::write_atomic(&Self::path(config_dir), text.as_bytes(), Some(0o644))?;
@@ -100,6 +114,19 @@ impl RunnerConfig {
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(key) || Some(k.as_str()) == project_id)
             .map(|(_, v)| v)
+    }
+
+    /// The projects announced to the server (`projects` of register and heartbeat): the keys (or ids) of
+    /// `[repos]`, trimmed, without empty ones or duplicates (case-insensitive, first spelling kept). The server offers
+    /// this runner only their jobs; an empty list means none.
+    pub fn announced_projects(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for key in self.repos.keys().map(|k| k.trim()).filter(|k| !k.is_empty()) {
+            if !out.iter().any(|seen| seen.eq_ignore_ascii_case(key)) {
+                out.push(key.to_string());
+            }
+        }
+        out
     }
 
     /// Worktree root: runner setting, else `config.toml`'s, else `~/.ttm/worktrees`.
@@ -130,5 +157,24 @@ mod tests {
         assert_eq!(loaded.repo_for("aur", None), Some(&PathBuf::from("/code/aurora")));
         assert_eq!(loaded.repo_for("XYZ", None), None);
         assert_eq!(RunnerConfig::load(&dir.path().join("none")).unwrap().keep_days, 3);
+    }
+
+    #[test]
+    fn announced_projects_come_from_the_configured_clones() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            RunnerConfig::path(dir.path()),
+            "name = \"mac\"\n[repos]\nAUR = \"/code/aurora\"\naur = \"/code/other\"\nNOTE = \"/code/notes\"\n\" \" = \"/x\"\n",
+        )
+        .unwrap();
+        let loaded = RunnerConfig::load(dir.path()).unwrap();
+        assert_eq!(
+            loaded.announced_projects(),
+            vec!["AUR".to_string(), "NOTE".to_string()]
+        );
+        assert!(
+            RunnerConfig::default().announced_projects().is_empty(),
+            "no clone: no project"
+        );
     }
 }

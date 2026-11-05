@@ -1,0 +1,7 @@
+{
+  "host": "http://127.0.0.1:1",
+  "profile": "default",
+  "method": "token",
+  "stored_in": "file",
+  "user": {"id": "u1", "email": "an@example.com", "name": "An", "avatar_url": null, "locale": "vi", "plan": "free"}
+}

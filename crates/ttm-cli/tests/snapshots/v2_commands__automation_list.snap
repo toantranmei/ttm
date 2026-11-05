@@ -1,0 +1,9 @@
+---
+source: crates/ttm-cli/tests/v2_commands.rs
+expression: text
+---
+AUR · 1 rule(s), 1 on
+   NAME        WHEN           RUNS 7D  ID
+──────────────────────────────────────────────
+●  Send to QA  moved (to=qc)        4  auto-qa
+Next: ttm automation show auto-qa

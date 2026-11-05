@@ -187,6 +187,20 @@ Claude 报告额度用尽；runner 会暂停接收作业直到额度重置，服
 **worktree 占满了磁盘空间。**
 调小 `--keep-days`，或删除 `~/.ttm/worktrees` 中的目录，然后在仓库中运行 `git worktree prune`。
 
+## 输出与退出码（0.2）
+
+**命令在脚本中以 2 退出。** 从 0.2.0 起，退出码 2 也表示用法问题：`missing_flag`（缺少标志且无法询问）、`confirmation_required`
+（需要 `--yes`）、`invalid_flag`、`unsupported_feature`（服务器没有该功能）。`Fix:` 行会说明要加哪个标志；对于向导，先在终端运行一次，
+再把 `Equivalent:` 行粘贴到脚本中。
+
+**日志里有奇怪的颜色码或边框字符。** 设置 `NO_COLOR=1`（去掉颜色）或 `TTM_PLAIN=1`/`--plain`（去掉颜色、边框、符号和 emoji）。
+管道和 `TERM=dumb` 会自动去掉颜色。
+
+**表格被 `…` 截断。** 表格从不换行；用 `TTM_COLUMNS=160` 加宽，或使用 `--json`。
+
+**脚本读取旧的 stderr `error: …`。** 0.2.0 以 `✕ …` / `rule:` / `Fix:` / `Help:` 输出错误。脚本应读取 `--json`
+（`{"error": {code, rule, field, …}}`，未改变）而不是 stderr。
+
 ## 常见问题
 
 **ttm 免费且开源吗？**

@@ -1,0 +1,7 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+✓ Signed in as An <an@example.com>
+  host [HOST] · profile default · token in credentials.toml
+Next: ttm project init

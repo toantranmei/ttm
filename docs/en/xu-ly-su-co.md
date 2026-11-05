@@ -200,6 +200,21 @@ You need `gh` signed in (`gh auth status`) and a repo with a remote. The branch 
 **Out of disk space because of worktrees.**
 Lower `--keep-days`, or delete folders in `~/.ttm/worktrees` and run `git worktree prune` in the repo.
 
+## Output and exit codes (0.2)
+
+**A command exits with 2 in a script.** Since 0.2.0, code 2 also means a usage problem: `missing_flag` (a flag is missing
+and nobody can be asked), `confirmation_required` (needs `--yes`), `invalid_flag`, `unsupported_feature` (the server lacks
+the feature). The `Fix:` line names the flag to add; for wizards, run once in a terminal and paste the `Equivalent:` line
+into the script.
+
+**Logs have odd colour codes or frame characters.** Set `NO_COLOR=1` (no colours) or `TTM_PLAIN=1`/`--plain` (no colours,
+frames, glyphs or emoji). Pipes and `TERM=dumb` drop colours by themselves.
+
+**Tables are cut with `…`.** Tables never wrap; widen them with `TTM_COLUMNS=160` or use `--json`.
+
+**A script reads the old stderr `error: …`.** 0.2.0 prints errors as `✕ …` / `rule:` / `Fix:` / `Help:`. Scripts should
+read `--json` (`{"error": {code, rule, field, …}}`, unchanged) instead of stderr.
+
 ## FAQ
 
 **Is ttm free and open source?**

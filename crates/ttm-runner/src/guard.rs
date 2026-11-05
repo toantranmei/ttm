@@ -14,6 +14,61 @@ pub const INVALID_BRANCH: &str = "invalid_branch";
 /// Error code reported when the job's `worktree_hint` would put the worktree outside the runner's `worktree_root`.
 pub const INVALID_WORKTREE: &str = "invalid_worktree";
 
+/// Error code reported when a job needs a runner feature this runner does not have.
+pub const UNSUPPORTED_FEATURE: &str = "unsupported_feature";
+
+/// Error code reported when the `ttm-mcp` binary the agent's `ttm` MCP server runs is not found on this runner.
+pub const TTM_MCP_MISSING: &str = "ttm_mcp_missing";
+
+/// Refuses a job when `ttm_mcp` (the command of the agent's `ttm` MCP server) is not an absolute path to an existing
+/// executable file: without it the agent cannot read its task or report progress and would only spend tokens.
+pub fn check_ttm_mcp(ttm_mcp: &Path) -> Result<(), Refused> {
+    if ttm_mcp.is_absolute() && is_executable(ttm_mcp) {
+        return Ok(());
+    }
+    Err(refuse(
+        TTM_MCP_MISSING,
+        format!(
+            "ttm-mcp not found ({}); install it next to ttm or on PATH, then restart the runner",
+            ttm_mcp.display()
+        ),
+    ))
+}
+
+/// Refuses a job whose `requires` names a feature outside `features` (the server should not send one).
+pub fn check_requires(job: &JobSpec, features: &[String]) -> Result<(), Refused> {
+    let missing: Vec<&str> = job
+        .requires
+        .iter()
+        .filter(|r| !features.iter().any(|f| f == *r))
+        .map(String::as_str)
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(refuse(
+            UNSUPPORTED_FEATURE,
+            format!(
+                "this runner lacks {}; update ttm (ttm self-update)",
+                missing.join(", ")
+            ),
+        ))
+    }
+}
+
+/// Refuses a teammate's job when this runner cannot isolate it (no Claude token saved for team jobs): it would run
+/// with this machine's own Claude settings, hooks, plugins and skills.
+pub fn check_team_isolation(job: &JobSpec, isolated: bool) -> Result<(), Refused> {
+    if job.team_job && !isolated {
+        Err(refuse(
+            UNSUPPORTED_FEATURE,
+            "team_isolation: this runner cannot isolate a teammate's job; save a token with `ttm runner config claude-token`",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 /// `https://user@GitHub.com/a/b.git/`, `git@github.com:a/b.git`, `ssh://git@github.com/a/b` → `github.com/a/b`.
 pub fn normalize_url(url: &str) -> String {
     let mut u = url.trim().to_string();
@@ -70,6 +125,17 @@ pub fn valid_branch(name: &str) -> bool {
 pub struct Refused {
     pub code: &'static str,
     pub message: String,
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
 }
 
 fn refuse(code: &'static str, message: impl Into<String>) -> Refused {
@@ -211,6 +277,29 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn ttm_mcp_must_be_an_existing_absolute_executable() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("ttm-mcp");
+        std::fs::write(&exe, "").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert!(check_ttm_mcp(&exe).is_err(), "not executable");
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert_eq!(check_ttm_mcp(&exe), Ok(()));
+        for bad in [
+            Path::new("ttm-mcp").to_path_buf(),
+            dir.path().join("missing"),
+            dir.path().to_path_buf(),
+        ] {
+            let err = check_ttm_mcp(&bad).unwrap_err();
+            assert_eq!(err.code, TTM_MCP_MISSING, "{bad:?}");
+            assert!(err.message.contains(&bad.display().to_string()));
+        }
+    }
+
     fn job(url: Option<&str>, provider: &str, branch: &str) -> JobSpec {
         serde_json::from_value(json!({
             "run_id": "r1", "task_key": "AUR-1", "project_key": "AUR", "branch": branch, "prompt": "p",
@@ -244,6 +333,19 @@ mod tests {
         ] {
             assert!(!valid_branch(bad), "{bad}");
         }
+    }
+
+    /// Project keys are unique per workspace only: a server may offer a job of another workspace's project with the
+    /// same key to a runner announcing that key. The origin check refuses it (the clone is not that repository).
+    #[test]
+    fn the_same_key_in_another_workspace_is_refused_by_the_origin_check() {
+        let repo = PathBuf::from("/code/aurora");
+        let origin = |_: &Path| Some("git@github.com:team-a/aurora.git".to_string());
+        let other_workspace = job(Some("https://github.com/team-b/aur"), "github", "aur-1");
+        assert_eq!(
+            check(&other_workspace, Some(&repo), origin).unwrap_err().code,
+            REPO_NOT_CONFIGURED
+        );
     }
 
     #[test]
@@ -334,5 +436,30 @@ mod tests {
             check(&other, Some(&repo), none).unwrap_err().code,
             REPO_NOT_CONFIGURED
         );
+    }
+
+    #[test]
+    fn team_jobs_need_isolation() {
+        let mut job: JobSpec = serde_json::from_value(serde_json::json!({
+            "run_id": "r", "task_key": "A-1", "branch": "a-1", "prompt": "p", "team_job": true
+        }))
+        .unwrap();
+        let err = check_team_isolation(&job, false).unwrap_err();
+        assert_eq!(err.code, UNSUPPORTED_FEATURE);
+        assert!(err.message.starts_with("team_isolation"));
+        assert!(check_team_isolation(&job, true).is_ok());
+        job.team_job = false;
+        assert!(check_team_isolation(&job, false).is_ok());
+    }
+
+    #[test]
+    fn requires_must_be_features() {
+        let job: JobSpec = serde_json::from_value(serde_json::json!({
+            "run_id": "r", "task_key": "A-1", "branch": "a-1", "prompt": "p", "requires": ["skills", "teleport"]
+        }))
+        .unwrap();
+        let err = check_requires(&job, &crate::features(false)).unwrap_err();
+        assert_eq!(err.code, UNSUPPORTED_FEATURE);
+        assert!(err.message.contains("teleport") && !err.message.contains("skills,"));
     }
 }

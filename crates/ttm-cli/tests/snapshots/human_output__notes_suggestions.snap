@@ -1,0 +1,16 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+1 suggestion(s)
+ID  STATUS   AUTHOR            CHANGES
+──────────────────────────────────────
+s1  pending  🤖 An via claude        1
+
+--- a/suggestion s1 · change ch1 · replace
++++ b/suggestion s1 · change ch1 · replace
+@@ -1 +1 @@
+-Ra mắt
++Ra mắt 0.2.0
+
+Next: ttm notes resolve s1 --accept

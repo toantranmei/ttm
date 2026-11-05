@@ -18,10 +18,11 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::ExitCode;
 use ttm_api::Client;
-use ttm_api::factory::{ChangeRequestOutcome, Conflict, bundle_path};
+use ttm_api::factory::{ChangeRequestOutcome, Conflict, bundle_path, is_config_path};
 use ttm_core::merge3::{self, Changes, Files};
 use ttm_core::project_file::{Linked, read_tree, write_tree};
 use ttm_core::worktree;
+use ttm_ui::{Callout, Cell, Col, Header, Table, Token, Ui, next_line};
 
 #[derive(Debug, Serialize, Default)]
 struct SyncOutput {
@@ -36,6 +37,8 @@ struct SyncOutput {
     nothing_to_send: bool,
     conflicts: Vec<Conflict>,
     in_sync: bool,
+    /// Configuration requests created by this sync (S5: workflow, rules, agents, skills).
+    config_requests: Vec<ttm_api::factory::ConfigRequestRef>,
 }
 
 /// Local plan changes keyed by their bundle path (`plan/tasks/A.md`), as change requests expect.
@@ -45,15 +48,58 @@ pub fn as_bundle(changes: &Changes) -> Changes {
 
 pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
     let mut linked = linked()?;
-    let (client, _) = app.api().await?;
-    let bundle = client
-        .export_plan(&linked.file.project_id, None)
-        .await
-        .context("downloading the plan")?;
-    let remote = bundle.plan_files();
-    let base = read_tree(&linked.base_dir())?;
-    let local = read_tree(&linked.plan_dir())?;
+    let (client, discovery) = app.api().await?;
+    // S5 servers also export the as-code configuration (`.ttm/workflow.yaml`, `rules/`, `agents/`, `skills/`).
+    let ascode = discovery.has_feature("ascode_v2");
+    let bundle = if ascode {
+        client
+            .export_bundle(&linked.file.project_id, &["config", "skills"])
+            .await
+            .context("downloading the plan and configuration")?
+    } else {
+        client
+            .export_plan(&linked.file.project_id, None)
+            .await
+            .context("downloading the plan")?
+    };
+    // One namespace for plan files (`tasks/A.md`) and configuration (`agents/dev.yaml`): they never collide.
+    let remote = split_remote(&bundle, ascode);
+    let mut base = read_tree(&linked.base_dir())?;
+    let mut local = read_tree(&linked.plan_dir())?;
+    if ascode {
+        base.extend(ttm_core::project_file::read_config_in(&linked.config_base_dir())?);
+        local.extend(linked.read_config()?);
+    }
     let local_changes = merge3::changes(&base, &local);
+    if ascode && !args.check {
+        let changed_config: BTreeMap<String, String> = local_changes
+            .iter()
+            .filter(|(k, _)| is_config_path(k))
+            .filter_map(|(k, v)| v.clone().map(|v| (k.clone(), v)))
+            .collect();
+        let issues = crate::ascode::check(&changed_config, &linked.dir());
+        if !issues.is_empty() {
+            for i in &issues {
+                app.ui.eline(&format!(
+                    "{} {i}",
+                    app.ui
+                        .paint(Token::Coral, if app.ui.mode().plain { "ERROR" } else { "✕" })
+                ));
+            }
+            let rule = if issues.iter().any(|i| i.rule == "secret_in_file") {
+                "secret_in_file"
+            } else {
+                "invalid_file"
+            };
+            return Err(anyhow::Error::from(
+                ttm_ui::UsageError::new(
+                    rule,
+                    format!("{} problem(s) in .ttm; nothing was sent", issues.len()),
+                )
+                .fix("fix the files listed above, then run ttm sync again"),
+            ));
+        }
+    }
     let server_changes = merge3::changes(&base, &remote);
 
     let mut out = SyncOutput {
@@ -67,7 +113,7 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
         local_changes.is_empty() && server_changes.is_empty() && bundle.rev == linked.file.synced_rev;
 
     if args.check {
-        emit(app.json, &out, || print_check(&out));
+        emit(&app, &out, |ui| print_check(ui, &linked.file.key, &out));
         return Ok(if out.in_sync {
             ExitCode::SUCCESS
         } else {
@@ -89,17 +135,21 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
 
     if send {
         match client
-            .create_change_request(
+            .create_change_request_v2(
                 &linked.file.project_id,
                 linked.file.synced_rev,
                 &as_bundle(&local_changes),
+                bundle.config_base.as_ref().filter(|_| ascode),
             )
             .await?
         {
             ChangeRequestOutcome::Created(cr) => {
                 out.skipped = cr.skipped.clone();
-                if cr.is_empty() {
+                out.config_requests = cr.config_requests.clone();
+                if cr.is_empty() && cr.config_requests.is_empty() {
                     out.nothing_to_send = true;
+                } else if cr.is_empty() {
+                    // Only configuration requests: the plan part stays as it is.
                 } else {
                     linked.file.pending_change_request = (cr.status == "pending").then(|| cr.id.clone());
                     out.change_request = Some(cr.id);
@@ -108,17 +158,33 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
             ChangeRequestOutcome::Conflicts(conflicts) => {
                 if !args.resolve {
                     out.conflicts = conflicts;
-                    emit(app.json, &out, || {
-                        eprintln!("Conflicts with the server (both sides changed the same fields):");
-                        for c in &out.conflicts {
-                            eprintln!(
-                                "  {} {}: local {} / server {}",
-                                c.task, c.field, c.local, c.server
-                            );
-                        }
-                        eprintln!(
-                            "Run `ttm sync --resolve` to merge them with a local agent, or edit .ttm/plan and retry."
+                    emit(&app, &out, |ui| {
+                        ui.print(&header(&linked.file.key, &out));
+                        ui.print(
+                            &Callout::warning(format!(
+                                "{} conflict(s) with the server: both sides changed the same fields",
+                                out.conflicts.len()
+                            ))
+                            .detail(
+                                "Nothing was sent. Merge with a local agent, or edit .ttm/plan and retry.",
+                            )
+                            .next("ttm sync --resolve"),
                         );
+                        let mut table = Table::new(&[
+                            Col::new("TASK"),
+                            Col::new("FIELD"),
+                            Col::new("LOCAL").flex(1).min(6),
+                            Col::new("SERVER").flex(1).min(6),
+                        ]);
+                        for c in &out.conflicts {
+                            table.push(vec![
+                                Cell::token(c.target.as_deref().unwrap_or(&c.task), Token::Ink),
+                                Cell::new(c.path.as_deref().unwrap_or(&c.field)),
+                                Cell::token(value_text(&c.local), Token::Teal),
+                                Cell::token(value_text(&c.server), Token::Coral),
+                            ]);
+                        }
+                        ui.print(&table);
                     });
                     return Ok(ExitCode::FAILURE);
                 }
@@ -143,47 +209,153 @@ pub async fn run(app: App, args: SyncArgs) -> Result<ExitCode> {
     } else {
         merge3::merge(&base, &local, &remote).files
     };
-    write_tree(&linked.plan_dir(), &next)?;
-    write_tree(&linked.base_dir(), &remote)?;
+    let (next_plan, next_config) = split_config(next);
+    let (remote_plan, remote_config) = split_config(remote.clone());
+    write_tree(&linked.plan_dir(), &next_plan)?;
+    write_tree(&linked.base_dir(), &remote_plan)?;
+    if ascode {
+        linked.write_config(&next_config)?;
+        ttm_core::project_file::write_config_in(&linked.config_base_dir(), &remote_config)?;
+        if let Some(base) = &bundle.config_base {
+            std::fs::create_dir_all(linked.cache_dir())?;
+            std::fs::write(
+                linked.cache_dir().join("config_base.json"),
+                serde_json::to_vec_pretty(base)?,
+            )?;
+        }
+    }
     linked.file.synced_rev = bundle.rev;
     linked.save()?;
 
-    emit(app.json, &out, || {
-        println!(
-            "Plan at rev {} ({} file(s) updated from the server).",
+    let project_url = format!("{}/factory?project={}", linked.file.host, linked.file.project_id);
+    emit(&app, &out, |ui| {
+        ui.print(&header(&linked.file.key, &out));
+        let mut callout = Callout::success(format!(
+            "Plan at rev {} ({} file(s) updated from the server)",
             bundle.rev,
             out.server_changes.len()
-        );
-        if let Some(cr) = &out.change_request {
-            println!("Local edits sent as change request {cr}; they apply once approved on the web.");
-        }
+        ));
         if out.nothing_to_send {
-            println!(
-                "Up to date: the server found nothing to change in the local edits (copies in .ttm/cache/dropped)."
+            callout = callout.detail(
+                "The server found nothing to change in the local edits (copies in .ttm/cache/dropped).",
             );
         }
+        ui.print(&callout);
+        if !out.local_changes.is_empty() || !out.server_changes.is_empty() {
+            ui.print(&changes_table(&out));
+        }
+        if let Some(cr) = &out.change_request {
+            ui.print(
+                &Callout::success(format!("Local edits sent as change request {cr}"))
+                    .detail("They apply once approved on the web:")
+                    .detail(ui.paint(Token::Blue, &project_url)),
+            );
+        }
+        if !out.config_requests.is_empty() {
+            ui.print(&Callout::success(format!(
+                "{} configuration request(s) created; they apply once approved",
+                out.config_requests.len()
+            )));
+            let mut t = Table::new(&[
+                Col::new("KIND"),
+                Col::new("TARGET").flex(1).min(6),
+                Col::new("ID"),
+            ]);
+            for c in &out.config_requests {
+                t.push(vec![
+                    Cell::new(c.kind.as_str()),
+                    Cell::new(c.target.as_str()),
+                    Cell::token(c.id.as_str(), Token::Ink),
+                ]);
+            }
+            ui.print(&t);
+            ui.line(&next_line(
+                ui.mode(),
+                &format!("ttm cr show {}", out.config_requests[0].id),
+            ));
+        }
         for s in &out.skipped {
-            eprintln!("skipped: {s}");
+            ui.eprint(&Callout::warning(format!("skipped: {s}")));
         }
     });
     Ok(ExitCode::SUCCESS)
 }
 
-fn print_check(out: &SyncOutput) {
-    if out.in_sync {
-        println!("Plan in sync (rev {}).", out.server_rev);
-        return;
-    }
-    println!(
-        "Plan out of sync: local rev {}, server rev {}.",
-        out.local_rev, out.server_rev
+/// Bundle files in the sync namespace: plan files without `plan/`, configuration as is (only with `ascode`).
+fn split_remote(bundle: &ttm_api::factory::PlanBundle, ascode: bool) -> Files {
+    bundle
+        .files
+        .iter()
+        .filter_map(|(k, v)| match k.strip_prefix("plan/") {
+            Some(rel) => Some((rel.to_string(), v.clone())),
+            None if ascode && is_config_path(k) => Some((k.clone(), v.clone())),
+            None if !ascode => Some((k.clone(), v.clone())),
+            None => None,
+        })
+        .collect()
+}
+
+/// `(plan files, configuration files)`.
+fn split_config(files: Files) -> (Files, Files) {
+    files.into_iter().partition(|(k, _)| !is_config_path(k))
+}
+
+/// `AUR · rev 7 local / 9 server`.
+fn header(key: &str, out: &SyncOutput) -> Header {
+    let summary = format!(
+        "{} local change(s) · {} server change(s)",
+        out.local_changes.len(),
+        out.server_changes.len()
     );
+    Header::new(format!(
+        "{key} · rev {} local / {} server",
+        out.local_rev, out.server_rev
+    ))
+    .summary(summary)
+}
+
+/// One row per changed file: `local` or `server`.
+fn changes_table(out: &SyncOutput) -> Table {
+    let mut table = Table::new(&[Col::new("SIDE"), Col::new("FILE").flex(1).min(10)]);
     for f in &out.local_changes {
-        println!("  local:  {f}");
+        table.push(vec![Cell::token("local", Token::Teal), Cell::new(f.as_str())]);
     }
     for f in &out.server_changes {
-        println!("  server: {f}");
+        table.push(vec![Cell::token("server", Token::Blue), Cell::new(f.as_str())]);
     }
+    table
+}
+
+/// A conflicting value as one line.
+fn value_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.replace('\n', " "),
+        serde_json::Value::Null => "-".into(),
+        other => other.to_string(),
+    }
+}
+
+fn print_check(ui: &Ui, key: &str, out: &SyncOutput) {
+    if out.in_sync {
+        ui.print(&Callout::success(format!(
+            "Plan in sync (rev {})",
+            out.server_rev
+        )));
+        return;
+    }
+    ui.print(
+        &Callout::warning(format!(
+            "Plan out of sync: local rev {}, server rev {}",
+            out.local_rev, out.server_rev
+        ))
+        .detail(format!(
+            "{key}: {} local, {} server change(s)",
+            out.local_changes.len(),
+            out.server_changes.len()
+        )),
+    );
+    ui.print(&changes_table(out));
+    ui.line(&next_line(ui.mode(), "ttm sync"));
 }
 
 /// Instruction appended to the server's prompt.
@@ -294,6 +466,29 @@ fn run_agent(claude: &Path, cwd: &Path, prompt: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_split_and_config_partition() {
+        let bundle = ttm_api::factory::PlanBundle {
+            rev: 1,
+            files: [
+                ("plan/index.md", "# A\n"),
+                ("workflow.yaml", "name: A\n"),
+                ("agents/dev.yaml", "name: DEV\n"),
+                ("skills/tdd/SKILL.md", "---\n"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            ..Default::default()
+        };
+        let v2 = split_remote(&bundle, true);
+        assert_eq!(v2.len(), 4);
+        assert!(v2.contains_key("index.md") && v2.contains_key("agents/dev.yaml"));
+        let (plan, config) = split_config(v2);
+        assert_eq!((plan.len(), config.len()), (1, 3));
+        assert_eq!(bundle_path("agents/dev.yaml"), "agents/dev.yaml");
+    }
 
     #[test]
     fn change_request_paths_are_bundle_paths() {

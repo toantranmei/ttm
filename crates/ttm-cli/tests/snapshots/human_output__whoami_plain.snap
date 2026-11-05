@@ -1,0 +1,12 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+An <an@example.com>
+user: An
+email: an@example.com
+host: [HOST]
+profile: default
+workspace: not chosen
+Support toantranmei → https://toantranmei.com/mei-er
+Next: ttm workspace switch <name>

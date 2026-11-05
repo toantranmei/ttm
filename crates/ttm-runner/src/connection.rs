@@ -52,9 +52,76 @@ pub struct Runner {
     pub token_expires: Option<OffsetDateTime>,
     pub renew: Option<Renew>,
     pub merge: Option<MergeSetup>,
+    /// `runner.toml`: when its modification time changes, the next heartbeat announces the local MCP servers again
+    /// (names, allowed agents, `team_jobs`; never commands or environment).
+    pub config_file: Option<PathBuf>,
+}
+
+/// Modification time of a file, if any.
+pub fn mtime(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// What `runner.toml` announces to the server: local MCP servers and the projects with a local clone.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConfigAnnounce {
+    pub local_mcp: Vec<ttm_api::factory::LocalMcpAnnounce>,
+    pub projects: Vec<String>,
+}
+
+/// `runner.toml` as seen when the loop starts: never, so the first heartbeat announces it.
+pub const START_SEEN: Option<std::time::SystemTime> = None;
+
+/// The announce to send now: `Some` when `runner.toml` changed since `seen` (updated in place).
+pub fn config_changed(
+    config_file: Option<&std::path::Path>,
+    seen: &mut Option<std::time::SystemTime>,
+) -> Option<ConfigAnnounce> {
+    let file = config_file?;
+    let now = mtime(file);
+    if now == *seen {
+        return None;
+    }
+    *seen = now;
+    let dir = file.parent()?;
+    let config = crate::RunnerConfig::load(dir).unwrap_or_default();
+    Some(ConfigAnnounce {
+        local_mcp: crate::local_mcp::announce(&config.mcp),
+        projects: config.announced_projects(),
+    })
 }
 
 /// Whether the token should be renewed now.
+/// Whether the runner may take jobs given its `ttm-mcp` binary (the agents' `ttm` MCP server). Re-checked on every
+/// turn of the loop (one `stat`): while it is missing the runner takes no job (each would be refused), and it takes
+/// jobs again as soon as the binary is back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpGate {
+    pub ok: bool,
+}
+
+impl Default for McpGate {
+    fn default() -> Self {
+        Self { ok: true }
+    }
+}
+
+impl McpGate {
+    /// Re-checks `ttm_mcp`; returns what to tell the owner when it went missing or came back.
+    pub fn update(&mut self, ttm_mcp: &std::path::Path) -> Option<String> {
+        let now = crate::guard::check_ttm_mcp(ttm_mcp);
+        let was = std::mem::replace(&mut self.ok, now.is_ok());
+        match (was, now) {
+            (true, Err(refused)) => Some(format!("{}; not taking jobs until it is back", refused.message)),
+            (false, Ok(())) => Some(format!(
+                "ttm-mcp is back ({}); taking jobs again",
+                ttm_mcp.display()
+            )),
+            _ => None,
+        }
+    }
+}
+
 pub fn needs_renewal(expires: Option<OffsetDateTime>, now: OffsetDateTime) -> bool {
     expires.is_some_and(|at| at - now <= RENEW_BEFORE)
 }
@@ -73,6 +140,10 @@ impl Runner {
         // The long-poll in flight. It lives across loop turns: a heartbeat or a finished run must not drop a poll
         // the server may already have answered with a claimed job.
         let mut poll: Option<PollFuture> = None;
+        // Nothing announced yet: the first heartbeat sends the current `runner.toml` and the features (a restart with
+        // a still valid token does not register again, so changes made while it was down would be missed).
+        let mut config_seen = START_SEEN;
+        let mut mcp_gate = McpGate::default();
         tracing::info!(runner = %self.runner_id, capacity = self.capacity, "runner up");
         loop {
             if paused_until
@@ -81,7 +152,11 @@ impl Runner {
             {
                 paused_until = None;
             }
-            let can_take = running.len() < self.capacity && paused_until.is_none();
+            if let Some(change) = mcp_gate.update(&self.executor.ttm_mcp_exe) {
+                tracing::warn!("{change}");
+                self.executor.ui.eline(&change);
+            }
+            let can_take = running.len() < self.capacity && paused_until.is_none() && mcp_gate.ok;
             let client = self.client.get();
             if can_take && poll.is_none() {
                 let (c, id) = (client.clone(), self.runner_id.clone());
@@ -98,10 +173,14 @@ impl Runner {
                     {
                         tracing::warn!("could not renew the runner token: {err:#}");
                     }
+                    let changed = config_changed(self.config_file.as_deref(), &mut config_seen);
                     let beat = Heartbeat {
                         running: running.keys().cloned().collect(),
                         capacity: self.capacity,
                         paused_until: paused_until.as_ref().map(|(s, _)| s.clone()),
+                        local_mcp: changed.as_ref().map(|c| c.local_mcp.clone()),
+                        features: changed.as_ref().map(|_| self.executor.features()),
+                        projects: changed.map(|c| c.projects),
                     };
                     match self.client.get().heartbeat(&self.runner_id, &beat).await {
                         Ok(reply) => {
@@ -337,6 +416,25 @@ mod tests {
         assert!(!is_auth_error(&anyhow::anyhow!("network down")));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn no_jobs_while_ttm_mcp_is_missing() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("ttm-mcp");
+        let mut gate = McpGate::default();
+        let gone = gate.update(&exe).expect("reported once");
+        assert!(gone.contains("not taking jobs"), "{gone}");
+        assert!(!gate.ok);
+        assert_eq!(gate.update(&exe), None, "said once, still paused");
+        assert!(!gate.ok);
+        std::fs::write(&exe, "").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(gate.update(&exe).unwrap().contains("taking jobs again"));
+        assert!(gate.ok);
+        assert_eq!(gate.update(&exe), None);
+    }
+
     #[test]
     fn renewal_window() {
         let now = OffsetDateTime::now_utc();
@@ -344,5 +442,38 @@ mod tests {
         assert!(!needs_renewal(Some(now + time::Duration::hours(2)), now));
         assert!(needs_renewal(Some(now + time::Duration::minutes(10)), now));
         assert!(needs_renewal(Some(now - time::Duration::minutes(1)), now));
+    }
+
+    #[test]
+    fn local_mcp_and_projects_are_announced_again_when_the_file_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("runner.toml");
+        std::fs::write(
+            &file,
+            "[repos]\nAUR = \"/code/aurora\"\n\n[mcp.local.notes]\ncommand = \"notes\"\nallow = [\"dev\"]\n",
+        )
+        .unwrap();
+        let mut seen = mtime(&file);
+        assert!(config_changed(Some(&file), &mut seen).is_none(), "unchanged");
+        let mut seen = None;
+        let sent = config_changed(Some(&file), &mut seen).unwrap();
+        assert_eq!(sent.local_mcp[0].name, "notes");
+        assert_eq!(sent.projects, vec!["AUR".to_string()]);
+        assert!(config_changed(None, &mut seen).is_none());
+    }
+
+    #[test]
+    fn a_restarted_runner_announces_the_current_list_on_its_first_heartbeat() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("runner.toml");
+        // changed while the runner was down (its token still valid: no registration on start)
+        std::fs::write(&file, "[repos]\nAUR = \"/code/aurora\"\nNOTE = \"/code/notes\"\n").unwrap();
+        let mut seen = START_SEEN;
+        let sent = config_changed(Some(&file), &mut seen).expect("the first heartbeat announces");
+        assert_eq!(sent.projects, vec!["AUR".to_string(), "NOTE".to_string()]);
+        assert!(
+            config_changed(Some(&file), &mut seen).is_none(),
+            "then only on changes"
+        );
     }
 }

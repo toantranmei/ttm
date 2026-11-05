@@ -169,5 +169,18 @@ async fn run_tools_need_a_run() {
         .unwrap();
     assert_eq!(out.is_error, Some(true));
     assert_eq!(out.structured_content.unwrap()["error"]["code"], "no_run");
-    assert_eq!(set.tools().len(), 3 + 8, "workspace + factory tools");
+    // not a job (no run): workspace + factory tools + every Factory v2 read tool
+    let read = ttm_mcp_tools::factory_read::tools().len();
+    assert_eq!(
+        set.tools().len(),
+        3 + 8 + read,
+        "workspace + factory + factory read tools"
+    );
+    // a job sees only the read tools a job may use
+    let (_server, job) = setup(in_run()).await;
+    assert_eq!(
+        job.tools().len(),
+        3 + 8 + ttm_mcp_tools::factory_read::JOB_TOOLS.len(),
+        "workspace + factory + job read tools"
+    );
 }

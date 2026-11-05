@@ -73,9 +73,17 @@ auto_merge = false
 [repos]
 AUR = "/Users/an/code/aurora"
 WEB = "/Users/an/code/web"
+
+[mcp.local.github-local]                         # local MCP (0.2.0), see below
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "env:GITHUB_TOKEN" }
+allow = ["dev", "reviewer"]
+team_jobs = false
 ```
 
-Run `ttm runner up` again (or restart the service) to apply the new configuration.
+Run `ttm runner up` again (or restart the service) to apply the new configuration. The `[mcp.local.*]` tables are read
+again for every job, no restart needed.
 
 ### Why you declare repos
 
@@ -107,6 +115,44 @@ Team 6 per runner). When the agent reports that your Claude usage limit is reach
 until the reset time (that run ends with status `paused` and `paused_until`), and the server requeues the work instead
 of retrying continuously.
 
+## Local MCP: `ttm runner config mcp`
+
+A local MCP is an MCP server running **on your machine** (for example the GitHub server with your own token). By default
+**no agent** may use it: you allow agents one by one (by handle).
+
+```sh
+ttm runner config mcp add github-local --command npx --arg -y --arg @modelcontextprotocol/server-github \
+  --env GITHUB_TOKEN=env:GITHUB_TOKEN
+ttm runner config mcp allow dev --mcp github-local     # without --mcp: every local MCP
+ttm runner config mcp deny dev --mcp github-local
+ttm runner config mcp team-jobs github-local on
+ttm runner config mcp remove github-local
+ttm runner config mcp list
+```
+
+| Key | Meaning |
+| --- | --- |
+| name (`[mcp.local.<name>]`) | `^[a-z0-9][a-z0-9-]{0,31}$`, never `ttm` (the runner's own MCP server) |
+| `command`, `args` | How to start the server |
+| `env` | `K = "env:VAR"`: read the runner's variable `VAR` **at run time** (the real value is never written to the file); `K = "value"` only for non-secret values. `--env` refuses literal values that look like tokens |
+| `allow` | Agent handles that may use it |
+| `team_jobs` | `true`: jobs delegated by someone else may use it too (default `false`) |
+
+A job gets a local MCP when its name is in `job.mcp.local`, the job's agent is in `allow`, and the job is not a teammate's
+job or `team_jobs = true`. A missing `env:VAR` drops that MCP (with a warning event); a name equal to `ttm` or to a remote
+MCP is dropped too. As `ttm runner config mcp list` says: **only names, allowed agents and `team_jobs` are announced to
+the server**; commands, arguments and environment never leave the machine. These commands edit `runner.toml` with
+`toml_edit`, so your comments are kept.
+
+### Claude token for teammates' jobs: `ttm runner config claude-token`
+
+```sh
+claude setup-token | ttm runner config claude-token     # reads the token on stdin, stores it in the keyring
+ttm runner config claude-token --remove
+```
+
+See [Teammates' jobs are isolated](#teammates-jobs-are-isolated).
+
 ## How a job runs
 
 1. **Check** the repo and branch (section above).
@@ -133,11 +179,89 @@ of retrying continuously.
    | test command (`cargo test`, `pnpm test`, `pytest`, `go test`, `vitest`, `playwright test`…) | `log` `tests passed`/`tests failed`; the result is attached to the run as `test_result` |
 
 7. **Finish**: on success, commits whatever the agent left (`chore(<key>): changes from agent run <run>`), pushes the
-   branch, opens a PR with `gh pr create` if `gh` is available, then reports the status (`succeeded`, `failed`,
-   `cancelled`, `paused`), commit, PR, and tokens used. The temporary MCP file is deleted.
+   branch, opens a PR with `gh pr create` if `gh` is available (or keeps the branch's open PR, which the push
+   updated), then reports the status (`succeeded`, `failed`, `cancelled`, `paused`), commit, PR, and tokens used. The
+   PR title is `<KEY>: <task title>` (at most 72 characters); the agent's summary is the PR body. The temporary MCP
+   file is deleted.
+
+Since 0.2.0, between the rules and the agent the runner also installs the job's skills, prepares the run's own git hooks
+and adds the remote and local MCP servers to the MCP file; Claude Code runs with `--strict-mcp-config` (the agent sees only
+those servers) and `--settings <cache>/settings-<run>.json` (sections below).
 
 Worktrees of finished jobs are kept for `keep_days` days so you can review them, then removed the next time
 `ttm runner up` starts.
+
+Each run prints one line when it starts and one when it ends (stderr):
+
+```text
+● AUR-12 running · sonnet · worktree /Users/an/orca/workspaces/aur/aur-12-dang-nhap-google
+✓ AUR-12 succeeded → https://github.com/an/aurora/pull/7
+✕ AUR-13 refused: repo_not_configured add it with `ttm runner config --repo AUR=<path to your clone>`
+```
+
+### Git identity and the `commit-msg` hook
+
+- Jobs with `git` (agent v2) commit with the **agent's** name and email (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`), for example
+  `DEV · Code <dev+aurora@agents.toantranmei.com>`. Jobs without `git` (a person's task) keep the machine's git identity.
+- **Every job**, in every `commit_identity` mode (`agent`, `delegator`, `delegator_with_trailer`), runs git with
+  `core.hooksPath` pointing at the run's own hooks directory `<cache>/hooks/<run>/` (through
+  `GIT_CONFIG_COUNT/KEY/VALUE`; no configuration file is changed). Its `commit-msg` hook:
+  1. removes every line (case-insensitive) matching `^co-authored-by:.*(claude|anthropic)`, `generated (with|by) .*claude`,
+     `🤖 generated with`, `noreply@anthropic.com`;
+  2. adds the job's trailers (only `delegator_with_trailer`: `Co-authored-by: <agent name> <agent email>`, once);
+  3. runs the repository's own `commit-msg` (from `core.hooksPath` or `.git/hooks`). Other original hooks are chained by
+     shims.
+- Claude Code always runs with `--settings` holding `{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}`.
+- Claude Code also gets `--append-system-prompt` with a runner note: the runner pushes the branch and opens the PR, so
+  the agent runs no `git push` and no `gh` command that writes to a PR or issue (read-only `gh` is fine), and its summary says nothing about the PR; a review gives its verdict with the
+  factory tools.
+- The runner's own commit of leftovers and its push use the same environment. The hooks directory is removed after the run.
+
+Rule: no commit made by the runner ever carries a Claude/Anthropic line.
+
+### Skills
+
+A job can carry **reviewed** skills (`job.skills`: slug, version, a signed download URL valid 10 minutes, SHA-256, size).
+The runner:
+
+1. reuses `<cache>/skills/<sha256>.zip` when present, else downloads it (60 seconds, stopping beyond the declared size or
+   5 MB);
+2. computes the SHA-256; a mismatch **refuses the job** with `skill_hash_mismatch`;
+3. unpacks it safely (no `..`, no symlinks, ≤ 200 files, ≤ 5 MB) into `<worktree>/.claude/skills/ttm-<slug>/`; when git
+   already tracks that directory the skill is skipped (warning);
+4. adds `/.claude/skills/ttm-*/` once to the repository's `info/exclude`, so skills are never committed;
+5. removes the installed directories after the run, whether it succeeded, failed, was cancelled or timed out.
+
+### MCP through the gateway and local MCP
+
+- **Remote MCP** servers of the workspace (`ttm mcp-server …`): the job gets `{name, url}` pointing at the server's
+  gateway (`/api/v1/mcp/gw/<server>`) and calls it with the job token. MCP server secrets (OAuth tokens, secret headers)
+  stay on the server and never reach your machine.
+- **Local MCP**: see [Local MCP](#local-mcp-ttm-runner-config-mcp).
+
+### Teammates' jobs are isolated
+
+A teammate's job (`team_job`: the person who delegated it is not the runner's owner) must not see your personal Claude
+setup:
+
+- it always runs with `--setting-sources project,local` (your `~/.claude/settings.json` is left out);
+- once a token is saved with `ttm runner config claude-token`, it also runs with an empty `CLAUDE_CONFIG_DIR` per run and
+  `CLAUDE_CODE_OAUTH_TOKEN` set to that token, so it sees none of your hooks, plugins or personal skills
+  (`~/.claude/skills`);
+- the runner announces `team_isolation` only when the token is saved. Without a token it **refuses** every teammate's
+  job (`unsupported_feature`, reported to the server; it never runs one with this machine's Claude setup), and
+  `ttm runner status` tells you what to run.
+
+Spike result (Claude Code 2.1.318, from `claude --help` only): `--setting-sources` exists, but the help does not say
+whether plugins and personal skills are left out, so the flag alone is **not enough**; hence the empty `CLAUDE_CONFIG_DIR`.
+To be confirmed with a real job during the M4 simulation.
+
+### Features (`features`)
+
+On registration the runner announces what it can do: `git_identity`, `skills`, `mcp_gateway`, `mcp_local`, plus
+`team_isolation` when a Claude token for teammates' jobs is saved; and its local MCP list (`name`, `allow`, `team_jobs`).
+The heartbeat sends the local MCP list again when `runner.toml` changes. A job whose `requires` lists a feature this
+runner lacks is refused with `unsupported_feature`.
 
 ### Connection to the server
 
@@ -163,13 +287,23 @@ ttm runner status
 ```
 
 ```text
-runner:    macbook-an (0190f500-…)
-running:   yes
-capacity:  2
-harnesses: claude-code
-repo:      AUR = /Users/an/code/aurora
-repo:      WEB = /Users/an/code/web
+● macbook-an running
+     runner  0190f500-…
+        pid  4242
+   capacity  2
+  team jobs  no
+  harnesses  claude-code
+  worktrees  /Users/an/orca/workspaces
+   features  git_identity, skills, mcp_gateway, mcp_local
+
+PROJECT  CLONE
+───────────────────────────────
+AUR      /Users/an/code/aurora
+WEB      /Users/an/code/web
 ```
+
+A local MCP table (name, command, allowed agents, team jobs) is added when there are any, and a warning when teammates'
+jobs are not isolated yet.
 
 ```sh
 ttm runner down     # sends SIGTERM (Windows: taskkill) to the process in runner.pid
@@ -265,7 +399,8 @@ ttm agent stop 0190f610-…            # kill switch
 | --- | --- | --- |
 | User token (`ttm login`) | Registering the runner, `ttm agent run`, reporting merge results (`auto_merge`) | Keyring `<profile>@<host>` (or `TTM_TOKEN`) |
 | Runner token (`ttm_job_`, 12 hours) | Heartbeats, receiving jobs, sending events, finishing runs | Keyring `<profile>#runner@<host>`, never from `TTM_TOKEN` |
-| Job token (`ttm_job_`) | The agent's `ttm-mcp` within that run only | Temporary MCP file (0600), deleted when the run ends |
+| Job token (`ttm_job_`) | The agent's `ttm-mcp` within that run only, the MCP gateway | Temporary MCP file (0600), deleted when the run ends |
+| Claude token for teammates' jobs (`claude setup-token`) | `CLAUDE_CODE_OAUTH_TOKEN` of teammates' jobs | Keyring `<profile>#claude-team` |
 
 To revoke a runner: the **Runner** or **Token** tab on `/me/ket-noi`.
 
@@ -280,5 +415,10 @@ To revoke a runner: the **Runner** or **Token** tab on `/me/ket-noi`.
   run.
 - **The agent runs with your OS user's permissions**, limited by the allowed-tools list the job sends. This isn't a
   sandbox: only run the runner for projects and workspaces you trust, and review PRs before merging.
+- **No Claude/Anthropic lines** in commits or PRs (the run's `commit-msg` hook, `--settings`).
+- **Only reviewed skills**, checked by SHA-256, never committed, removed after the run.
+- **Local MCP is off by default**, only for agents you allow; the server only learns the names. Teammates' jobs don't see
+  your personal Claude setup.
+- **An agent running a job never gets admin tools** (`factory:admin`): the job's MCP drops the `admin` toolset.
 - The final prompt of each step passes through your machine (to run Claude Code); the server never receives your Claude
   key.

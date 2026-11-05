@@ -1,0 +1,11 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+AUR · 3 task(s)
+   KEY     TITLE                                      ROLE  ASSIGNEE         EST
+────────────────────────────────────────────────────────────────────────────────
+●  AUR-12  Đăng nhập bằng Google cho người dùng mới…  DEV   🤖 Mei ✦ Mei-er    3
+◐  AUR-13  登录页面                                   QA    👤 An              -
+◐  AUR-14  Release 🚀                                 -     -                  -
+Next: ttm task show AUR-12

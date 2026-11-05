@@ -1,5 +1,6 @@
 //! Command line definition (clap derive). Every command accepts `--json`.
 
+pub use crate::cli_v2::*;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
@@ -8,7 +9,9 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
     version,
     about = "Command line for toantranmei.com: sign in, workspaces, tokens, MCP setup",
     long_about = "Command line for toantranmei.com.\n\nHost order: --host > TTM_HOST > profile > https://toantranmei.com.\n\
-                  Token order: TTM_TOKEN > OS keyring > credentials.toml.\n\nDocs: https://toantranmei.com/help/ttm"
+                  Token order: TTM_TOKEN > OS keyring > credentials.toml.\n\n\
+                  Output: --json for scripts, --plain for logs, NO_COLOR respected.\n\n\
+                  Docs: https://toantranmei.com/help/ttm"
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -28,6 +31,12 @@ pub struct GlobalArgs {
     /// Machine-readable JSON on stdout.
     #[arg(long, global = true)]
     pub json: bool,
+    /// Plain text for logs: no colour, frames, glyphs or emoji (also TTM_PLAIN=1).
+    #[arg(long, global = true, env = "TTM_PLAIN", value_parser = clap::builder::FalseyValueParser::new())]
+    pub plain: bool,
+    /// Answer yes to confirmations and take defaults instead of asking (scripts, CI).
+    #[arg(short = 'y', long, global = true)]
+    pub yes: bool,
     /// More logs on stderr (-v, -vv).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -62,7 +71,8 @@ pub enum Command {
     /// Factory tasks.
     #[command(subcommand)]
     Task(TaskCommand),
-    /// Project rules for local agents (AGENTS.md / CLAUDE.md block, agent hooks).
+    /// Project rules for local agents (AGENTS.md / CLAUDE.md block, agent hooks); automation rules are
+    /// `ttm automation` and `.ttm/rules/` (synced by `ttm sync`).
     #[command(subcommand)]
     Rules(RulesCommand),
     /// Hook entry points called by coding agents (reads the hook JSON on stdin).
@@ -71,12 +81,32 @@ pub enum Command {
     /// Run agent jobs from the server on this machine.
     #[command(subcommand)]
     Runner(RunnerCommand),
-    /// Agent runs: start one now, follow its log, stop it.
+    /// Agents: list, show, create, edit, pause, resume, archive, skills, MCP; runs: run, logs, stop.
     #[command(subcommand)]
     Agent(AgentCommand),
     /// MCP client setup.
     #[command(subcommand)]
     Mcp(McpCommand),
+    /// Workflow of a project: show, validate, simulate, diff, publish, upgrade, copy.
+    #[command(subcommand)]
+    Workflow(WorkflowCommand),
+    /// Automation rules: list, show, test, enable, disable, runs.
+    #[command(subcommand)]
+    Automation(AutomationCommand),
+    /// Skills of the workspace: list, push, pull, show, review, import.
+    #[command(subcommand)]
+    Skill(SkillCommand),
+    /// Remote MCP servers of the workspace: list, add, connect, remove.
+    #[command(subcommand, name = "mcp-server")]
+    McpServer(McpServerCommand),
+    /// Change requests (plan and configuration): list, show, approve, reject.
+    #[command(subcommand)]
+    Cr(CrCommand),
+    /// Notifications: list, --watch, read.
+    Inbox(InboxArgs),
+    /// Template library: list, publish, install.
+    #[command(subcommand)]
+    Template(TemplateCommand),
     /// Download and install the latest release (SHA-256 checked).
     SelfUpdate(SelfUpdateArgs),
     /// Print a shell completion script.
@@ -110,6 +140,11 @@ pub enum WorkspaceCommand {
     Switch { workspace: String },
     /// The current workspace of this profile.
     Current,
+    /// Members of a workspace, with their Mei-er badge.
+    Members {
+        #[command(flatten)]
+        ws: WsArg,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -287,20 +322,8 @@ pub enum RowsCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ProjectCommand {
-    /// Create a project on the server for this repository and link it.
-    Init {
-        /// Task key prefix, e.g. AUR.
-        #[arg(long)]
-        key: String,
-        #[arg(long)]
-        name: Option<String>,
-        /// Repository URL (default: git remote origin).
-        #[arg(long)]
-        repo_url: Option<String>,
-        /// Workspace id (default: the current one).
-        #[arg(long)]
-        workspace: Option<String>,
-    },
+    /// Create a project for this repository and link it (a wizard in a terminal; every question has a flag).
+    Init(ProjectInitArgs),
     /// Link this repository to an existing project (key or id) and pull its plan.
     Link { project: String },
     /// Open the project on the web.
@@ -341,7 +364,7 @@ pub enum TaskCommand {
     Done {
         key: String,
     },
-    /// Approve (or --reject) the pending transition of a task.
+    /// Approve (or --reject) the pending transition of a task, after a confirmation (`--yes` skips it).
     Approve {
         key: String,
         #[arg(long)]
@@ -377,8 +400,8 @@ pub enum RunnerCommand {
     Down,
     /// Registration, capacity, harnesses, process state.
     Status,
-    /// Change runner settings.
-    Config(RunnerConfigArgs),
+    /// Change runner settings (flags), or local MCP servers (`mcp …`) and the team Claude token (`claude-token`).
+    Config(RunnerConfigCmd),
     /// Start the runner at login (launchd, systemd --user, Task Scheduler), with this shell's PATH.
     InstallService,
     /// Stop the runner service and remove it (plist, unit or scheduled task).
@@ -410,6 +433,68 @@ pub struct RunnerConfigArgs {
     pub auto_merge: Option<bool>,
 }
 
+/// `ttm runner config [flags] | mcp … | claude-token`.
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct RunnerConfigCmd {
+    #[command(subcommand)]
+    pub sub: Option<RunnerConfigSub>,
+    #[command(flatten)]
+    pub args: RunnerConfigArgs,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RunnerConfigSub {
+    /// Local MCP servers of this machine (`[mcp.local.*]` in runner.toml).
+    #[command(subcommand)]
+    Mcp(RunnerMcpCommand),
+    /// Save the Claude Code OAuth token used for teammates' jobs (from `claude setup-token`, read on stdin).
+    ClaudeToken {
+        /// Remove the saved token (this runner then refuses teammates' jobs).
+        #[arg(long)]
+        remove: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RunnerMcpCommand {
+    /// Add (or replace) a local MCP server.
+    Add {
+        name: String,
+        /// Program to start, e.g. npx.
+        #[arg(long)]
+        command: String,
+        /// Argument (repeatable).
+        #[arg(long = "arg", value_name = "ARG", allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Environment: K=env:VAR (read at run time) or K=value for non-secret values (repeatable).
+        #[arg(long = "env", value_name = "K=V")]
+        env: Vec<String>,
+    },
+    /// Let an agent (handle) use local MCP servers (default: every one).
+    Allow {
+        agent: String,
+        #[arg(long = "mcp", value_name = "NAME")]
+        mcp: Vec<String>,
+    },
+    /// Stop an agent from using local MCP servers (default: every one).
+    Deny {
+        agent: String,
+        #[arg(long = "mcp", value_name = "NAME")]
+        mcp: Vec<String>,
+    },
+    /// Whether jobs delegated by someone else may use this server.
+    TeamJobs {
+        name: String,
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
+    /// Remove a local MCP server.
+    Remove { name: String },
+    /// Local MCP servers and who may use them.
+    List,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
     /// Run a task now on this machine and stream its activity.
@@ -423,6 +508,65 @@ pub enum AgentCommand {
     },
     /// Stop a run (kill switch).
     Stop { run: String },
+    /// Agents of the workspace.
+    List {
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    /// Identity, profile, skills, MCP of an agent.
+    Show {
+        agent: String,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    /// Create an agent (a wizard in a terminal; from a preset with --preset).
+    Create {
+        /// Preset code (see the project templates).
+        #[arg(long)]
+        preset: Option<String>,
+        #[command(flatten)]
+        fields: AgentFields,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    /// Change an agent (flags only).
+    Edit {
+        agent: String,
+        #[command(flatten)]
+        fields: AgentFields,
+        /// Commit email (admins; empty = default).
+        #[arg(long)]
+        git_email: Option<String>,
+        /// Commit name (empty = the agent name).
+        #[arg(long)]
+        git_name: Option<String>,
+        /// Short profile (≤ 280 characters).
+        #[arg(long)]
+        bio: Option<String>,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    Pause {
+        agent: String,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    Resume {
+        agent: String,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    Archive {
+        agent: String,
+        #[command(flatten)]
+        ws: WsArg,
+    },
+    /// Skills of an agent.
+    #[command(subcommand)]
+    Skills(AgentSkillsCommand),
+    /// MCP servers of an agent.
+    #[command(subcommand)]
+    Mcp(AgentMcpCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -486,6 +630,8 @@ mod tests {
             Cli::try_parse_from(["ttm", "whoami", "--json", "--host", "http://localhost:3000"]).unwrap();
         assert!(cli.global.json);
         assert_eq!(cli.global.host.as_deref(), Some("http://localhost:3000"));
+        let cli = Cli::try_parse_from(["ttm", "task", "list", "--plain", "-y"]).unwrap();
+        assert!(cli.global.plain && cli.global.yes);
     }
 
     #[test]

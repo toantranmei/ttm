@@ -38,6 +38,16 @@ The repo provider is inferred from the URL: `github.com` → `github`, containin
 no remote) → `local`. The default branch comes from `origin/HEAD`; otherwise `main` if it exists, otherwise `master`. A
 key that is already taken: `409 conflict` (`rule: key_taken`).
 
+### Wizard (0.2)
+
+In a terminal, `ttm project init` without flags asks in turn: name → key (suggested from the name, `^[A-Z][A-Z0-9]{1,9}$`)
+→ workspace → repository (default `origin`) → workflow (`Professional — 9 statuses, 6 agents`, `Balanced — 5 statuses, 3
+agents, about 40% fewer tokens`, or another template) → preset agents (reuse an agent with the same role or create one) →
+runner (`this` writes `[repos] KEY = <directory>` to `runner.toml`). Every question has a flag: `--name --key --workspace
+--repo --workflow professional|balanced|kanban|scrum|autopilot|<slug> --agents create|reuse|none --runner this|none`;
+`--yes` takes the defaults. Not a terminal with only `--key` behaves as in 0.1.6. After the wizard `ttm` prints the
+equivalent command (`Equivalent: …`) on stderr.
+
 ### Link to an existing project
 
 ```sh
@@ -368,3 +378,21 @@ with a `warning`.
 Agents run by the runner use the `factory-*` MCP tools (get the task and its context, report progress, request
 approval, create subtasks, attach PRs or test results, read the rules, claim code areas). See [Runner](runner.md) and
 [MCP tools](mcp-cong-cu.md).
+
+## Factory v2 commands (0.2)
+
+| Command | Does |
+| --- | --- |
+| `ttm workflow show\|validate\|simulate\|diff\|publish\|upgrade\|copy` | Show, check, simulate, compare, publish, upgrade, copy workflows |
+| `ttm automation list\|show\|test\|enable\|disable\|runs` | Automation rules: When/If/Then view, dry run on a task, history |
+| `ttm agent list\|show\|create\|edit\|pause\|resume\|archive`, `agent skills add\|rm`, `agent mcp add\|rm` | Agent administration (handle, git identity, skills, MCP) |
+| `ttm skill list\|push\|pull\|show\|review\|import` | Skills: deterministic packing, version push, review |
+| `ttm mcp-server list\|add\|connect\|remove` | The workspace's remote MCP servers (secrets kept by the gateway) |
+| `ttm cr list\|show\|approve\|reject` | Change requests of the plan and configuration |
+| `ttm inbox [--watch]`, `ttm inbox read` | Notification inbox |
+| `ttm template list\|publish\|install` | Template library |
+| `ttm workspace members` | Members and badges |
+
+Each command first checks the server's `discovery.features`; a server without the feature → `This server does not
+support … yet` (`unsupported_feature`, exit code 2). Full syntax: [Command reference](lenh.md). Workflow, rules, agents and
+skills as files in `.ttm/`: [Configuration as code](as-code.md). Output conventions: [Command line interface](giao-dien.md).

@@ -1,0 +1,6 @@
+{
+  "host": "http://127.0.0.1:1",
+  "profile": "default",
+  "user": {"id": "u1", "email": "an@example.com", "name": "An", "avatar_url": null, "locale": "vi", "plan": "free"},
+  "workspace": {"id": "w2", "name": "Team Aurora", "kind": "team", "role": "member", "slug": "aurora"}
+}

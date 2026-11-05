@@ -1,0 +1,13 @@
+---
+source: crates/ttm-mcp-tools/tests/markdown.rs
+expression: "md(\"workspace-get-self\", json!({})).await"
+---
+**👤 An ✦ Mei-er**
+
+- **email:** an@example.com
+- **id:** u1
+- **plan:** free
+- **membership:** mei-er since 2025-11
+- **workspace:** Team Aurora (team, owner, id w1)
+
+**Next:** `workspace-list` — other workspaces; `notee-search` — find pages

@@ -1,0 +1,10 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+2 page(s) match "kế hoạch"
+TITLE              SNIPPET                                                   ID
+────────────────────────────────────────────────────────────────────────────────
+📝 Kế hoạch quý 4  Mục tiêu: ra mắt bản 0.2.0 và thêm nhiều thứ khác nữa c…  pg1
+会议记录           第一次会议                                                pg2
+Next: ttm notes get pg1

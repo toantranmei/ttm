@@ -1,0 +1,18 @@
+---
+source: crates/ttm-cli/tests/v2_commands.rs
+expression: text
+---
+╭─ Professional · v2 ─────────────────────────────────╮
+│ 3 status(es) · 2 transition(s) · a draft is waiting │
+╰─────────────────────────────────────────────────────╯
+   STATUS    ID     ROLE  AUTO  WIP
+───────────────────────────────────
+○  Ready     ready  -     -       -
+●  Doing     doing  DEV   🤖      3
+◐  QC        qc     QA    -       -
+
+FROM   TO       GUARD       RULES
+─────────────────────────────────
+ready  → doing  -               -
+doing  → qc     tests pass    ⚡1
+Next: ttm workflow diff

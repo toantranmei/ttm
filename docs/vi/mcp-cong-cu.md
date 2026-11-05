@@ -6,7 +6,7 @@ section: reference
 ---
 
 Trang này áp dụng cho cả `ttm-mcp` (stdio) và MCP từ xa `https://toantranmei.com/api/v1/mcp`: cùng tên tool, cùng tham số,
-cùng kết quả. Phiên bản **0.1.6**: 26 tool trong 3 nhóm và 1 resource.
+cùng kết quả. Phiên bản **0.2.0**: 52 tool trong 4 nhóm (`workspace`, `notee`, `factory`, `admin`) và 1 resource.
 
 ## Quy ước
 
@@ -42,6 +42,30 @@ hoặc nông hơn, `params` có giới hạn), `rev-conflict` (đọc lại task
 
 Lỗi 401 kèm gợi ý ``Sign in again with `ttm login`.``
 
+### Đầu ra (0.2.0)
+
+- Mọi tool khai **`outputSchema`** (JSON Schema của `structuredContent`), và `structuredContent` **luôn là object**.
+- **Thay đổi phá vỡ (0.2.0):** tool nào trước đây có thể trả một mảng (giá trị thô của server) giờ bọc thành
+  `{"items": [...], "next_cursor"?: "..."}`; tool mới dạng danh sách luôn trả `{items}`. Tool đã trả object giữ nguyên khoá
+  cũ (`workspaces`, `users`, `results`, `threads`, `pages`, `suggestions`). Client đọc mảng ở gốc cần đọc `items`.
+- Văn bản là Markdown theo **một mẫu**, giống CLI `ttm`: dòng đầu đậm có glyph (`**✓ AUR-12 moved to Review**`), rồi bảng
+  hoặc danh sách `- **khoá:** giá trị`, cuối cùng dòng `**Next:**` nêu tool nên gọi tiếp và lý do. Ô bảng dài quá 200 ký tự bị cắt bằng `…`.
+  `notee-fetch` vẫn trả nguyên văn nội dung page.
+- Glyph trạng thái: `○` todo, `●` đang làm, `◐` review/chờ, `✓` xong, `✕` lỗi/chặn, `⏸` tạm dừng (bảng ở
+  [Giao diện dòng lệnh](giao-dien.md)). Huy hiệu: `🤖` agent, `👤` người, `✦ Mei-er`, `✦✦ Sponsor`, `· Supporter`.
+
+Ví dụ Markdown của `factory-agent-list`:
+
+```markdown
+**🤖 1 agent(s)**
+
+| Agent | Handle | Role | Model | Skills | MCP | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 🤖 DEV · Code ✦✦ Sponsor | @dev | DEV | sonnet | ttm-tdd, ttm-pr ◐ | local:github-local | active |
+
+**Next:** `factory-agent-get` — one agent's profile
+```
+
 ## Resource
 
 | URI | Tên | Kiểu | Nội dung |
@@ -69,6 +93,10 @@ Tham số: không có.
 
 Workspace hiện tại = workspace của profile (`ttm workspace switch`), hoặc workspace mà token bị giới hạn vào (MCP từ xa),
 nếu không thì workspace cá nhân.
+
+Từ 0.2.0 kết quả có thêm `membership: {tier, since, until}` (`tier` = `supporter`, `mei-er`, `sponsor`) khi người dùng là
+thành viên Mei-er, ngược lại `null`/vắng. Người trong `workspace-get-users`, `notee-get-comments` và task có
+`membership: {tier}`; agent có `owner_membership: {tier}` (huy hiệu của chủ workspace). Markdown thêm `✦`/`✦✦`/`·` cạnh tên.
 
 ### workspace-list
 
@@ -472,3 +500,133 @@ Giữ hoặc gia hạn quyền sửa một vùng code (glob) để agent khác k
 
 Kết quả: `{granted, expires_at, held_by, paths}`. Vùng đang do run khác giữ: `granted: false` và `held_by` cho biết ai giữ;
 làm việc khác hoặc chờ rồi gọi lại.
+
+---
+
+## Nhóm factory: tool đọc (0.2.0)
+
+Nằm trong nhóm `factory`, chỉ đọc (`readOnlyHint: true`). Scope `factory:read` (`factory-inbox`: `workspace:read`).
+Không truyền `project` → project của run (`TTM_PROJECT`); không truyền `workspace_id` → workspace hiện tại.
+
+| Tool | Việc | Tham số chính |
+| --- | --- | --- |
+| `factory-workflow-get` | Workflow của project (hoặc theo id): status với category, vai trò, tự giao việc; transition với guard | `workflow_id?`, `project?`, `version?` (số hoặc `draft`) |
+| `factory-workflow-validate` | Kiểm một định nghĩa workflow (mặc định bản nháp), liệt kê mọi lỗi với `field` và `code` | `workflow_id?`, `project?`, `definition?` |
+| `factory-workflow-simulate` | Giả lập đi qua các status: từng bước có được phép không, luật chặn, cổng duyệt, luật Tự động hoá sẽ chạy | `task`, `to` (mảng status), `project?`, `workflow_id?`, `version?`, `roles?` |
+| `factory-workflow-upgrade-preview` | Nâng project lên phiên bản workflow mới thay đổi gì: diff và task chuyển về đâu | `project?`, `to?` |
+| `factory-automation-list` | Luật Tự động hoá của project (khi … nếu … thì …) và luật nào đang bật | `project?` |
+| `factory-automation-get` | Một luật: trigger, điều kiện, hành động | `rule` (id, slug hoặc tên), `project?` |
+| `factory-automation-test` | Chạy thử (dry run) một luật trên một task: có khớp không, từng hành động sẽ làm gì. Không đổi gì | `rule`, `task`, `project?` |
+| `factory-agent-list` | Agent của workspace: handle, vai trò, model, skill (◐ = chờ duyệt), MCP, trạng thái | `workspace_id?` |
+| `factory-agent-get` | Một agent: hồ sơ, danh tính git, skill, MCP | `agent` (handle, `@handle`, tên hoặc id), `workspace_id?` |
+| `factory-skill-list` | Skill của workspace (và built-in khi `builtin: true`): phiên bản hiệu lực, phiên bản chờ duyệt | `workspace_id?`, `query?`, `tag?`, `builtin?` |
+| `factory-skill-get` | Một skill: các phiên bản với trạng thái duyệt và `SKILL.md` của bản hiệu lực (hoặc bản hỏi) | `skill` (slug hoặc id), `version?`, `workspace_id?` |
+| `factory-template-search` | Tìm mẫu ở thư viện công khai | `kind?` (`workflow`, `agent`, `skill`, `rule_pack`, `bundle`, cách bằng dấu phẩy), `query?` |
+| `factory-template-install-preview` | Cài một mẫu sẽ tạo gì (status, luật, agent, skill, cờ "chạy code"), có cần mua không | `item`, `workspace_id?`, `version?` |
+| `factory-inbox` | Thông báo (hộp thư) | `kind?` (`factory`, `mention`, `comment`…), `unread?`, `since?` (RFC 3339) |
+
+Tool danh sách trả `{items}`; tool một đối tượng trả object của server. Lỗi riêng: `no_project`, `no_workspace`,
+`no_workflow` (project chưa có workflow v2), `unsupported_feature` (server chưa có tính năng).
+
+## Nhóm admin: thay đổi cấu hình có xác nhận hai bước
+
+Nhóm `admin` cho **người dùng** sửa cấu hình Factory từ Claude/ChatGPT. Scope **`factory:admin`** (`factory-task-approve`:
+`factory:write`); quyền owner/admin của workspace vẫn được kiểm ở server. Agent đang chạy job **không bao giờ** thấy nhóm
+này (xem dưới).
+
+Không tool nào trong nhóm áp dụng thẳng. Mỗi tool:
+
+1. Gọi endpoint xem trước (diff, preview, validate) và dựng bản tóm tắt.
+2. Ghi thay đổi thành một **xác nhận** (`POST /api/v1/confirmations`) và trả `confirm_id`, hạn dùng, tóm tắt, bản xem trước.
+3. Model cho người dùng xem tóm tắt; **chỉ khi người dùng đồng ý** mới gọi `factory-confirm` với `confirm_id` đó.
+
+| Tool | Việc | Tham số chính |
+| --- | --- | --- |
+| `factory-workflow-draft-update` | Thay bản nháp workflow (định nghĩa đầy đủ) | `definition`, `workflow_id?`, `project?`, `name?` |
+| `factory-workflow-publish` | Phát hành bản nháp thành phiên bản mới | `note` (≤ 280), `workflow_id?`, `project?` |
+| `factory-workflow-upgrade` | Nâng project lên phiên bản workflow mới (kèm bảng task chuyển status) | `project?`, `to?` |
+| `factory-automation-draft` | Tạo hoặc sửa một luật Tự động hoá | `rule?` (bỏ = tạo mới), `project?`, `name`, `trigger`, `conditions?`, `actions` |
+| `factory-automation-set-enabled` | Bật/tắt một luật | `rule`, `enabled`, `project?` |
+| `factory-agent-draft` | Tạo hoặc sửa agent (hồ sơ, danh tính git, ngân sách, MCP) | `agent?` (bỏ = tạo mới), `workspace_id?`, `preset?`, `name?`, `handle?`, `role?`, `model?`, `bio?`, `git_name?`, `git_email?`, `instructions?`, `max_budget_tokens?`, `daily_budget_tokens?`, `max_turns?`, `mcp?` |
+| `factory-agent-set-status` | Tạm dừng, chạy lại, lưu trữ agent | `agent`, `status` (`active`, `paused`, `archived`), `workspace_id?` |
+| `factory-skill-review` | Duyệt hoặc từ chối một phiên bản skill | `skill`, `version`, `decision` (`approve`, `reject`), `note?` (bắt buộc khi từ chối), `workspace_id?` |
+| `factory-template-install` | Cài một mẫu vào workspace | `item`, `workspace_id?`, `version?`, `inputs?`, `agents?` (`<preset>`: `new`, `reuse:<agent_id>`, `skip`) |
+| `factory-task-approve` | Duyệt hoặc từ chối cổng người của một task | `task`, `decision` (`approve`, `reject`), `note?` |
+| `factory-confirm` | Áp dụng một thay đổi đã ghi | `confirm_id` |
+| `factory-confirm-cancel` | Huỷ một thay đổi đã ghi (người dùng nói không) | `confirm_id` |
+
+`factory-agent-draft` không gắn skill (dùng `ttm agent skills add`).
+
+Kết quả của tool admin (bước 1–2):
+
+```json
+{
+  "confirm_id": "0193…",
+  "expires_at": "2026-11-05T10:10:00Z",
+  "summary": "Publish Aurora workflow v4",
+  "preview": { "diff": { "states": { "added": [{ "id": "qc", "name": "QC" }] } } },
+  "action": { "method": "POST", "path": "/factory/workflows/0190…/publish" },
+  "status": "pending"
+}
+```
+
+```markdown
+**! Confirm: Publish Aurora workflow v4**
+
+| Change | Item |
+| --- | --- |
+| + | state QC |
+
+- **confirm_id:** 0193…
+- **expires:** 2026-11-05T10:10:00Z
+
+**Next:** `factory-confirm` — with confirm_id `0193…` only after the user agrees (expires in 10 minutes); `factory-confirm-cancel` to drop it
+```
+
+### Xác nhận hai bước
+
+- Một xác nhận **hết hạn sau 10 phút** và **chỉ chạy một lần**. Chỉ người tạo mới áp dụng hay huỷ được.
+- `factory-confirm` gọi `POST /confirmations/{id}/apply`: server phát lại đúng request đã ghi với quyền của chính người gọi
+  (mọi kiểm tra scope, quyền, giới hạn chạy lại như request thường) và trả nguyên status + body của action.
+- Đáp có header **`X-Confirmation: applied`** là đáp của **action**: lỗi lúc đó thuộc action (ví dụ 409 `draft-stale`,
+  `upgrade-preview-stale`, 400 `issues`) và xác nhận đã bị dùng. Lỗi không có header là lỗi của **bước xác nhận**.
+- Thành công: Markdown `**✓ …**` và `structuredContent: {confirm_id, status: "applied", result}`. Huỷ:
+  `status: "cancelled"`.
+- Chỉ dùng khi server có tính năng `confirmations` trong discovery; thiếu → `unsupported_feature`, không gọi
+  `/confirmations`.
+
+| Mã | Khi | Làm gì |
+| --- | --- | --- |
+| `confirm_expired` (410) | Quá 10 phút | Chạy lại tool admin |
+| `confirm_used` (409) | Đã áp dụng rồi | Chạy lại tool admin nếu cần thay đổi mới |
+| `confirm_cancelled` (409) | Đã huỷ | Chạy lại tool admin |
+| `confirm_tampered` (409) | Request đã ghi không khớp | Chạy lại tool admin |
+| `not_found` (404) | Không có hoặc của người khác | Kiểm `confirm_id` |
+| `not_confirmable` (400) | Thay đổi này không đi qua xác nhận | |
+| `bearer_required` (403) | Gọi bằng cookie trình duyệt | Dùng token (ttm-mcp, MCP từ xa) |
+| `job_token_not_allowed` (403) | Token của job (agent đang chạy) | Người dùng tự làm |
+| `token_not_allowed`, `insufficient_scope` (403) | Route đích đóng với token / token thiếu `factory:admin` | Làm trên web / `ttm login` lại |
+| `payload_too_large` (413) | Body > 256 KiB hoặc preview > 64 KiB | Gửi thay đổi nhỏ hơn |
+| `rate_limited` (429) | > 30 xác nhận mỗi phút | Chờ rồi thử lại |
+
+Với `confirm_expired`, `confirm_used`, `confirm_cancelled`, `confirm_tampered`, `draft-stale`, `upgrade-preview-stale`, `stale`,
+kết quả có `isError: true` và `**Next:**` gợi ý chạy lại tool admin để có xác nhận mới.
+
+### Elicitation (chỉ `ttm-mcp` stdio)
+
+Khi client khai `capabilities.elicitation` (chế độ form), `ttm-mcp` hỏi ngay người dùng sau bước 2 (`elicitation/create`,
+câu hỏi = tóm tắt, schema `{confirm: boolean}`): **đồng ý** → áp dụng và trả kết quả; **từ chối/huỷ** → huỷ xác nhận và trả
+`status: "cancelled"`. Client không hỗ trợ → trả `confirm_id` như thường. MCP từ xa không hỏi ngược được (không lưu
+phiên), nên luôn trả `confirm_id`.
+
+## Agent đang chạy job thấy gì
+
+Agent trong một run (`TTM_RUN_ID` có giá trị, hoặc token job trên MCP từ xa) **không bao giờ** có nhóm `admin`:
+`ttm-mcp` bỏ `admin` khỏi `--toolsets` dù được truyền (ghi cảnh báo), và server cấp cho token job các nhóm
+`factory,notee`. Trong nhóm `factory`, job chỉ thấy 8 tool cũ (`factory-get-task`, `factory-get-context`,
+`factory-report-progress`, `factory-request-approval`, `factory-create-subtasks`, `factory-attach-artifact`,
+`factory-get-rules`, `factory-renew-lease`) cộng `factory-workflow-get`, `factory-skill-get`, `factory-automation-list`.
+Gọi tool khác → lỗi tool lạ.
+
+Hướng dẫn máy chủ gửi cho client có thêm câu: *Configuration changes always return a preview and a confirm_id; call
+factory-confirm only after the user agrees.*

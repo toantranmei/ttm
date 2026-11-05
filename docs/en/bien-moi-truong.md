@@ -35,11 +35,24 @@ An empty variable is treated as unset (unless noted otherwise).
 | --- | --- |
 | `TTM_LOG` | Log filter (`tracing_subscriber::EnvFilter`); overrides `-v`/`-vv`. For example `TTM_LOG=debug`, `TTM_LOG=ttm_api=debug,warn`. |
 
+## Output
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TTM_PLAIN` | (off) | Non-empty and not `0`/`false`/`no`/`off`: like `--plain` (no colours, frames, glyphs or emoji) |
+| `TTM_COLUMNS` | (none) | Output width; wins over `COLUMNS` and the terminal size; clamped to 40–200 |
+| `COLUMNS` | (none) | Width when `TTM_COLUMNS` is not set |
+| `NO_COLOR` | (none) | Non-empty: no colours (wins over `CLICOLOR_FORCE`) |
+| `CLICOLOR_FORCE` | (none) | `1`: colours even when piped |
+| `COLORTERM` | (none) | `truecolor` or `24bit`: exact brand colours |
+| `WT_SESSION` | set by Windows Terminal | Same as `COLORTERM=truecolor` |
+| `TERM` | (none) | `dumb`: no colours; contains `256color`: 256-colour palette |
+
 ## ttm-mcp
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `TTM_TOOLSETS` | all groups | Same as the `--toolsets` flag: comma-separated tool groups to enable (`notee`, `factory`; `workspace` is always on). The flag wins over the variable. |
+| `TTM_TOOLSETS` | all groups | Same as the `--toolsets` flag: comma-separated tool groups to enable (`notee`, `factory`, `admin`; `workspace` is always on). The flag wins over the variable. With `TTM_RUN_ID` set, `admin` is always dropped (with a warning). |
 | `TTM_RUN_ID` | (none) | Agent run id. Required for `factory-report-progress`, `factory-request-approval`, `factory-attach-artifact`, `factory-renew-lease`; `factory-get-context` uses the run's context. |
 | `TTM_TASK` | (none) | Default task key (`AUR-12`) for `factory-get-task`, `factory-get-context`, `factory-create-subtasks`. |
 | `TTM_PROJECT` | (none) | Default project (id or key) for `factory-get-rules`. |
@@ -54,6 +67,12 @@ right run.
 | --- | --- |
 | `HOSTNAME`, `COMPUTERNAME` | The runner's default machine name (when `runner.toml` has no `name`); if unset, the `hostname` command is run |
 | `PATH` (`PATHEXT` on Windows) | Where `claude`, `git`, `gh`, `ttm-mcp` are looked up |
+| Variables named by `env:VAR` in `[mcp.local.*]` | Values given to a local MCP at run time; when missing, that MCP is dropped |
+
+For each job the runner sets, for the agent and git: `GIT_AUTHOR_NAME/EMAIL`, `GIT_COMMITTER_NAME/EMAIL` (when the job has
+a git identity), `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0=core.hooksPath`, `GIT_CONFIG_VALUE_0=<the run's hooks directory>`
+(every job); for teammates' jobs once a Claude token is saved: `CLAUDE_CONFIG_DIR` (the run's empty directory) and
+`CLAUDE_CODE_OAUTH_TOKEN`. See [Runner](runner.md).
 
 ## Build time
 

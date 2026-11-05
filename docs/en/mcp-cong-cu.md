@@ -6,7 +6,7 @@ section: reference
 ---
 
 This page applies to both `ttm-mcp` (stdio) and the remote MCP at `https://toantranmei.com/api/v1/mcp`: same tool names,
-same parameters, same results. Version **0.1.6**: 26 tools in 3 toolsets and 1 resource.
+same parameters, same results. Version **0.2.0**: 52 tools in 4 toolsets (`workspace`, `notee`, `factory`, `admin`) and 1 resource.
 
 ## Conventions
 
@@ -43,6 +43,33 @@ retry), `approval-required` (ask with `factory-request-approval`); `insufficient
 
 401 errors come with the hint ``Sign in again with `ttm login`.``
 
+### Output (0.2.0)
+
+- Every tool declares an **`outputSchema`** (JSON Schema of `structuredContent`), and `structuredContent` is **always an
+  object**.
+- **Breaking change (0.2.0):** tools that could return an array (the server's raw value) now wrap it as
+  `{"items": [...], "next_cursor"?: "..."}`; new list tools always return `{items}`. Tools that already returned an object
+  keep their keys (`workspaces`, `users`, `results`, `threads`, `pages`, `suggestions`). Clients that read a top-level
+  array must read `items`.
+- The text is Markdown in **one shape**, the same as the `ttm` CLI: a bold first line with a glyph
+  (`**✓ AUR-12 moved to Review**`), then tables or `- **key:** value` lists, and last a `**Next:**` line naming the tool
+  to call next and why. Table cells longer than 200 characters are cut with `…`. `notee-fetch` still returns the page
+  content verbatim.
+- Status glyphs: `○` todo, `●` in progress, `◐` review/waiting, `✓` done, `✕` failed/blocked, `⏸` paused (table in
+  [Command line interface](giao-dien.md)). Badges: `🤖` agent, `👤` person, `✦ Mei-er`, `✦✦ Sponsor`, `· Supporter`.
+
+Markdown of `factory-agent-list`, for example:
+
+```markdown
+**🤖 1 agent(s)**
+
+| Agent | Handle | Role | Model | Skills | MCP | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 🤖 DEV · Code ✦✦ Sponsor | @dev | DEV | sonnet | ttm-tdd, ttm-pr ◐ | local:github-local | active |
+
+**Next:** `factory-agent-get` — one agent's profile
+```
+
 ## Resource
 
 | URI | Name | Type | Content |
@@ -70,6 +97,11 @@ Parameters: none.
 
 Current workspace = the profile's workspace (`ttm workspace switch`), or the workspace the token is restricted to (remote
 MCP); otherwise the personal workspace.
+
+Since 0.2.0 the result also has `membership: {tier, since, until}` (`tier` = `supporter`, `mei-er`, `sponsor`) when the
+user is a Mei-er member, else `null` or absent. People in `workspace-get-users`, `notee-get-comments` and tasks carry
+`membership: {tier}`; agents carry `owner_membership: {tier}` (the badge of the workspace owner). The Markdown adds
+`✦`/`✦✦`/`·` next to names.
 
 ### workspace-list
 
@@ -478,3 +510,138 @@ Requires a run.
 
 Result: `{granted, expires_at, held_by, paths}`. If another run holds the area: `granted: false` and `held_by` says who
 holds it; work on something else, or wait and call again.
+
+---
+
+## factory toolset: read tools (0.2.0)
+
+In the `factory` toolset, read-only (`readOnlyHint: true`). Scope `factory:read` (`factory-inbox`: `workspace:read`).
+Without `project` → the run's project (`TTM_PROJECT`); without `workspace_id` → the current workspace.
+
+| Tool | What it does | Main parameters |
+| --- | --- | --- |
+| `factory-workflow-get` | A project's workflow (or one by id): statuses with category, role, auto-assign; transitions with guards | `workflow_id?`, `project?`, `version?` (number or `draft`) |
+| `factory-workflow-validate` | Checks a workflow definition (default: the draft) and lists every issue with `field` and `code` | `workflow_id?`, `project?`, `definition?` |
+| `factory-workflow-simulate` | Simulates moving a task through statuses: whether each step is allowed, the blocking rule, approval gates, Automation rules that fire | `task`, `to` (array of statuses), `project?`, `workflow_id?`, `version?`, `roles?` |
+| `factory-workflow-upgrade-preview` | What upgrading a project to a newer workflow version changes: the diff and where tasks move | `project?`, `to?` |
+| `factory-automation-list` | Automation rules of the project (when … if … then …) and which are on | `project?` |
+| `factory-automation-get` | One rule: trigger, conditions, actions | `rule` (id, slug or name), `project?` |
+| `factory-automation-test` | Dry run of a rule on a task: whether it matches and what each action would do. Changes nothing | `rule`, `task`, `project?` |
+| `factory-agent-list` | Agents of the workspace: handle, role, model, skills (◐ = pending review), MCP, status | `workspace_id?` |
+| `factory-agent-get` | One agent: profile, git identity, skills, MCP | `agent` (handle, `@handle`, name or id), `workspace_id?` |
+| `factory-skill-list` | Skills of the workspace (and built-in ones with `builtin: true`): version in effect, versions waiting for review | `workspace_id?`, `query?`, `tag?`, `builtin?` |
+| `factory-skill-get` | One skill: versions with review state and the `SKILL.md` of the version in effect (or the one asked) | `skill` (slug or id), `version?`, `workspace_id?` |
+| `factory-template-search` | Searches the public template library | `kind?` (`workflow`, `agent`, `skill`, `rule_pack`, `bundle`, comma separated), `query?` |
+| `factory-template-install-preview` | What installing a template would create (statuses, rules, agents, skills, "runs code" flag), whether it must be bought | `item`, `workspace_id?`, `version?` |
+| `factory-inbox` | Notifications (inbox) | `kind?` (`factory`, `mention`, `comment`…), `unread?`, `since?` (RFC 3339) |
+
+List tools return `{items}`; single-object tools return the server's object. Tool errors: `no_project`, `no_workspace`,
+`no_workflow` (the project has no v2 workflow), `unsupported_feature` (the server lacks the feature).
+
+## admin toolset: configuration changes with two-step confirmation
+
+The `admin` toolset lets **people** change the Factory configuration from Claude or ChatGPT. Scope **`factory:admin`**
+(`factory-task-approve`: `factory:write`); the server still checks the owner/admin role in the workspace. An agent running
+a job **never** sees this toolset (see below).
+
+No tool of this toolset applies anything directly. Each tool:
+
+1. Calls the preview endpoint (diff, preview, validate) and builds a summary.
+2. Stages the change as a **confirmation** (`POST /api/v1/confirmations`) and returns the `confirm_id`, expiry, summary and
+   preview.
+3. The model shows the summary to the user and calls `factory-confirm` with that `confirm_id` **only once the user
+   agrees**.
+
+| Tool | What it does | Main parameters |
+| --- | --- | --- |
+| `factory-workflow-draft-update` | Replaces the workflow draft (complete definition) | `definition`, `workflow_id?`, `project?`, `name?` |
+| `factory-workflow-publish` | Publishes the draft as a new version | `note` (≤ 280), `workflow_id?`, `project?` |
+| `factory-workflow-upgrade` | Upgrades a project to a newer workflow version (with the table of task moves) | `project?`, `to?` |
+| `factory-automation-draft` | Creates or changes an Automation rule | `rule?` (omit = new), `project?`, `name`, `trigger`, `conditions?`, `actions` |
+| `factory-automation-set-enabled` | Turns a rule on or off | `rule`, `enabled`, `project?` |
+| `factory-agent-draft` | Creates or changes an agent (profile, git identity, budgets, MCP) | `agent?` (omit = new), `workspace_id?`, `preset?`, `name?`, `handle?`, `role?`, `model?`, `bio?`, `git_name?`, `git_email?`, `instructions?`, `max_budget_tokens?`, `daily_budget_tokens?`, `max_turns?`, `mcp?` |
+| `factory-agent-set-status` | Pauses, resumes or archives an agent | `agent`, `status` (`active`, `paused`, `archived`), `workspace_id?` |
+| `factory-skill-review` | Approves or rejects a skill version | `skill`, `version`, `decision` (`approve`, `reject`), `note?` (required to reject), `workspace_id?` |
+| `factory-template-install` | Installs a template into the workspace | `item`, `workspace_id?`, `version?`, `inputs?`, `agents?` (`<preset>`: `new`, `reuse:<agent_id>`, `skip`) |
+| `factory-task-approve` | Approves or rejects the human gate of a task | `task`, `decision` (`approve`, `reject`), `note?` |
+| `factory-confirm` | Applies a staged change | `confirm_id` |
+| `factory-confirm-cancel` | Drops a staged change (the user said no) | `confirm_id` |
+
+`factory-agent-draft` does not attach skills (use `ttm agent skills add`).
+
+Result of an admin tool (steps 1–2):
+
+```json
+{
+  "confirm_id": "0193…",
+  "expires_at": "2026-11-05T10:10:00Z",
+  "summary": "Publish Aurora workflow v4",
+  "preview": { "diff": { "states": { "added": [{ "id": "qc", "name": "QC" }] } } },
+  "action": { "method": "POST", "path": "/factory/workflows/0190…/publish" },
+  "status": "pending"
+}
+```
+
+```markdown
+**! Confirm: Publish Aurora workflow v4**
+
+| Change | Item |
+| --- | --- |
+| + | state QC |
+
+- **confirm_id:** 0193…
+- **expires:** 2026-11-05T10:10:00Z
+
+**Next:** `factory-confirm` — with confirm_id `0193…` only after the user agrees (expires in 10 minutes); `factory-confirm-cancel` to drop it
+```
+
+### Two-step confirmation
+
+- A confirmation **expires after 10 minutes** and **runs only once**. Only the person who created it can apply or cancel it.
+- `factory-confirm` calls `POST /confirmations/{id}/apply`: the server replays exactly the staged request with the caller's
+  own authorization (every scope, permission and limit check runs again as for a normal request) and returns the action's
+  status and body as they are.
+- A response with the **`X-Confirmation: applied`** header is the **action's** response: an error then belongs to the
+  action (for example 409 `draft-stale`, `upgrade-preview-stale`, 400 `issues`) and the confirmation is used up. An error
+  without the header belongs to the **confirmation step**.
+- Success: Markdown `**✓ …**` and `structuredContent: {confirm_id, status: "applied", result}`. Cancelled:
+  `status: "cancelled"`.
+- Used only when the server lists the `confirmations` feature in discovery; otherwise `unsupported_feature`, without calling
+  `/confirmations`.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `confirm_expired` (410) | More than 10 minutes | Run the admin tool again |
+| `confirm_used` (409) | Already applied | Run the admin tool again for a new change |
+| `confirm_cancelled` (409) | Cancelled | Run the admin tool again |
+| `confirm_tampered` (409) | The staged request does not match | Run the admin tool again |
+| `not_found` (404) | Missing or someone else's | Check the `confirm_id` |
+| `not_confirmable` (400) | This change cannot go through a confirmation | |
+| `bearer_required` (403) | Called with a browser cookie | Use a token (ttm-mcp, remote MCP) |
+| `job_token_not_allowed` (403) | Token of a job (an agent running) | The user does it |
+| `token_not_allowed`, `insufficient_scope` (403) | Target route closed to tokens / token lacks `factory:admin` | Do it on the web / `ttm login` again |
+| `payload_too_large` (413) | Body > 256 KiB or preview > 64 KiB | Send a smaller change |
+| `rate_limited` (429) | More than 30 confirmations per minute | Wait and retry |
+
+For `confirm_expired`, `confirm_used`, `confirm_cancelled`, `confirm_tampered`, `draft-stale`, `upgrade-preview-stale` and
+`stale`, the result has `isError: true` and a `**Next:**` line that suggests running the admin tool again for a new
+confirmation.
+
+### Elicitation (`ttm-mcp` stdio only)
+
+When the client declares `capabilities.elicitation` (form mode), `ttm-mcp` asks the user right after step 2
+(`elicitation/create`, message = the summary, schema `{confirm: boolean}`): **accept** → applies and returns the result;
+**decline/cancel** → cancels the confirmation and returns `status: "cancelled"`. A client without the capability gets the
+`confirm_id` as usual. The remote MCP cannot ask back (it keeps no session), so it always returns the `confirm_id`.
+
+## What an agent running a job sees
+
+An agent inside a run (`TTM_RUN_ID` set, or a job token on the remote MCP) **never** gets the `admin` toolset: `ttm-mcp`
+drops `admin` from `--toolsets` even when it is passed (with a warning), and the server gives job tokens the `factory,notee`
+toolsets. In the `factory` toolset a job only sees the 8 run tools (`factory-get-task`, `factory-get-context`,
+`factory-report-progress`, `factory-request-approval`, `factory-create-subtasks`, `factory-attach-artifact`,
+`factory-get-rules`, `factory-renew-lease`) plus `factory-workflow-get`, `factory-skill-get`, `factory-automation-list`.
+Calling any other tool is an unknown-tool error.
+
+The server's instructions to the client add: *Configuration changes always return a preview and a confirm_id; call
+factory-confirm only after the user agrees.*

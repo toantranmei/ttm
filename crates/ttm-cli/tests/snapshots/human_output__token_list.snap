@@ -1,0 +1,6 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+› Tokens are managed on the web (the API does not accept a token here)
+  Finish in the browser: [HOST]/me/ket-noi?tab=token

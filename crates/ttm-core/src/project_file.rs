@@ -4,7 +4,12 @@
 //! .ttm/
 //!   project.toml   committed
 //!   plan/          committed: the plan as Markdown (web is the source of truth)
+//!   workflow.yaml  committed: the project's workflow (as code, S5)
+//!   rules/         committed: automation rules `<slug>.yaml` (not the AGENTS.md rules of `ttm rules`)
+//!   agents/        committed: agents `<handle>.yaml` (never secrets)
+//!   skills/        committed: skills `<slug>/SKILL.md …`
 //!   base/          ignored: the plan as of the last sync (common ancestor for 3-way comparisons)
+//!   base-config/   ignored: the configuration as of the last sync
 //!   cache/         ignored: rules, scratch
 //!   resolve/       ignored: conflict resolution inputs
 //! ```
@@ -55,6 +60,25 @@ impl Linked {
     pub fn resolve_dir(&self) -> PathBuf {
         self.dir().join("resolve")
     }
+    /// The configuration as of the last sync.
+    pub fn config_base_dir(&self) -> PathBuf {
+        self.dir().join("base-config")
+    }
+
+    /// What `ttm sync` manages: the plan and the as-code configuration.
+    pub fn managed() -> &'static [&'static str] {
+        &MANAGED
+    }
+
+    /// `.ttm/workflow.yaml`, `.ttm/rules/**`, `.ttm/agents/**`, `.ttm/skills/**` (text files), keyed by their bundle
+    /// path (`agents/dev.yaml`).
+    pub fn read_config(&self) -> Result<BTreeMap<String, String>> {
+        read_config_in(&self.dir())
+    }
+
+    pub fn write_config(&self, files: &BTreeMap<String, String>) -> Result<()> {
+        write_config_in(&self.dir(), files)
+    }
 
     /// Looks for `.ttm/project.toml` in `start` and its parents.
     pub fn find(start: &Path) -> Result<Option<Self>> {
@@ -92,6 +116,51 @@ impl Linked {
         }
         Ok(())
     }
+}
+
+/// Paths managed by `ttm sync`, relative to `.ttm/` (directories end with `/`).
+pub const MANAGED: [&str; 5] = ["plan/", "workflow.yaml", "rules/", "agents/", "skills/"];
+
+/// The configuration part of [`MANAGED`].
+const CONFIG_DIRS: [&str; 3] = ["rules", "agents", "skills"];
+const WORKFLOW_FILE: &str = "workflow.yaml";
+
+/// Configuration files under `dir` (a `.ttm` or a `base-config` directory), keyed `workflow.yaml`, `rules/x.yaml`…
+pub fn read_config_in(dir: &Path) -> Result<BTreeMap<String, String>> {
+    let mut out = BTreeMap::new();
+    if let Ok(text) = std::fs::read_to_string(dir.join(WORKFLOW_FILE)) {
+        out.insert(WORKFLOW_FILE.to_string(), text);
+    }
+    for sub in CONFIG_DIRS {
+        for (k, v) in read_tree(&dir.join(sub))? {
+            out.insert(format!("{sub}/{k}"), v);
+        }
+    }
+    Ok(out)
+}
+
+/// Makes the configuration under `dir` equal to `files`: writes every file and removes text files that are no longer
+/// there. Files that are not text (binary skill assets the bundle skips) are never touched.
+pub fn write_config_in(dir: &Path, files: &BTreeMap<String, String>) -> Result<()> {
+    let current = read_config_in(dir)?;
+    for rel in current.keys().filter(|k| !files.contains_key(*k)) {
+        if let Some(path) = safe_join(dir, rel) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    for (rel, text) in files {
+        let path = safe_join(dir, rel).ok_or_else(|| Error::Write {
+            path: dir.join(rel),
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "path escapes the .ttm directory",
+            ),
+        })?;
+        if current.get(rel) != Some(text) {
+            write_atomic(&path, text.as_bytes(), None)?;
+        }
+    }
+    Ok(())
 }
 
 /// Reads every file under `dir` as `relative/path` → contents (forward slashes). Missing dir = empty.
@@ -203,5 +272,27 @@ mod tests {
         let mut files = BTreeMap::new();
         files.insert("../evil.md".to_string(), String::new());
         assert!(write_tree(&dir.path().join("plan"), &files).is_err());
+    }
+
+    #[test]
+    fn config_round_trip_keeps_binary_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let ttm = dir.path();
+        std::fs::create_dir_all(ttm.join("skills/tdd")).unwrap();
+        std::fs::write(ttm.join("skills/tdd/logo.png"), [0xff, 0xfe, 0x00]).unwrap();
+        let mut files = BTreeMap::new();
+        files.insert("workflow.yaml".to_string(), "name: A\n".to_string());
+        files.insert("agents/dev.yaml".to_string(), "name: DEV\n".to_string());
+        files.insert("skills/tdd/SKILL.md".to_string(), "---\n".to_string());
+        write_config_in(ttm, &files).unwrap();
+        assert_eq!(read_config_in(ttm).unwrap(), files);
+        files.remove("agents/dev.yaml");
+        write_config_in(ttm, &files).unwrap();
+        assert!(!ttm.join("agents/dev.yaml").exists());
+        assert!(
+            ttm.join("skills/tdd/logo.png").exists(),
+            "binary files are not touched"
+        );
+        assert_eq!(Linked::managed().len(), 5);
     }
 }

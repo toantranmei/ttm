@@ -26,6 +26,9 @@ The files below are created when you sign in, switch workspaces or configure the
 | `discovery-<host>.json` | cache | The host's discovery, reused for 1 hour; the old copy is still used when the host doesn't respond |
 | `deprecations` | cache | Warnings about soon-to-be-removed endpoints already shown today |
 | `runner.pid`, `runner.log`, `runner-worktrees.json` | cache | The runner's process, log (macOS service) and worktree ledger |
+| `skills/<sha256>.zip` | cache | Skills downloaded by the runner, reused by SHA-256 |
+| `mcp-<run>.json`, `settings-<run>.json`, `hooks/<run>/`, `claude-team/<run>/` | cache | Temporary files of one run (0600), removed when the run ends |
+| `.ttm/workflow.yaml`, `.ttm/rules/`, `.ttm/agents/`, `.ttm/skills/` | in the repo | The project's as-code configuration (see [As-code](as-code.md)) |
 | `.ttm/project.toml` | in the repo | Links the repo to a Factory project (see [Factory](factory.md)) |
 
 `ttm status` prints the path of the `config.toml` in use.
@@ -118,8 +121,31 @@ The most commonly used variables:
 | `TTM_TOKEN` | Token, wins over the keyring and the file |
 | `TTM_NO_KEYRING=1` | Don't use the keyring, only `credentials.toml` |
 | `TTM_LOG` | Log level (`tracing` syntax), for example `debug` |
+| `TTM_PLAIN=1` | Plain text output (like `--plain`) |
+| `TTM_COLUMNS` | Output width (40–200) |
+| `NO_COLOR` | No colours |
 
 Full list (including `ttm-mcp` and runner variables): [Environment variables](bien-moi-truong.md).
+
+## Output for people
+
+Without `--json`, `ttm` prints for people in one pattern: the result on the first line, then details, then `Next:
+<suggested command>`. Colours turn off when piped, with a non-empty `NO_COLOR` or `TERM=dumb`; `--plain` (or
+`TTM_PLAIN=1`) also drops frames, glyphs and emoji, for logs. Width: `TTM_COLUMNS` > `COLUMNS` > terminal size > 80,
+clamped to 40–200. Tables never wrap; long cells are cut with `…`. Details, glyphs and badges: [Command line
+interface](giao-dien.md).
+
+Errors go to **stderr** in this pattern:
+
+```text
+✕ <summary>
+  rule: <rule>  field: <field>
+  Fix: <how to fix it>
+  Help: https://toantranmei.com/help/ttm/ma-loi#<rule>
+```
+
+Exit codes: `0` success, `1` error, `2` usage (unknown flag, a missing flag `missing_flag`, `--yes` needed
+`confirmation_required`, a feature the server lacks `unsupported_feature`, a bad flag value `invalid_flag`).
 
 ## JSON output
 
@@ -146,7 +172,7 @@ ttm whoami --json
 }
 ```
 
-On error, `--json` also prints an error object to stdout (and an `error: …` line to stderr), with a non-zero exit code:
+On error, `--json` also prints an error object to stdout (and the `✕ …` error block to stderr), with a non-zero exit code:
 
 ```json
 {
@@ -163,7 +189,9 @@ An error from the server also has `status` and, when the server sends them, `rul
 `rev-conflict`), `field` and `params`.
 `code` is the server's stable code (see [Error codes](ma-loi.md)), an OAuth code (`access_denied`, `invalid_grant`…), or
 a local code: `network` (couldn't connect), `decode` (unexpected response), `upgrade_required` (ttm is too old),
-`invalid_url`, `error` (anything else, such as not signed in or a file that can't be read).
+`invalid_url`, `error` (anything else, such as not signed in or a file that can't be read), and the usage codes
+`missing_flag`, `confirmation_required`, `unsupported_feature`, `invalid_flag` (with `rule` and `field`). JSON shapes stay
+as in 0.1.6; 0.2.0 only adds keys (for example `meta.membership` of `whoami`/`login`).
 
 Examples for scripts:
 
@@ -171,6 +199,22 @@ Examples for scripts:
 ttm notes search "OKR" --json | jq -r '.[].id'
 ttm notes query "$DB" --sql 'SELECT "Name" FROM rows' --json | jq '.rows[].values'
 ```
+
+## runner.toml: local MCP
+
+Since 0.2.0, `runner.toml` has a local MCP section, edited with `ttm runner config mcp …` (comments are kept):
+
+```toml
+[mcp.local.github-local]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "env:GITHUB_TOKEN" }   # "env:VAR" = read the runner's environment at run time
+allow = ["dev", "reviewer"]                    # agent handles allowed to use it
+team_jobs = false                              # also for jobs delegated by someone else
+```
+
+Names follow `^[a-z0-9][a-z0-9-]{0,31}$` and are never `ttm`. The server is only told names, `allow` and `team_jobs`.
+See [Runner](runner.md#local-mcp-ttm-runner-config-mcp).
 
 ## Logs
 

@@ -4,10 +4,16 @@ use anyhow::{Context as _, Result, anyhow};
 use time::OffsetDateTime;
 use ttm_api::{Client, TokenResponse};
 use ttm_core::{Context, Discovery, Overrides, StoredToken, TokenSource};
+use ttm_ui::Ui;
 
 pub struct App {
     pub ctx: Context,
     pub json: bool,
+    /// Everything printed for people goes through here.
+    pub ui: Ui,
+    /// `-y/--yes`: confirm and take defaults without asking.
+    #[allow(dead_code)] // read by the wizard commands
+    pub yes: bool,
     /// `--host` was given explicitly (login then remembers it in the profile).
     pub host_flag: bool,
     /// `--profile` was given explicitly.
@@ -15,7 +21,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn load(global: &crate::cli::GlobalArgs) -> Result<Self> {
+    pub fn load(global: &crate::cli::GlobalArgs, ui: Ui) -> Result<Self> {
         let overrides = Overrides {
             host: global.host.clone(),
             profile: global.profile.clone(),
@@ -24,9 +30,60 @@ impl App {
         Ok(Self {
             ctx,
             json: global.json,
+            ui,
+            yes: global.yes,
             host_flag: global.host.is_some() || std::env::var_os("TTM_HOST").is_some(),
             profile_flag: global.profile.is_some(),
         })
+    }
+
+    /// An authenticated client for a v2 command: fails with `unsupported_feature` (exit 2) before calling any new
+    /// endpoint when the server's discovery does not list `feature`.
+    pub async fn api_for(&self, feature: &str, what: &str) -> Result<(Client, Discovery)> {
+        let (client, discovery) = self.api().await?;
+        if !discovery.has_feature(feature) {
+            return Err(ttm_ui::UsageError::unsupported_feature(feature, what).into());
+        }
+        Ok((client, discovery))
+    }
+
+    /// `--workspace`, else the current workspace of the profile.
+    pub fn workspace_id(&self, flag: Option<&str>) -> Result<String> {
+        flag.map(String::from)
+            .or_else(|| self.ctx.workspace())
+            .ok_or_else(|| {
+                ttm_ui::UsageError::missing_flag("--workspace", false)
+                    .fix("pass --workspace, or choose one with `ttm workspace switch <name>`")
+                    .into()
+            })
+    }
+
+    /// `--project <key|id>`, else the project linked to this directory: `(id, key)`.
+    pub async fn project_ref(&self, client: &Client, flag: Option<&str>) -> Result<(String, String)> {
+        match flag {
+            Some(p) => {
+                let found = client
+                    .find_project(p)
+                    .await?
+                    .ok_or_else(|| anyhow!("no project `{p}` in your workspaces; see the web"))?;
+                Ok((found.id, found.key))
+            }
+            None => {
+                let linked =
+                    crate::commands::project::linked().map_err(|_| {
+                        anyhow::Error::from(ttm_ui::UsageError::missing_flag("--project", false).fix(
+                            "pass --project <KEY>, or run inside a linked repository (ttm project link)",
+                        ))
+                    })?;
+                Ok((linked.file.project_id, linked.file.key))
+            }
+        }
+    }
+
+    /// A wizard for this command: questions only at a terminal, `--yes` takes the defaults.
+    #[allow(dead_code)] // used by the wizard commands
+    pub fn wizard(&self) -> ttm_ui::Wizard<'_> {
+        ttm_ui::Wizard::new(&self.ui, self.yes)
     }
 
     pub fn host(&self) -> &str {

@@ -1,0 +1,15 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+[1m [0m  [1mKEY   [0m  [1mTITLE                                  [0m  [1mROLE    [0m  [1mASSIGNEE     [0m  [1mEST[0m
+[2m────────────────────────────────────────────────────────────────────────────────[0m
+[38;2;91;183;168m●[0m  [1mAUR-12[0m  Đăng nhập bằng Google cho người dùng m…  develop…  👤 Nguyễn Vă…    1
+[38;2;181;151;214m◐[0m  [1mAUR-13[0m  登录页面的设计和实现以及更多的测试用例…  qa        👤 Nguyễn Vă…    2
+[38;2;242;184;75m◐[0m  [1mAUR-14[0m  Ship the release 🚀 with notes 🤖🤖🤖…   develop…  👤 Nguyễn Vă…    3
+[38;2;91;183;168m✓[0m  [1mAUR-15[0m  Setup                                    qa        👤 Nguyễn Vă…    4
+[38;2;233;121;98m✕[0m  [1mAUR-16[0m  Payment webhook retries are failing on…  develop…  👤 Nguyễn Vă…    5
+[38;2;242;184;75m⏸[0m  [1mAUR-17[0m  Paused work                              qa        👤 Nguyễn Vă…    6
+[2m○[0m  [1mAUR-18[0m  New idea                                 develop…  👤 Nguyễn Vă…    7
+
+[2mNo tasks.[0m

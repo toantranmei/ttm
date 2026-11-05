@@ -5,6 +5,8 @@
 use crate::Backend;
 use crate::backend::Fetched;
 use crate::common::{ToolFailure, ToolOutput, ToolResult, parse_required, read_only, to_value};
+use crate::md::{Md, badge, cell};
+use crate::out::{ObjectOut, QueryOut, SearchOut, ThreadsOut};
 use rmcp::handler::server::common::schema_for_type;
 use rmcp::model::Tool;
 use schemars::JsonSchema;
@@ -87,6 +89,7 @@ pub fn tools() -> Vec<Tool> {
             "Search Notee pages the user can see by title and content. Returns ids, titles and a snippet; use notee-fetch to read one.",
             schema_for_type::<SearchArgs>(),
         )
+        .with_output_schema::<SearchOut>()
         .annotate(read_only("Search Notee")),
         Tool::new(
             FETCH,
@@ -95,6 +98,7 @@ pub fn tools() -> Vec<Tool> {
              pass one as `block` to read the rest.",
             schema_for_type::<FetchArgs>(),
         )
+        .with_output_schema::<ObjectOut>()
         .annotate(read_only("Fetch page or database")),
         Tool::new(
             QUERY_DATABASE,
@@ -102,12 +106,14 @@ pub fn tools() -> Vec<Tool> {
              Fetch the database first to learn its properties.",
             schema_for_type::<QueryArgs>(),
         )
+        .with_output_schema::<QueryOut>()
         .annotate(read_only("Query database")),
         Tool::new(
             GET_COMMENTS,
             "Comment threads of a Notee page, with the quoted text each thread is anchored to.",
             schema_for_type::<CommentsArgs>(),
         )
+        .with_output_schema::<ThreadsOut>()
         .annotate(read_only("Read comments")),
     ]
 }
@@ -136,17 +142,20 @@ async fn search<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value
         .notee_search(&args.query, args.workspace_id.as_deref())
         .await?;
     hits.truncate(limit);
-    let mut text = String::new();
-    if hits.is_empty() {
-        text.push_str("No pages found.");
-    }
-    for hit in &hits {
-        let _ = write!(text, "- {} (id: {})", hit.title, hit.id);
-        if !hit.snippet.is_empty() {
-            let _ = write!(text, ": {}", hit.snippet.replace('\n', " "));
-        }
-        text.push('\n');
-    }
+    let text = if hits.is_empty() {
+        Md::title("○", format!("No pages match \"{}\"", args.query))
+            .next(&[(SEARCH, "try other words")])
+            .build()
+    } else {
+        let rows: Vec<Vec<String>> = hits
+            .iter()
+            .map(|h| vec![h.title.clone(), h.snippet.clone(), h.id.clone()])
+            .collect();
+        Md::title("✓", format!("{} page(s) match \"{}\"", hits.len(), args.query))
+            .table(&["Title", "Snippet", "Id"], &rows)
+            .next(&[(FETCH, "read a page by id")])
+            .build()
+    };
     Ok(ToolOutput::with_text(json!({ "results": hits }), text))
 }
 
@@ -157,18 +166,26 @@ async fn fetch<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>
     let text = match &fetched {
         Fetched::Page(page) => render_page(page),
         Fetched::Database(db) => {
-            let mut text = format!(
-                "# {} (database {})\n\n| Property | Type |\n| --- | --- |\n",
-                db.title.as_deref().unwrap_or(""),
-                id
-            );
-            for p in &db.properties {
-                let _ = writeln!(text, "| {} | {} |", p.name, p.kind);
-            }
-            if !db.views.is_empty() {
-                let _ = write!(text, "\nViews: {}", db.views.len());
-            }
-            text
+            let rows: Vec<Vec<String>> = db
+                .properties
+                .iter()
+                .map(|p| vec![p.name.clone(), p.kind.clone()])
+                .collect();
+            Md::title(
+                "○",
+                format!("{} (database {id})", db.title.as_deref().unwrap_or("")),
+            )
+            .table(&["Property", "Type"], &rows)
+            .kv(&[(
+                "views",
+                if db.views.is_empty() {
+                    String::new()
+                } else {
+                    db.views.len().to_string()
+                },
+            )])
+            .next(&[(QUERY_DATABASE, "read its rows")])
+            .build()
         }
     };
     Ok(ToolOutput::with_text(to_value(&fetched), text))
@@ -222,7 +239,51 @@ async fn query<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>
     let result = backend
         .notee_query_database(&resource_id(&args.database), &request)
         .await?;
-    Ok(ToolOutput::json(to_value(&result)))
+    let columns: Vec<String> = result
+        .columns
+        .iter()
+        .filter_map(|c| match c {
+            Value::String(s) => Some(s.clone()),
+            Value::Object(o) => o.get("name").and_then(Value::as_str).map(String::from),
+            _ => None,
+        })
+        .collect();
+    let columns = if columns.is_empty() {
+        let mut keys: Vec<String> = Vec::new();
+        for row in &result.rows {
+            for k in row.values.keys() {
+                if !keys.contains(k) {
+                    keys.push(k.clone());
+                }
+            }
+        }
+        keys
+    } else {
+        columns
+    };
+    let mut headers: Vec<&str> = vec!["id"];
+    headers.extend(columns.iter().map(String::as_str));
+    let rows: Vec<Vec<String>> = result
+        .rows
+        .iter()
+        .map(|r| {
+            let mut row = vec![r.id.clone()];
+            row.extend(columns.iter().map(|c| match r.values.get(c) {
+                None | Some(Value::Null) => String::new(),
+                Some(Value::String(s)) => s.clone(),
+                Some(v) => v.to_string(),
+            }));
+            row
+        })
+        .collect();
+    let mut md = Md::title("✓", format!("{} row(s)", result.rows.len())).table(&headers, &rows);
+    if let Some(next) = &result.next_cursor {
+        md = md.next(&[(
+            QUERY_DATABASE,
+            &format!("same query with cursor `{}` for more rows", cell(next)),
+        )]);
+    }
+    Ok(ToolOutput::with_text(to_value(&result), md.build()))
 }
 
 async fn comments<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Value>>) -> ToolResult {
@@ -233,10 +294,14 @@ async fn comments<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Val
         .into_iter()
         .filter(|t| args.include_resolved || t.resolved_at.is_none())
         .collect();
-    let mut text = String::new();
-    if threads.is_empty() {
-        text.push_str("No open comments.");
-    }
+    let mut md = Md::title(
+        if threads.is_empty() { "○" } else { "◐" },
+        if threads.is_empty() {
+            "No open comments".to_string()
+        } else {
+            format!("{} thread(s)", threads.len())
+        },
+    );
     for thread in &threads {
         let quote = thread.quote.as_ref().map(|q| q.exact.clone()).or_else(|| {
             thread
@@ -245,16 +310,33 @@ async fn comments<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Val
                 .and_then(Value::as_str)
                 .map(String::from)
         });
-        let _ = writeln!(
-            text,
-            "Thread {}{}:",
+        let mut block = format!(
+            "Thread {}{}{}:",
             thread.id,
-            quote.map(|q| format!(" on \"{q}\"")).unwrap_or_default()
+            if thread.resolved_at.is_some() {
+                " ✓ resolved"
+            } else {
+                ""
+            },
+            quote
+                .map(|q| format!(" on \"{}\"", q.replace('\n', " ")))
+                .unwrap_or_default()
         );
         for c in &thread.comments {
-            let _ = writeln!(text, "  - {}: {}", c.author.name, c.text().replace('\n', " "));
+            let tier = c.author.membership.as_ref().map(|m| m.tier.as_str());
+            let _ = write!(
+                block,
+                "\n- 👤 {}{}: {}",
+                c.author.name,
+                badge(tier),
+                c.text().replace('\n', " ")
+            );
         }
+        md = md.text(block);
     }
+    let text = md
+        .next(&[("notee-create-comment", "reply with `thread`")])
+        .build();
     let simplified: Vec<Value> = threads
         .iter()
         .map(|t| {
@@ -264,7 +346,8 @@ async fn comments<B: Backend + ?Sized>(backend: &B, args: Option<Map<String, Val
                 "quote": t.quote,
                 "resolved": t.resolved_at.is_some(),
                 "comments": t.comments.iter().map(|c| json!({
-                    "id": c.id, "author": c.author.name, "text": c.text(), "created_at": c.created_at
+                    "id": c.id, "author": c.author.name, "text": c.text(), "created_at": c.created_at,
+                    "membership": c.author.membership
                 })).collect::<Vec<_>>()
             })
         })

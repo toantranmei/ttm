@@ -1,0 +1,12 @@
+---
+source: crates/ttm-mcp-tools/tests/markdown.rs
+expression: "md(\"factory-get-task\", json!({})).await"
+---
+**● AUR-12 Login with Google**
+
+- **state:** Doing (in-progress)
+- **role:** DEV
+- **assignee:** 🤖 DEV · Code ✦ Mei-er
+- **estimate:** 3
+
+**Next:** `factory-get-context` — read the prepared context

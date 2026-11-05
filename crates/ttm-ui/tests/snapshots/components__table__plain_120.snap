@@ -1,0 +1,14 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+         KEY     TITLE                                                             ROLE      ASSIGNEE                EST
+doing    AUR-12  Đăng nhập bằng Google cho người dùng mới, kèm xác minh email      develop…  [person] Nguyễn Văn An    1
+review   AUR-13  登录页面的设计和实现以及更多的测试用例和文档说明                  qa        [person] Nguyễn Văn An    2
+review   AUR-14  Ship the release 🚀 with notes 🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖   develop…  [person] Nguyễn Văn An    3
+done     AUR-15  Setup                                                             qa        [person] Nguyễn Văn An    4
+blocked  AUR-16  Payment webhook retries are failing on the staging server since…  develop…  [person] Nguyễn Văn An    5
+paused   AUR-17  Paused work                                                       qa        [person] Nguyễn Văn An    6
+todo     AUR-18  New idea                                                          develop…  [person] Nguyễn Văn An    7
+
+No tasks.

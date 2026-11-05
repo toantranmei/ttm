@@ -1,0 +1,14 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+         KEY     TITLE                               ROLE      ASSIGNEE      EST
+doing    AUR-12  Đăng nhập bằng Google cho người d…  develop…  [person] Ng…    1
+review   AUR-13  登录页面的设计和实现以及更多的测…   qa        [person] Ng…    2
+review   AUR-14  Ship the release 🚀 with notes 🤖…  develop…  [person] Ng…    3
+done     AUR-15  Setup                               qa        [person] Ng…    4
+blocked  AUR-16  Payment webhook retries are faili…  develop…  [person] Ng…    5
+paused   AUR-17  Paused work                         qa        [person] Ng…    6
+todo     AUR-18  New idea                            develop…  [person] Ng…    7
+
+No tasks.

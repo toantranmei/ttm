@@ -70,6 +70,15 @@ Claude.ai 或 ChatGPT 即可（参见 [连接 MCP](mcp.md)）。
 | `ttm-cli` | `ttm` 二进制 |
 | `ttm-mcp` | `ttm-mcp` 二进制 |
 
+## 0.2 新功能
+
+- **统一输出**：品牌色、表格、状态符号、`Next:` 行；`--plain` 适合日志，`--json` 适合脚本（[命令行界面](giao-dien.md)）。
+- **带标志的向导**：`ttm project init`、`ttm agent create`、`ttm mcp-server add` 等在终端中提问，CI 中用 `--yes`。
+- **CLI 中的 Factory v2**：工作流、自动化、agent、skill、MCP 服务器、变更请求、收件箱、模板（[Factory](factory.md)）；`.ttm/` 中的
+  文件化配置（[配置即代码](as-code.md)）。
+- **MCP v2**：`outputSchema`、统一的 Markdown 格式、带两步确认的管理工具（[MCP 工具](mcp-cong-cu.md)）。
+- **Runner**：提交使用 agent 的身份（绝不出现 Claude/Anthropic 行）、经审核的 skill、经网关的 MCP 和本地 MCP（[Runner](runner.md)）。
+
 ## 继续阅读
 
 - 先看 [安装](cai-dat.md)，再看 [快速开始](bat-dau-nhanh.md)（5 分钟）。

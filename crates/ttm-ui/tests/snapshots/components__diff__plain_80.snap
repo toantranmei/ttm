@@ -1,0 +1,20 @@
+---
+source: crates/ttm-ui/tests/components.rs
+expression: draw(&mode)
+---
+--- a/claude_desktop_config.json
++++ b/claude_desktop_config.json
+@@ -1,5 +1,6 @@
+ {
+   "mcpServers": {
+-    "other": {}
++    "other": {},
++    "ttm": {"command": "ttm-mcp"}
+   }
+ }
+
++ state qc  QC · role qa
+- transition ready → done
+~ rule auto-assign  trigger moved
+
+No changes.

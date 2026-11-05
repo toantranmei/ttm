@@ -8,10 +8,15 @@
 
 pub mod backend;
 pub mod common;
+pub mod confirm;
 pub mod factory;
+pub mod factory_admin;
+pub mod factory_read;
+pub mod md;
 pub mod notee;
 pub mod notee_suggest;
 pub mod notee_write;
+pub mod out;
 pub mod toolset;
 pub mod workspace;
 
@@ -19,4 +24,4 @@ pub use backend::{
     Backend, BackendError, BackendResult, FactoryScope, Fetched, HttpBackend, ProblemDetail, SelfInfo,
 };
 pub use common::{CallContext, ToolFailure, ToolOutput};
-pub use toolset::{ToolSet, Toolset, Toolsets};
+pub use toolset::{Asker, ToolSet, Toolset, Toolsets};

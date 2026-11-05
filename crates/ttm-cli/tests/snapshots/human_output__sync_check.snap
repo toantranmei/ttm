@@ -1,0 +1,10 @@
+---
+source: crates/ttm-cli/tests/human_output.rs
+expression: text
+---
+! Plan out of sync: local rev 5, server rev 6
+  AUR: 0 local, 1 server change(s)
+SIDE    FILE
+───────────────────────
+server  tasks/AUR-12.md
+Next: ttm sync

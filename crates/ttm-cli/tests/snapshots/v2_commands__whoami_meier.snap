@@ -1,0 +1,11 @@
+---
+source: crates/ttm-cli/tests/v2_commands.rs
+expression: text
+---
+An <an@example.com>
+     user  An
+    email  an@example.com
+     host  [HOST]
+  profile  default
+workspace  Team Aurora (w2)
+✦ Mei-er since 2025-01  Thank you for being a Mei-er. You keep this going.

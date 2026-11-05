@@ -7,7 +7,7 @@ use rmcp::ServiceExt;
 use time::OffsetDateTime;
 use ttm_api::Client;
 use ttm_core::{Context, Discovery, Overrides, TokenSource};
-use ttm_mcp_tools::{FactoryScope, HttpBackend, ToolSet, Toolsets};
+use ttm_mcp_tools::{FactoryScope, HttpBackend, ToolSet, Toolset, Toolsets};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -24,7 +24,8 @@ struct Args {
     /// Profile in config.toml (also TTM_PROFILE).
     #[arg(long, value_name = "NAME")]
     profile: Option<String>,
-    /// Extra toolsets, comma separated: notee, factory (workspace is always on). Default: all.
+    /// Extra toolsets, comma separated: notee, factory, admin (workspace is always on). Default: all. Inside an agent
+    /// run (TTM_RUN_ID set) `admin` is always removed.
     #[arg(long, value_name = "LIST", env = "TTM_TOOLSETS")]
     toolsets: Option<String>,
     /// More logs on stderr (-v, -vv).
@@ -36,18 +37,22 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
     init_logging(args.verbose);
-    let toolsets = match &args.toolsets {
-        Some(list) => Toolsets::parse(list).map_err(anyhow::Error::msg)?,
-        None => Toolsets::all(),
-    };
+    let scope = FactoryScope::from_env();
+    let toolsets = job_toolsets(args.toolsets.as_deref(), scope.run_id.is_some())?;
     let ctx = Context::load(&Overrides {
         host: args.host.clone(),
         profile: args.profile.clone(),
     })
     .context("loading the ttm configuration")?;
-    let client = connect(&ctx).await?;
-    let backend = HttpBackend::new(client, ctx.workspace()).with_factory_scope(FactoryScope::from_env());
-    let server = ToolSet::new(backend, toolsets).with_server_info("ttm", ttm_core::VERSION);
+    let (client, features) = connect(&ctx).await?;
+    let mut backend = HttpBackend::new(client, ctx.workspace()).with_factory_scope(scope);
+    if let Some(features) = features {
+        backend = backend.with_features(features);
+    }
+    // stdio is stateful: the client can be asked to confirm a staged change right away (elicitation).
+    let server = ToolSet::new(backend, toolsets)
+        .with_server_info("ttm", ttm_core::VERSION)
+        .with_elicitation(true);
     tracing::info!(host = %ctx.host, profile = %ctx.profile_name, "ttm-mcp ready on stdio");
     let running = server
         .serve(rmcp::transport::stdio())
@@ -57,17 +62,36 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Discovery (falls back to `<host>/api/v1` when unreachable) and the stored token, refreshed when expired.
-async fn connect(ctx: &Context) -> Result<Client> {
+/// `--toolsets` (default all); an agent run never gets `admin`, even when asked.
+fn job_toolsets(list: Option<&str>, in_run: bool) -> Result<Toolsets> {
+    let toolsets = match list {
+        Some(list) => Toolsets::parse(list).map_err(anyhow::Error::msg)?,
+        None => Toolsets::all(),
+    };
+    if in_run && toolsets.contains(Toolset::Admin) {
+        if list.is_some_and(|l| l.split(',').any(|p| p.trim().eq_ignore_ascii_case("admin"))) {
+            tracing::warn!(
+                "TTM_RUN_ID is set: the admin toolset is not available to an agent run; ignoring it"
+            );
+        }
+        return Ok(toolsets.without(Toolset::Admin));
+    }
+    Ok(toolsets)
+}
+
+/// Discovery (falls back to `<host>/api/v1` when unreachable) and the stored token, refreshed when expired. Also
+/// answers the server's `features` when discovery worked.
+async fn connect(ctx: &Context) -> Result<(Client, Option<Vec<String>>)> {
     let probe = Client::new(format!("{}/api/v1", ctx.host), None)?;
-    let discovery =
+    let (discovery, reached) =
         match ttm_core::discovery::discover(probe.http(), &ctx.host, &ctx.paths.cache_dir, false).await {
-            Ok(d) => d,
+            Ok(d) => (d, true),
             Err(err) => {
                 tracing::warn!("{err}; using default endpoints");
-                Discovery::default()
+                (Discovery::default(), false)
             }
         };
+    let features = reached.then(|| discovery.features.clone());
     if let Some(min) = discovery.upgrade_required(ttm_core::VERSION) {
         tracing::warn!("the server needs ttm-mcp >= {min}; run `ttm self-update`");
     }
@@ -118,7 +142,10 @@ async fn connect(ctx: &Context) -> Result<Client> {
         }
         Some((token, _)) => Some(token.access_token),
     };
-    Ok(Client::new(api_base, token)?.with_cache_dir(&ctx.paths.cache_dir))
+    Ok((
+        Client::new(api_base, token)?.with_cache_dir(&ctx.paths.cache_dir),
+        features,
+    ))
 }
 
 fn init_logging(verbose: u8) {
@@ -154,5 +181,13 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(args.toolsets.as_deref(), Some("notee"));
+    }
+
+    #[test]
+    fn agent_runs_never_get_admin() {
+        assert!(job_toolsets(None, false).unwrap().contains(Toolset::Admin));
+        assert!(!job_toolsets(None, true).unwrap().contains(Toolset::Admin));
+        let asked = job_toolsets(Some("factory,admin"), true).unwrap();
+        assert!(asked.contains(Toolset::Factory) && !asked.contains(Toolset::Admin));
     }
 }

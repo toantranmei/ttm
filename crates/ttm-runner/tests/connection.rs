@@ -77,6 +77,9 @@ async fn heartbeat_and_lease_conflict() {
                 running: vec!["r1".into()],
                 capacity: 2,
                 paused_until: None,
+                local_mcp: None,
+                projects: None,
+                features: None,
             },
         )
         .await
@@ -96,7 +99,7 @@ async fn register_returns_expiry_and_merge_result_body() {
     Mock::given(method("POST"))
         .and(path("/api/v1/factory/runners/register"))
         .and(body_partial_json(
-            json!({"name": "mac", "max_parallel": 2, "accept_team_jobs": false}),
+            json!({"name": "mac", "max_parallel": 2, "accept_team_jobs": false, "projects": ["AUR"]}),
         ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "runner_id": "rn1", "token": "ttm_job_abc", "expires_at": "2026-11-05T00:00:00Z"
@@ -130,6 +133,9 @@ async fn register_returns_expiry_and_merge_result_body() {
             harnesses: vec!["claude-code".into()],
             max_parallel: 2,
             accept_team_jobs: false,
+            features: vec!["skills".into()],
+            local_mcp: vec![],
+            projects: Some(vec!["AUR".into()]),
         })
         .await
         .unwrap();

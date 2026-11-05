@@ -1,0 +1,5 @@
+{
+  "profile": "default",
+  "workspace_id": "w2",
+  "workspace": {"id": "w2", "name": "Team Aurora", "kind": "team", "role": "member", "slug": "aurora"}
+}
