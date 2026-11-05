@@ -362,9 +362,16 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
         },
         RunnerCommand::Config(cmd) => {
             let args = cmd.args;
+            let server_side = args.accept_team_jobs.is_some() || args.max_parallel.is_some();
             let mut config = RunnerConfig::load(&config_dir)?;
             apply_config(&mut config, args)?;
             config.save(&config_dir)?;
+            // A registered runner keeps its token across `ttm runner up` and does not register again: tell the
+            // server now, or "team jobs" and capacity stay what they were at the first registration.
+            let synced = match (&config.runner_id, server_side) {
+                (Some(id), true) => Some(push_settings(&app, id, &config).await),
+                _ => None,
+            };
             emit(&app, &config, |ui| {
                 ui.print(&Callout::success(format!(
                     "Saved {}",
@@ -384,6 +391,13 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
                     .row("keep days", config.keep_days.to_string())
                     .row("repos", config.repos.len().to_string());
                 ui.print(&kv);
+                if let Some(Err(why)) = &synced {
+                    ui.print(
+                        &Callout::warning("The server still has the old team jobs / max parallel")
+                            .detail(why.as_str())
+                            .next("ttm runner config --accept-team-jobs <true|false>  (again, once online)"),
+                    );
+                }
             });
         }
         RunnerCommand::InstallService => {
@@ -622,6 +636,20 @@ fn claude_token(app: &App, remove: bool) -> Result<ExitCode> {
         )
     });
     Ok(ExitCode::SUCCESS)
+}
+
+/// `PATCH /factory/runners/{id}` as the owner: "team jobs" and capacity of an already registered runner.
+async fn push_settings(app: &App, id: &str, config: &RunnerConfig) -> std::result::Result<(), String> {
+    let body = json!({
+        "accept_team_jobs": config.accept_team_jobs,
+        "max_parallel": capacity::effective(config.max_parallel),
+    });
+    let (client, _) = app.api().await.map_err(|e| e.to_string())?;
+    client
+        .patch::<_, serde_json::Value>(&format!("/factory/runners/{id}"), &body)
+        .await
+        .map(drop)
+        .map_err(|e| e.to_string())
 }
 
 pub fn apply_config(config: &mut RunnerConfig, args: RunnerConfigArgs) -> Result<()> {
