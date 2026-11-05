@@ -376,10 +376,14 @@ impl Harness for ClaudeCode {
                             let _ = events.send(RunEvent::now(
                                 "log",
                                 format!("budget exhausted: {used} of {budget} tokens, the agent was stopped"),
+                                // The raw counts sit under `at_stop`: a server reads `tokens_in` / `usage` at the top
+                                // of an event's data as usage to add, and these were already counted.
                                 Some(json!({
-                                    "budget_tokens": budget, "tokens": used, "tokens_in": outcome.tokens_in,
-                                    "tokens_out": outcome.tokens_out, "cache_creation_tokens": outcome.cache_creation,
-                                    "cache_read_tokens": outcome.cache_read
+                                    "budget_tokens": budget, "tokens": used, "at_stop": {
+                                        "tokens_in": outcome.tokens_in, "tokens_out": outcome.tokens_out,
+                                        "cache_creation_tokens": outcome.cache_creation,
+                                        "cache_read_tokens": outcome.cache_read
+                                    }
                                 })),
                             ));
                             outcome.status = "failed".into();
@@ -625,10 +629,21 @@ mod tests {
         );
         assert!(out.summary.unwrap().contains("budget exhausted"));
         let mut logs = Vec::new();
+        let mut stop_data = None;
         while let Ok(e) = rx.try_recv() {
+            if e.message.starts_with("budget exhausted") {
+                stop_data = e.data.clone();
+            }
             logs.push(e.message);
         }
         assert!(logs.iter().any(|m| m.starts_with("budget exhausted")), "{logs:?}");
+        // the raw counts are nested: a server must not add them as usage again
+        let data = stop_data.unwrap();
+        assert!(
+            data.get("tokens_in").is_none() && data.get("usage").is_none(),
+            "{data}"
+        );
+        assert_eq!(data["at_stop"]["tokens_in"], 2000);
     }
 
     #[cfg(unix)]
