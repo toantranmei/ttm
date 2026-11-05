@@ -36,8 +36,32 @@ pub fn push(dir: &Path, branch: &str, env: &[(String, String)]) -> Result<(), Gi
     git_env(dir, &["push", "-u", "origin", branch], env).map(drop)
 }
 
-/// Opens a pull request with the `gh` CLI when available; returns its URL.
+/// Opens a pull request with the `gh` CLI when available; returns its URL. When the branch already has an open pull
+/// request (a later run on the same task: the push updated it), returns that one's URL.
 pub fn open_pull_request(dir: &Path, branch: &str, base: &str, title: &str, body: &str) -> Option<String> {
+    create_pull_request(dir, branch, base, title, body).or_else(|| existing_pull_request(dir, branch))
+}
+
+/// URL of the open pull request of `branch`, if any.
+fn existing_pull_request(dir: &Path, branch: &str) -> Option<String> {
+    let out = std::process::Command::new("gh")
+        .current_dir(dir)
+        .args([
+            "pr",
+            "view",
+            branch,
+            "--json",
+            "url,state",
+            "--jq",
+            "select(.state == \"OPEN\") | .url",
+        ])
+        .output()
+        .ok()?;
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && url.starts_with("http")).then_some(url)
+}
+
+fn create_pull_request(dir: &Path, branch: &str, base: &str, title: &str, body: &str) -> Option<String> {
     let out = std::process::Command::new("gh")
         .current_dir(dir)
         .args([
