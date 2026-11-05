@@ -206,15 +206,7 @@ impl Vars {
     }
 }
 
-/// Title from the context heading `# KEY: title` of the prompt.
-pub fn task_title(prompt: &str, key: &str) -> Option<String> {
-    let prefix = format!("# {key}: ");
-    prompt
-        .lines()
-        .find_map(|l| l.strip_prefix(&prefix))
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())
-}
+pub use super::task_title;
 
 /// Role from the context line `… · role ROLE · …` of the prompt.
 pub fn task_role(prompt: &str) -> Option<String> {

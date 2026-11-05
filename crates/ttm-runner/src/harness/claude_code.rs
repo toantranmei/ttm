@@ -1,5 +1,5 @@
 //! Claude Code, headless: `claude -p <prompt> --output-format stream-json --verbose --model <m> --max-turns <n>
-//! --mcp-config <file> --allowedTools <…>`. Each stdout line is a JSON message:
+//! --mcp-config <file> --append-system-prompt <runner note> --allowedTools <…>`. Each stdout line is a JSON message:
 //!
 //! | Message | Event |
 //! | --- | --- |
@@ -109,6 +109,20 @@ pub fn is_test_command(command: &str) -> bool {
     .any(|t| c.contains(t))
 }
 
+/// Appended to the system prompt of every job (`--append-system-prompt`): the runner, not the agent, pushes the
+/// branch and opens the pull request after the job, so the agent spends no turns on `git push` or `gh` writes (refused anyway)
+/// and its summary, which becomes the pull request body, makes no claim about the pull request.
+pub const RUNNER_NOTE: &str = "You are running a job of the ttm runner, in a worktree on the job's branch. \
+Commit your work on this branch. After you finish, the runner commits anything left uncommitted, pushes the branch \
+and opens its pull request (or the push updates the one already open), then records the pull request link on the run. \
+So do not run `git push`, and do not run `gh` commands that write to a pull request or issue (`gh pr create`, \
+`gh pr merge`, `gh pr comment`, `gh pr review`, `gh pr edit`, `gh pr close`, `gh issue comment`, `gh issue edit`); \
+read-only `gh` (`gh pr view`, `gh issue view`, `gh api` GET requests) is fine. Do not attach a pull request artifact, \
+and do not ask anyone to open the pull request. Your final message becomes the run summary and the pull request body: describe \
+what you did and checked, and say nothing about pushing or about the pull request. When the job is a review, give \
+your findings and verdict with the factory tools (factory-report-progress, factory-attach-artifact with a note, \
+factory-request-approval when a person must decide), never by writing through `gh`.";
+
 /// Arguments of the `claude` command for a job. Every job gets `--settings` (no Claude attribution in commits or
 /// PRs); a teammate's job also gets `--setting-sources project,local` (never this machine's user settings).
 pub fn command_args(job: &JobSpec, mcp_config: &Path, ctx: &RunContext) -> Vec<String> {
@@ -123,6 +137,8 @@ pub fn command_args(job: &JobSpec, mcp_config: &Path, ctx: &RunContext) -> Vec<S
         // Only the ttm MCP servers of the job config: never the MCP servers configured on this machine, so a job
         // delegated by a teammate cannot reach the owner's other tools.
         "--strict-mcp-config".into(),
+        "--append-system-prompt".into(),
+        RUNNER_NOTE.into(),
     ];
     if let Some(model) = &job.model {
         args.extend(["--model".into(), model.clone()]);
@@ -489,6 +505,21 @@ mod tests {
         assert_eq!(&a[..2], ["-p", "Fix login"]);
         assert!(a.windows(2).any(|w| w == ["--output-format", "stream-json"]));
         assert!(a.iter().any(|x| x == "--strict-mcp-config"));
+        assert!(a.windows(2).any(|w| w == ["--append-system-prompt", RUNNER_NOTE]));
+        for word in [
+            "git push",
+            "gh pr create",
+            "gh pr review",
+            "gh issue comment",
+            "gh pr view",
+            "pull request",
+        ] {
+            assert!(RUNNER_NOTE.contains(word), "{word}");
+        }
+        let lower = RUNNER_NOTE.to_lowercase();
+        for word in ["claude", "anthropic", " ai "] {
+            assert!(!lower.contains(word), "{word}");
+        }
         assert!(a.windows(2).any(|w| w == ["--model", "sonnet"]));
         assert!(a.windows(2).any(|w| w == ["--max-turns", "30"]));
         assert!(

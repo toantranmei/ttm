@@ -32,6 +32,13 @@ pub fn is_attribution_line(line: &str) -> bool {
     co_author || generated || l.contains("🤖 generated with") || l.contains("noreply@anthropic.com")
 }
 
+/// Whether `text` names Claude or Anthropic as a word (case-insensitive): text the runner writes itself (a pull
+/// request title) never does.
+pub fn names_vendor(text: &str) -> bool {
+    text.split(|c: char| !c.is_alphanumeric())
+        .any(|w| w.eq_ignore_ascii_case("claude") || w.eq_ignore_ascii_case("anthropic"))
+}
+
 /// `text` without its attribution lines.
 pub fn strip_text(text: &str) -> String {
     let kept: Vec<&str> = text.lines().filter(|l| !is_attribution_line(l)).collect();

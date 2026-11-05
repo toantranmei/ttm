@@ -436,15 +436,7 @@ impl Executor {
                 finish.commit = git::head(&path).ok();
                 match pushed {
                     Ok(()) => {
-                        let title = format!(
-                            "{}: {}",
-                            job.task_key,
-                            outcome
-                                .summary
-                                .as_deref()
-                                .and_then(|s| s.lines().next())
-                                .unwrap_or("agent changes")
-                        );
+                        let title = pr_title(job);
                         let body = format!(
                             "Run {} by ttm runner.\n\n{}",
                             job.run_id,
@@ -478,6 +470,26 @@ impl Executor {
         };
         Ok((outcome, finish))
     }
+}
+
+/// Longest pull request title, in characters (a longer one ends with `…`).
+pub const PR_TITLE_MAX: usize = 72;
+
+/// Pull request title `KEY: task title`, from the context heading `# KEY: title` of the prompt (never the agent's
+/// summary, which stays in the body); `KEY: agent changes` when the prompt has no heading or the title is an
+/// attribution line or names Claude/Anthropic. At most [`PR_TITLE_MAX`] grapheme clusters.
+pub fn pr_title(job: &JobSpec) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    let task = harness::task_title(&job.prompt, &job.task_key)
+        .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|t| !identity::is_attribution_line(t) && !identity::names_vendor(t))
+        .unwrap_or_else(|| "agent changes".into());
+    let title = format!("{}: {task}", job.task_key);
+    if title.graphemes(true).count() <= PR_TITLE_MAX {
+        return title;
+    }
+    let kept: String = title.graphemes(true).take(PR_TITLE_MAX - 1).collect();
+    format!("{}…", kept.trim_end())
 }
 
 /// Pull request title and body without attribution lines (the agent's summary may carry one).
@@ -568,6 +580,35 @@ mod tests {
             "mcp": {"token": "ttm_job_abc", "toolsets": []}
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn pr_title_is_the_task_title() {
+        let mut j = job();
+        j.prompt = "# AUR-12: Clear completed todos\n\nProject Todo (AUR) · role DEV\n".into();
+        assert_eq!(pr_title(&j), "AUR-12: Clear completed todos");
+        j.prompt = "no heading".into();
+        assert_eq!(pr_title(&j), "AUR-12: agent changes");
+        j.prompt = "# AUR-12: 🤖 Generated with Claude Code\n".into();
+        assert_eq!(pr_title(&j), "AUR-12: agent changes");
+        for vendor in [
+            "Use Claude for the copy",
+            "ANTHROPIC key rotation",
+            "claude-code setup",
+        ] {
+            j.prompt = format!("# AUR-12: {vendor}\n");
+            assert_eq!(pr_title(&j), "AUR-12: agent changes", "{vendor}");
+        }
+        j.prompt = "# AUR-12: Claudette's layout\n".into();
+        assert_eq!(pr_title(&j), "AUR-12: Claudette's layout");
+        j.prompt = format!("# AUR-12: {}\n", "👩‍💻".repeat(80));
+        let t = pr_title(&j);
+        assert!(t.ends_with("👩‍💻…"), "cut between grapheme clusters: {t}");
+        j.prompt = format!("# AUR-12: {}\n", "word ".repeat(30));
+        let t = pr_title(&j);
+        assert_eq!(t.chars().count(), PR_TITLE_MAX);
+        assert!(t.starts_with("AUR-12: word word") && t.ends_with('…'), "{t}");
+        assert!(!t.contains(" …"), "{t}");
     }
 
     #[test]

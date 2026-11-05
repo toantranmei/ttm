@@ -27,6 +27,8 @@ reqwest = { workspace = true, features = ["rustls"] }
 sha2.workspace = true
 toml_edit.workspace = true
 ttm-ui.workspace = true
+# Already in the tree (via other crates): pull request titles are cut on grapheme clusters.
+unicode-segmentation = "1.13.3"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1", features = ["process"] }

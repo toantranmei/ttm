@@ -177,8 +177,9 @@ Xem [Cô lập job của đồng đội](#cô-lập-job-của-đồng-đội).
    | lệnh test (`cargo test`, `pnpm test`, `pytest`, `go test`, `vitest`, `playwright test`…) | `log` `tests passed`/`tests failed`; kết quả được đính vào run như `test_result` |
 
 8. **Kết thúc**: nếu thành công, commit phần agent để lại (`chore(<key>): changes from agent run <run>`), push nhánh, mở
-   PR bằng `gh pr create` nếu có `gh`, rồi báo trạng thái (`succeeded`, `failed`, `cancelled`, `paused`), commit, PR, token
-   đã dùng. File MCP tạm bị xoá.
+   PR bằng `gh pr create` nếu có `gh` (hoặc giữ PR đang mở của nhánh, đã được push cập nhật), rồi báo trạng thái
+   (`succeeded`, `failed`, `cancelled`, `paused`), commit, PR, token đã dùng. Tiêu đề PR là `<KEY>: <tiêu đề task>` (tối
+   đa 72 ký tự); summary của agent là thân PR. File MCP tạm bị xoá.
 
 Worktree của job đã xong được giữ `keep_days` ngày để bạn xem lại, rồi bị xoá khi `ttm runner up` khởi động lần sau.
 
@@ -202,6 +203,8 @@ Mỗi run in một dòng khi bắt đầu và một dòng khi kết thúc (stder
   2. thêm trailer của job (chỉ chế độ `delegator_with_trailer`: `Co-authored-by: <tên agent> <email agent>`, một lần);
   3. chạy hook `commit-msg` gốc của repo (từ `core.hooksPath` hoặc `.git/hooks`). Các hook gốc khác được nối qua shim.
 - Claude Code luôn chạy với `--settings` có `{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}`.
+- Claude Code còn nhận `--append-system-prompt` với ghi chú của runner: runner push nhánh và mở PR, nên agent không chạy
+  `git push` hay lệnh `gh` ghi vào PR/issue (`gh` chỉ đọc vẫn được), summary không nói gì về PR; run review đưa kết luận qua tool factory.
 - Commit phần còn lại và push của runner dùng cùng môi trường. Thư mục hook bị xoá sau run.
 
 Quy tắc: không commit nào do runner tạo mang dòng Claude/Anthropic.

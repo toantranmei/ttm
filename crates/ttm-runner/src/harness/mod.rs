@@ -13,6 +13,16 @@ use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use ttm_api::factory::{JobSpec, RunEvent};
 
+/// Title from the context heading `# KEY: title` of the prompt.
+pub fn task_title(prompt: &str, key: &str) -> Option<String> {
+    let prefix = format!("# {key}: ");
+    prompt
+        .lines()
+        .find_map(|l| l.strip_prefix(&prefix))
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
 /// What the runner adds around a job: git identity and hooks environment, Claude Code settings, team isolation.
 #[derive(Debug, Clone, Default)]
 pub struct RunContext {
