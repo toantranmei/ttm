@@ -204,7 +204,7 @@ Mỗi run in một dòng khi bắt đầu và một dòng khi kết thúc (stder
   3. chạy hook `commit-msg` gốc của repo (từ `core.hooksPath` hoặc `.git/hooks`). Các hook gốc khác được nối qua shim.
 - Claude Code luôn chạy với `--settings` có `{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}`.
 - Claude Code còn nhận `--append-system-prompt` với ghi chú của runner: runner push nhánh và mở PR, nên agent không chạy
-  `git push` hay `gh`, summary không nói gì về PR; run review đưa kết luận qua tool factory.
+  `git push` hay lệnh `gh` ghi vào PR/issue (`gh` chỉ đọc vẫn được), summary không nói gì về PR; run review đưa kết luận qua tool factory.
 - Commit phần còn lại và push của runner dùng cùng môi trường. Thư mục hook bị xoá sau run.
 
 Quy tắc: không commit nào do runner tạo mang dòng Claude/Anthropic.

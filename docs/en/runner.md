@@ -213,7 +213,7 @@ Each run prints one line when it starts and one when it ends (stderr):
      shims.
 - Claude Code always runs with `--settings` holding `{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}`.
 - Claude Code also gets `--append-system-prompt` with a runner note: the runner pushes the branch and opens the PR, so
-  the agent runs no `git push` or `gh`, and its summary says nothing about the PR; a review gives its verdict with the
+  the agent runs no `git push` and no `gh` command that writes to a PR or issue (read-only `gh` is fine), and its summary says nothing about the PR; a review gives its verdict with the
   factory tools.
 - The runner's own commit of leftovers and its push use the same environment. The hooks directory is removed after the run.
 

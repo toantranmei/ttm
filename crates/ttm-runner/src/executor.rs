@@ -477,17 +477,18 @@ pub const PR_TITLE_MAX: usize = 72;
 
 /// Pull request title `KEY: task title`, from the context heading `# KEY: title` of the prompt (never the agent's
 /// summary, which stays in the body); `KEY: agent changes` when the prompt has no heading or the title is an
-/// attribution line. At most [`PR_TITLE_MAX`] characters.
+/// attribution line or names Claude/Anthropic. At most [`PR_TITLE_MAX`] grapheme clusters.
 pub fn pr_title(job: &JobSpec) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
     let task = harness::task_title(&job.prompt, &job.task_key)
         .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|t| !identity::is_attribution_line(t))
+        .filter(|t| !identity::is_attribution_line(t) && !identity::names_vendor(t))
         .unwrap_or_else(|| "agent changes".into());
     let title = format!("{}: {task}", job.task_key);
-    if title.chars().count() <= PR_TITLE_MAX {
+    if title.graphemes(true).count() <= PR_TITLE_MAX {
         return title;
     }
-    let kept: String = title.chars().take(PR_TITLE_MAX - 1).collect();
+    let kept: String = title.graphemes(true).take(PR_TITLE_MAX - 1).collect();
     format!("{}…", kept.trim_end())
 }
 
@@ -590,6 +591,19 @@ mod tests {
         assert_eq!(pr_title(&j), "AUR-12: agent changes");
         j.prompt = "# AUR-12: 🤖 Generated with Claude Code\n".into();
         assert_eq!(pr_title(&j), "AUR-12: agent changes");
+        for vendor in [
+            "Use Claude for the copy",
+            "ANTHROPIC key rotation",
+            "claude-code setup",
+        ] {
+            j.prompt = format!("# AUR-12: {vendor}\n");
+            assert_eq!(pr_title(&j), "AUR-12: agent changes", "{vendor}");
+        }
+        j.prompt = "# AUR-12: Claudette's layout\n".into();
+        assert_eq!(pr_title(&j), "AUR-12: Claudette's layout");
+        j.prompt = format!("# AUR-12: {}\n", "👩‍💻".repeat(80));
+        let t = pr_title(&j);
+        assert!(t.ends_with("👩‍💻…"), "cut between grapheme clusters: {t}");
         j.prompt = format!("# AUR-12: {}\n", "word ".repeat(30));
         let t = pr_title(&j);
         assert_eq!(t.chars().count(), PR_TITLE_MAX);

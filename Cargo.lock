@@ -3306,6 +3306,7 @@ dependencies = [
  "ttm-api",
  "ttm-core",
  "ttm-ui",
+ "unicode-segmentation",
  "wiremock",
 ]
 

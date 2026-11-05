@@ -195,7 +195,7 @@ Claude Code 以 `--strict-mcp-config`（agent 只看到这些服务器）和 `--
   3. 运行仓库原有的 `commit-msg`（来自 `core.hooksPath` 或 `.git/hooks`）。其他原有 hook 通过 shim 串接。
 - Claude Code 始终带 `--settings` 运行，内容为 `{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}`。
 - Claude Code 还会收到带 runner 说明的 `--append-system-prompt`：由 runner 推送分支并创建 PR，agent 不运行 `git push`
-  或 `gh`，总结中不提 PR；评审 run 通过 factory 工具给出结论。
+  或写入 PR/issue 的 `gh` 命令（只读 `gh` 可以），总结中不提 PR；评审 run 通过 factory 工具给出结论。
 - runner 自己提交剩余改动和推送时使用相同的环境。run 结束后删除 hook 目录。
 
 规则：runner 生成的任何提交都不包含 Claude/Anthropic 行。
