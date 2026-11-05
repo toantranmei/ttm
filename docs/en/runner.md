@@ -179,8 +179,10 @@ See [Teammates' jobs are isolated](#teammates-jobs-are-isolated).
    | test command (`cargo test`, `pnpm test`, `pytest`, `go test`, `vitest`, `playwright test`…) | `log` `tests passed`/`tests failed`; the result is attached to the run as `test_result` |
 
 7. **Finish**: on success, commits whatever the agent left (`chore(<key>): changes from agent run <run>`), pushes the
-   branch, opens a PR with `gh pr create` if `gh` is available, then reports the status (`succeeded`, `failed`,
-   `cancelled`, `paused`), commit, PR, and tokens used. The temporary MCP file is deleted.
+   branch, opens a PR with `gh pr create` if `gh` is available (or keeps the branch's open PR, which the push
+   updated), then reports the status (`succeeded`, `failed`, `cancelled`, `paused`), commit, PR, and tokens used. The
+   PR title is `<KEY>: <task title>` (at most 72 characters); the agent's summary is the PR body. The temporary MCP
+   file is deleted.
 
 Since 0.2.0, between the rules and the agent the runner also installs the job's skills, prepares the run's own git hooks
 and adds the remote and local MCP servers to the MCP file; Claude Code runs with `--strict-mcp-config` (the agent sees only
@@ -210,6 +212,9 @@ Each run prints one line when it starts and one when it ends (stderr):
   3. runs the repository's own `commit-msg` (from `core.hooksPath` or `.git/hooks`). Other original hooks are chained by
      shims.
 - Claude Code always runs with `--settings` holding `{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}`.
+- Claude Code also gets `--append-system-prompt` with a runner note: the runner pushes the branch and opens the PR, so
+  the agent runs no `git push` or `gh`, and its summary says nothing about the PR; a review gives its verdict with the
+  factory tools.
 - The runner's own commit of leftovers and its push use the same environment. The hooks directory is removed after the run.
 
 Rule: no commit made by the runner ever carries a Claude/Anthropic line.

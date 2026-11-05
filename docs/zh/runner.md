@@ -167,7 +167,8 @@ ttm runner config claude-token --remove
    | 测试命令（`cargo test`、`pnpm test`、`pytest`、`go test`、`vitest`、`playwright test` 等） | `log` `tests passed`/`tests failed`；结果作为 `test_result` 附加到 run 上 |
 
 7. **结束**：如果成功，提交 agent 留下的改动（`chore(<key>): changes from agent run <run>`），推送分支，装有 `gh` 时用
-   `gh pr create` 创建 PR，然后报告状态（`succeeded`、`failed`、`cancelled`、`paused`）、提交、PR 和已使用的 token。临时 MCP 文件会被删除。
+   `gh pr create` 创建 PR（或沿用该分支已打开、已被推送更新的 PR），然后报告状态（`succeeded`、`failed`、`cancelled`、`paused`）、提交、PR 和已使用的 token。
+   PR 标题为 `<KEY>: <任务标题>`（最多 72 个字符），agent 的总结作为 PR 正文。临时 MCP 文件会被删除。
 
 从 0.2.0 起，在规则与 agent 之间，runner 还会安装作业的 skill、准备本次 run 专用的 git hook，并把远程和本地 MCP 写入 MCP 文件；
 Claude Code 以 `--strict-mcp-config`（agent 只看到这些服务器）和 `--settings <cache>/settings-<run>.json` 运行（见下文）。
@@ -193,6 +194,8 @@ Claude Code 以 `--strict-mcp-config`（agent 只看到这些服务器）和 `--
   2. 添加作业的 trailer（仅 `delegator_with_trailer` 模式：`Co-authored-by: <agent 名> <agent 邮箱>`，只加一次）；
   3. 运行仓库原有的 `commit-msg`（来自 `core.hooksPath` 或 `.git/hooks`）。其他原有 hook 通过 shim 串接。
 - Claude Code 始终带 `--settings` 运行，内容为 `{"includeCoAuthoredBy": false, "attribution": {"commit": "", "pr": ""}}`。
+- Claude Code 还会收到带 runner 说明的 `--append-system-prompt`：由 runner 推送分支并创建 PR，agent 不运行 `git push`
+  或 `gh`，总结中不提 PR；评审 run 通过 factory 工具给出结论。
 - runner 自己提交剩余改动和推送时使用相同的环境。run 结束后删除 hook 目录。
 
 规则：runner 生成的任何提交都不包含 Claude/Anthropic 行。
