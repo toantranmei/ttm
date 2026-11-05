@@ -40,6 +40,9 @@ pub struct Mapped {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamState {
     pending_tests: std::collections::HashMap<String, String>,
+    /// Ids of the API messages whose usage was counted: Claude Code repeats one message's `usage` on every content
+    /// block it streams as its own `assistant` line, so it is counted once per message id.
+    usage_seen: std::collections::HashSet<String>,
     pub tests_pass: Option<bool>,
     pub tests_command: Option<String>,
 }
@@ -187,7 +190,11 @@ pub fn map_line_with(state: &mut StreamState, line: &str) -> Mapped {
                     _ => {}
                 }
             }
-            if let Some(usage) = msg["message"].get("usage") {
+            let first_time = match msg["message"]["id"].as_str() {
+                Some(id) => state.usage_seen.insert(id.to_string()),
+                None => true,
+            };
+            if let Some(usage) = msg["message"].get("usage").filter(|_| first_time) {
                 out.tokens_in += usage["input_tokens"].as_u64().unwrap_or(0)
                     + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
                     + usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
@@ -294,6 +301,21 @@ impl Harness for ClaudeCode {
                         let mapped = map_line_with(&mut state, &line);
                         outcome.tokens_in += mapped.tokens_in;
                         outcome.tokens_out += mapped.tokens_out;
+                        // The job's token budget is a hard stop: the agent is stopped as soon as it is passed.
+                        if let Some(budget) = over_budget(&outcome, job.limits.budget_tokens) {
+                            let used = outcome.tokens_in + outcome.tokens_out;
+                            let _ = child.kill().await;
+                            let _ = events.send(RunEvent::now(
+                                "log",
+                                format!("budget exhausted: {used} of {budget} tokens, the agent was stopped"),
+                                Some(json!({ "budget_tokens": budget, "tokens": used })),
+                            ));
+                            outcome.status = "failed".into();
+                            outcome.summary = Some(format!("budget exhausted ({used} of {budget} tokens)"));
+                            outcome.tests_pass = state.tests_pass;
+                            outcome.tests_command = state.tests_command.clone();
+                            return Ok(outcome);
+                        }
                         if mapped.paused_until.is_some() {
                             outcome.paused_until = mapped.paused_until;
                         }
@@ -331,6 +353,11 @@ impl Harness for ClaudeCode {
         };
         Ok(outcome)
     }
+}
+
+/// The budget when the tokens used so far passed it.
+pub fn over_budget(outcome: &HarnessOutcome, budget: Option<u64>) -> Option<u64> {
+    budget.filter(|b| outcome.tokens_in + outcome.tokens_out > *b)
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
@@ -404,6 +431,59 @@ mod tests {
         );
         assert_eq!(done.result, Some((true, "Done: login fixed".into())));
         assert_eq!(done.events[0].kind, "response");
+    }
+
+    #[test]
+    fn counts_one_message_usage_once() {
+        let mut st = StreamState::default();
+        let block = |text: &str| {
+            format!(
+                r#"{{"type":"assistant","message":{{"id":"msg_1","content":[{{"type":"text","text":"{text}"}}],"usage":{{"input_tokens":10,"cache_read_input_tokens":1000,"output_tokens":5}}}}}}"#
+            )
+        };
+        let a = map_line_with(&mut st, &block("one"));
+        let b = map_line_with(&mut st, &block("two"));
+        assert_eq!((a.tokens_in, a.tokens_out), (1010, 5));
+        assert_eq!((b.tokens_in, b.tokens_out), (0, 0), "the same message's usage again");
+        assert_eq!(b.events.len(), 1, "its content still maps");
+        let other = map_line_with(&mut st, &block("three").replace("msg_1", "msg_2"));
+        assert_eq!(other.tokens_in, 1010);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_budget_stops_the_agent() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("claude");
+        // a fake claude: one message of 600 tokens every 50 ms, forever
+        std::fs::write(
+            &program,
+            "#!/bin/sh\ni=0\nwhile true; do i=$((i+1)); echo '{\"type\":\"assistant\",\"message\":{\"id\":\"m'$i'\",\"content\":[],\"usage\":{\"input_tokens\":500,\"output_tokens\":100}}}'; sleep 0.05; done\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut job = job();
+        job.limits.budget_tokens = Some(2000);
+        let harness = ClaudeCode { program: Some(program) };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (_stop, cancel) = watch::channel(false);
+        let ctx = RunContext { env: vec![], settings: None };
+        let out = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            harness.run(&job, dir.path(), &dir.path().join("mcp.json"), &ctx, tx, cancel),
+        )
+        .await
+        .expect("stopped, not left running")
+        .unwrap();
+        assert_eq!(out.status, "failed");
+        assert_eq!(out.tokens_in + out.tokens_out, 2400, "stopped at the first message past 2000");
+        assert!(out.summary.unwrap().contains("budget exhausted"));
+        let mut logs = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            logs.push(e.message);
+        }
+        assert!(logs.iter().any(|m| m.starts_with("budget exhausted")), "{logs:?}");
     }
 
     #[test]
