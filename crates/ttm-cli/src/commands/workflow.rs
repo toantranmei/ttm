@@ -205,7 +205,11 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
                 ui.print(&changes(&diff));
             });
         }
-        WorkflowCommand::Publish { project, note } => {
+        WorkflowCommand::Publish {
+            project,
+            note,
+            acknowledge_rules,
+        } => {
             let (_, wf_id, _) = project_workflow(&app, &client, project.project.as_deref()).await?;
             let wf = client.workflow(&wf_id).await?;
             if wf.draft.is_none() && !wf.has_draft {
@@ -222,6 +226,7 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
             );
             app.ui.print(&changes(&diff));
             print_affected(&app, &diff.affected_rules);
+            let acknowledged = rules_ack(app.json, acknowledge_rules, &diff.affected_rules)?;
             let note = wizard.text(
                 Ask::new("Release note", "--note")
                     .value(note)
@@ -244,7 +249,7 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
             }
             wizard.print_equivalent("workflow publish");
             let out = client
-                .workflow_publish(&wf_id, &note, base, !diff.affected_rules.is_empty())
+                .workflow_publish(&wf_id, &note, base, &acknowledged)
                 .await?;
             emit(&app, &out, |ui| {
                 let v = out["version"].as_i64().unwrap_or(base + 1);
@@ -260,7 +265,11 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
                 )
             });
         }
-        WorkflowCommand::Upgrade { project, to } => {
+        WorkflowCommand::Upgrade {
+            project,
+            to,
+            acknowledge_rules,
+        } => {
             let (project_id, key) = app.project_ref(&client, project.project.as_deref()).await?;
             let preview = client.workflow_upgrade_preview(&project_id, to).await?;
             app.ui.print(
@@ -291,6 +300,7 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
                 app.ui.print(&t);
             }
             print_affected(&app, &preview.affected_rules);
+            let acknowledged = rules_ack(app.json, acknowledge_rules, &preview.affected_rules)?;
             let mut wizard = app.wizard();
             wizard.record("--to", Some(preview.to_version.to_string()));
             if !wizard.confirm(&format!(
@@ -306,7 +316,7 @@ pub async fn run(app: App, command: WorkflowCommand) -> Result<ExitCode> {
                     preview.to_version,
                     &preview.preview_hash,
                     None,
-                    !preview.affected_rules.is_empty(),
+                    &acknowledged,
                 )
                 .await?;
             emit(&app, &out, |ui| {
@@ -359,6 +369,27 @@ fn print_affected(app: &App, rules: &[AffectedRule]) {
         ]);
     }
     app.ui.print(&t);
+}
+
+/// The rule ids to acknowledge. The table (human output) and the confirm question show them; with `--json` nobody
+/// sees them, so only `--acknowledge-rules` acknowledges, else a `rules_affected` error lists them in `params.rules`.
+fn rules_ack(json: bool, flag: bool, rules: &[AffectedRule]) -> Result<Vec<String>> {
+    if rules.is_empty() {
+        return Ok(Vec::new());
+    }
+    if json && !flag {
+        return Err(ttm_ui::UsageError::new(
+            "rules_affected",
+            format!(
+                "{} Automation rule(s) name statuses this version removes or changes and would stop firing",
+                AffectedRule::ids(rules).len()
+            ),
+        )
+        .field("--acknowledge-rules")
+        .params(&serde_json::json!({ "rules": rules }))
+        .into());
+    }
+    Ok(AffectedRule::ids(rules))
 }
 
 fn affected_ask(rules: &[AffectedRule]) -> String {
@@ -526,4 +557,42 @@ fn show(ui: &Ui, wf: &Workflow, draft: bool) {
             "ttm workflow validate"
         },
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rule(id: &str, field: &str) -> AffectedRule {
+        AffectedRule {
+            id: id.into(),
+            name: "Review → notify".into(),
+            field: field.into(),
+            state: "review".into(),
+            reason: "state_removed".into(),
+            ..AffectedRule::default()
+        }
+    }
+
+    #[test]
+    fn json_needs_the_flag_to_acknowledge_rules() {
+        let rules = [
+            rule("r1", "trigger.to"),
+            rule("r1", "conditions.status"),
+            rule("r2", "trigger.to"),
+        ];
+        assert_eq!(rules_ack(true, false, &[]).unwrap(), Vec::<String>::new());
+        let refused = rules_ack(true, false, &rules).unwrap_err();
+        let refused = refused.downcast_ref::<ttm_ui::UsageError>().unwrap();
+        assert_eq!(
+            (refused.rule, refused.field.as_deref()),
+            ("rules_affected", Some("--acknowledge-rules"))
+        );
+        let params: Value = serde_json::from_str(refused.params.as_deref().unwrap()).unwrap();
+        assert_eq!(params["rules"].as_array().map(Vec::len), Some(3));
+        assert_eq!(params["rules"][2]["id"], "r2");
+        assert_eq!(rules_ack(true, true, &rules).unwrap(), ["r1", "r2"]);
+        // People see the table and the question.
+        assert_eq!(rules_ack(false, false, &rules).unwrap(), ["r1", "r2"]);
+    }
 }

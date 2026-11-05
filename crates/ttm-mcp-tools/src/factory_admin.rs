@@ -481,11 +481,11 @@ async fn publish<B: Backend + ?Sized>(b: &B, a: PublishArgs) -> ToolResult {
         base + 1,
         rules_note(&affected)
     );
-    // The rules are in the preview the user confirms: confirming acknowledges them (else the server answers 409
-    // `rules_affected`).
+    // The rules are in the preview the user confirms: confirming acknowledges those (`acknowledged_rules`); a rule
+    // left behind after staging makes the server answer 409 `rules_affected` at the confirm.
     let mut body = json!({ "note": a.note, "base_version": base });
     if !affected.is_empty() {
-        body["acknowledge_rules"] = json!(true);
+        body["acknowledged_rules"] = json!(rule_ids(&affected));
     }
     stage(
         b,
@@ -497,6 +497,20 @@ async fn publish<B: Backend + ?Sized>(b: &B, a: PublishArgs) -> ToolResult {
         md,
     )
     .await
+}
+
+/// The distinct ids of the affected rules shown.
+fn rule_ids(affected: &[Value]) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for id in affected
+        .iter()
+        .filter_map(|r| r.get("id").and_then(Value::as_str))
+    {
+        if !ids.iter().any(|known| known == id) {
+            ids.push(id.to_owned());
+        }
+    }
+    ids
 }
 
 fn rules_note(affected: &[Value]) -> String {
@@ -516,7 +530,7 @@ async fn upgrade<B: Backend + ?Sized>(b: &B, a: UpgradeArgs) -> ToolResult {
     let affected = affected_rules(&preview);
     let mut body = json!({ "to_version": to, "preview_hash": str_of(&preview, "preview_hash") });
     if !affected.is_empty() {
-        body["acknowledge_rules"] = json!(true);
+        body["acknowledged_rules"] = json!(rule_ids(&affected));
     }
     let summary = format!(
         "Upgrade project {} to workflow v{to}{}",

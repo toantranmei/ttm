@@ -250,12 +250,12 @@ async fn publishing_past_a_rule_state_lists_the_rules_and_acknowledges_them_on_c
     );
     assert_eq!(v["preview"]["affected_rules"][0]["id"], "r9");
     let sent = set.backend().body("POST /confirmations").unwrap();
-    assert_eq!(sent["body"]["acknowledge_rules"], true, "{sent}");
+    assert_eq!(sent["body"]["acknowledged_rules"], json!(["r9"]), "{sent}");
 
     // No rule left behind: the body stays as before (no flag), no warning.
     let upgrade = check(&set, "factory-workflow-upgrade", json!({"project": "AUR"})).await;
     assert!(!text(&upgrade).contains("Automation rule"), "{}", text(&upgrade));
     let sent = set.backend().body("POST /confirmations").unwrap();
     assert_eq!(sent["path"], "/factory/projects/p1/workflow-upgrade");
-    assert!(sent["body"].get("acknowledge_rules").is_none(), "{sent}");
+    assert!(sent["body"].get("acknowledged_rules").is_none(), "{sent}");
 }

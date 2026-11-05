@@ -277,6 +277,17 @@ impl AffectedRule {
         }
     }
 
+    /// The distinct ids of `rules`, in order (what an acknowledgement names).
+    pub fn ids(rules: &[AffectedRule]) -> Vec<String> {
+        let mut ids: Vec<String> = Vec::new();
+        for rule in rules {
+            if !ids.contains(&rule.id) {
+                ids.push(rule.id.clone());
+            }
+        }
+        ids
+    }
+
     /// `state_removed` → `review removed`; `state_renamed` → `review renamed to code-review`.
     pub fn why(&self) -> String {
         match self.reason.as_str() {
@@ -413,20 +424,21 @@ impl Client {
     }
 
     /// `POST …/publish {note, base_version}` → `{version, notified_projects}`.
-    /// `acknowledge_rules`: publish even though Automation rules name states the version removes or changes (else
-    /// 409 `rules_affected`).
+    /// `acknowledged_rules`: the ids of the affected Automation rules shown to the person (rules naming states the
+    /// version removes or changes); the server answers 409 `rules_affected` when another one is affected.
     pub async fn workflow_publish(
         &self,
         id: &str,
         note: &str,
         base_version: i64,
-        acknowledge_rules: bool,
+        acknowledged_rules: &[String],
     ) -> Result<Value> {
-        self.post(
-            &format!("/factory/workflows/{}/publish", encode(id)),
-            &serde_json::json!({ "note": note, "base_version": base_version, "acknowledge_rules": acknowledge_rules }),
-        )
-        .await
+        let mut body = serde_json::json!({ "note": note, "base_version": base_version });
+        if !acknowledged_rules.is_empty() {
+            body["acknowledged_rules"] = serde_json::json!(acknowledged_rules);
+        }
+        self.post(&format!("/factory/workflows/{}/publish", encode(id)), &body)
+            .await
     }
 
     pub async fn workflow_copy(&self, id: &str, name: Option<&str>) -> Result<Workflow> {
@@ -457,14 +469,16 @@ impl Client {
         to_version: i64,
         preview_hash: &str,
         mapping: Option<&Value>,
-        acknowledge_rules: bool,
+        acknowledged_rules: &[String],
     ) -> Result<Value> {
+        let mut body =
+            serde_json::json!({ "to_version": to_version, "preview_hash": preview_hash, "mapping": mapping });
+        if !acknowledged_rules.is_empty() {
+            body["acknowledged_rules"] = serde_json::json!(acknowledged_rules);
+        }
         self.post(
             &format!("/factory/projects/{}/workflow-upgrade", encode(project_id)),
-            &serde_json::json!({
-                "to_version": to_version, "preview_hash": preview_hash, "mapping": mapping,
-                "acknowledge_rules": acknowledge_rules,
-            }),
+            &body,
         )
         .await
     }

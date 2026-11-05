@@ -76,6 +76,13 @@ pub fn error_json(err: &anyhow::Error) -> serde_json::Value {
         if let Some(field) = &usage.field {
             out["field"] = field.as_str().into();
         }
+        if let Some(params) = usage
+            .params
+            .as_deref()
+            .and_then(|p| serde_json::from_str::<serde_json::Value>(p).ok())
+        {
+            out["params"] = params;
+        }
     }
     if let Some(api) = api {
         if let Some(status) = api.status() {

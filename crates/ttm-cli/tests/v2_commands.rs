@@ -246,6 +246,83 @@ async fn workflow_show_validate_publish() {
 }
 
 #[tokio::test]
+async fn workflow_publish_asks_before_acknowledging_affected_rules() {
+    let (server, root, repo) = setup(V2_FEATURES, me_body()).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/factory/workflows/wf1"))
+        .respond_with(ok(json!({"id": "wf1", "name": "Professional", "latest_version": 2, "version": 2, "has_draft": true,
+            "definition": {"states": [], "transitions": []}, "draft": {"definition": {"states": [], "transitions": []}}})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/factory/workflows/wf1/diff"))
+        .respond_with(ok(json!({"states": {"added": [], "removed": [{"id": "review", "name": "Review"}], "changed": []},
+            "affected_rules": [{"id": "r9", "slug": "review-notify", "name": "Review → notify", "scope": "workflow",
+                "field": "trigger.to", "state": "review", "reason": "state_removed"}]})))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/factory/workflows/wf1/publish"))
+        .and(body_partial_json(json!({"acknowledged_rules": ["r9"]})))
+        .respond_with(ok(json!({"version": 3, "notified_projects": 0})))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let host = server.uri();
+    // --json: nobody sees the list, so no acknowledgement without the flag; the rules come back in params.
+    let out = ttm_env(
+        root.path(),
+        &repo,
+        &host,
+        &["workflow", "publish", "--note", "x", "--yes", "--json"],
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let body: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["error"]["rule"], "rules_affected", "{body}");
+    assert_eq!(body["error"]["params"]["rules"][0]["id"], "r9", "{body}");
+    let out = ttm_env(
+        root.path(),
+        &repo,
+        &host,
+        &[
+            "workflow",
+            "publish",
+            "--note",
+            "x",
+            "--yes",
+            "--json",
+            "--acknowledge-rules",
+        ],
+        None,
+        &[],
+    )
+    .await;
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    // People see the table and the question; --yes answers it.
+    let (text, _, code) = run(
+        root.path(),
+        &repo,
+        &host,
+        &["workflow", "publish", "--note", "x", "--yes"],
+        &[],
+    )
+    .await;
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("1 Automation rule(s)") && text.contains("review removed"),
+        "{text}"
+    );
+}
+
+#[tokio::test]
 async fn automation_list_show_test() {
     let (server, root, repo) = setup(V2_FEATURES, me_body()).await;
     Mock::given(method("GET"))
