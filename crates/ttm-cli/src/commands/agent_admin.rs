@@ -147,7 +147,8 @@ fn skills_text(ui: &Ui, a: &Agent) -> String {
 
 pub fn agent_table(ui: &Ui, agents: &[Agent]) -> Table {
     let mut t = Table::new(&[
-        Col::new("NAME").flex(2).min(8),
+        // the name with its badges is cut after the skills
+        Col::new("NAME").flex(3).min(8),
         Col::new("HANDLE"),
         Col::new("ROLE").max(10),
         Col::new("MODEL").max(12),

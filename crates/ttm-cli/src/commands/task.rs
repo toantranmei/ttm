@@ -202,7 +202,8 @@ pub fn task_table(ui: &Ui, tasks: &[Task]) -> Table {
         Col::new("KEY"),
         Col::new("TITLE").flex(3).min(10),
         Col::new("ROLE").max(10),
-        Col::new("ASSIGNEE").flex(1).min(6),
+        // the assignee with its badges stays whole; the title is cut first
+        Col::new("ASSIGNEE").max(24),
         Col::new("EST").right(),
     ])
     .empty_text("No tasks.");

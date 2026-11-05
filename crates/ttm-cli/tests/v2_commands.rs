@@ -152,7 +152,7 @@ async fn agent_list_show_and_create() {
     let (text, _, _) = run(root.path(), &repo, &host, &["agent", "list"], &[]).await;
     assert!(text.starts_with("2 agent(s)"), "{text}");
     assert!(
-        text.contains("🤖 DEV · Code ✦✦ Sponsor") && text.contains("◐ ttm-open-pr"),
+        text.contains("🤖 DEV · Code ✦✦ Sponsor") && text.contains("◐ ttm-"),
         "{text}"
     );
     insta::assert_snapshot!("agent_list", text);
