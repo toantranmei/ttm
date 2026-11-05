@@ -40,7 +40,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/toantranmei/ttm/release
 
 The script puts the binaries in `$CARGO_HOME/bin` (default `~/.cargo/bin`) and adds that directory to `PATH` in your
 shell's startup file. Open a new terminal (or run `source ~/.cargo/env`) to use them right away. To install a specific
-version, replace `latest/download` with `download/v0.1.6`.
+version, replace `latest/download` with `download/v0.2.0`.
 
 ### Windows: PowerShell
 
@@ -96,8 +96,8 @@ npx -y @toantranmei/mcp --help
 The crates are not published on crates.io; install directly from GitHub (requires Rust stable ≥ 1.88 and `git`):
 
 ```sh
-cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.6 ttm-cli
-cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.1.6 ttm-mcp
+cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.2.0 ttm-cli
+cargo install --locked --git https://github.com/toantranmei/ttm --tag v0.2.0 ttm-mcp
 ```
 
 Self-built binaries point to `https://toantranmei.com`, like the release builds. To change the default host at build time:
@@ -112,11 +112,11 @@ ttm doctor
 ```
 
 ```text
-ttm 0.1.6
-ttm-mcp 0.1.6
+ttm 0.2.0
+ttm-mcp 0.2.0
 [ok  ] host       https://toantranmei.com (profile default)
 [ok  ] discovery  api_base https://toantranmei.com/api/v1
-[ok  ] version    ttm 0.1.6, server API v1
+[ok  ] version    ttm 0.2.0, server API v1
 [warn] token      not signed in (ttm login)
 [ok  ] keyring    OS keyring available
 [ok  ] git        git version 2.50.1
@@ -139,7 +139,7 @@ Each release includes:
 SHA-256:
 
 ```sh
-V=v0.1.6; F=ttm-cli-aarch64-apple-darwin.tar.xz
+V=v0.2.0; F=ttm-cli-aarch64-apple-darwin.tar.xz
 curl -LO https://github.com/toantranmei/ttm/releases/download/$V/$F
 curl -LO https://github.com/toantranmei/ttm/releases/download/$V/$F.sha256
 shasum -a 256 "$F"; cat "$F.sha256"   # the two values must match
@@ -181,15 +181,15 @@ the same directory as `ttm`.
 ```sh
 ttm self-update --check           # only report whether a new version exists
 ttm self-update                   # install the latest version
-ttm self-update --version 0.1.6   # install exactly this version (works for downgrades)
+ttm self-update --version 0.2.0   # install exactly this version (works for downgrades)
 ```
 
 ```text
-ttm 0.1.6 is up to date.
+ttm 0.2.0 is up to date.
 ```
 
 ```text
-Updated to ttm 0.1.6: /Users/an/.cargo/bin/ttm, /Users/an/.cargo/bin/ttm-mcp
+Updated to ttm 0.2.0: /Users/an/.cargo/bin/ttm, /Users/an/.cargo/bin/ttm-mcp
 SHA-256 verified; attestation verified.
 ```
 

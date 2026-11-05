@@ -7,7 +7,7 @@ section: more
 
 `ttm` và `ttm-mcp` phát hành cùng phiên bản. Bản tải: <https://github.com/toantranmei/ttm/releases>.
 
-## 0.2.0 (chưa phát hành)
+## 0.2.0 (05/11/2026)
 
 ### Thay đổi phá vỡ
 
@@ -27,6 +27,8 @@ section: more
   chặn secret, kiểm skill ([Cấu hình dạng code](as-code.md)).
 - Huy hiệu Mei-er ở `whoami`/`login` (+ `meta.membership` trong `--json`), `workspace members`, `task show`, `agent list`.
 - `ttm login` xin thêm scope `factory:admin`.
+- `ttm workflow publish|upgrade` liệt kê các luật Tự động hoá gắn với trạng thái bị xoá, đổi tên hoặc đổi nhóm và hỏi
+  trước khi xác nhận; với `--json` cần `--acknowledge-rules`.
 
 ### ttm-mcp
 
@@ -40,6 +42,9 @@ section: more
 - Danh tính git của agent, hook `commit-msg` xoá mọi dòng Claude/Anthropic ở mọi job; skill đã duyệt (kiểm SHA-256); MCP
   từ xa qua gateway và MCP local `[mcp.local.*]`; cô lập job của đồng đội; báo `features` lên server
   ([Runner](runner.md)).
+- Ngân sách token tính token cache theo giá (ghi cache ×1,25, đọc cache ×0,1); lượt chạy báo
+  `cache_creation_tokens` và `cache_read_tokens`.
+- Runner tự push và mở pull request, tiêu đề `<KEY>: <tên task>`; pull request đang mở trên nhánh được dùng lại.
 
 ## 0.1.6 (04/11/2026)
 

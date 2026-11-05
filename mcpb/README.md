@@ -17,6 +17,6 @@ archives dist built, copies the binary into `server/` and packs one bundle per O
 Each comes with a `.sha256` and is uploaded to the GitHub Release. Locally (macOS, with `jq` and Node):
 
 ```sh
-gh release download v0.1.6 -R toantranmei/ttm -p 'ttm-mcp-*.tar.xz' -p 'ttm-mcp-*.zip' -D /tmp/dist
-mcpb/pack.sh 0.1.6 /tmp/dist /tmp/mcpb
+gh release download v0.2.0 -R toantranmei/ttm -p 'ttm-mcp-*.tar.xz' -p 'ttm-mcp-*.zip' -D /tmp/dist
+mcpb/pack.sh 0.2.0 /tmp/dist /tmp/mcpb
 ```

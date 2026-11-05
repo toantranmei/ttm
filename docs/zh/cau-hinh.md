@@ -99,7 +99,7 @@ ttm status
 ```
 
 ```text
-ttm 0.1.6
+ttm 0.2.0
 host:      https://toantranmei.com
 profile:   work (/Users/an/.config/ttm/config.toml)
 token:     ttm_oat_Ab12… from keyring, expires 2026-12-04 5:00:00.0 +00:00:00

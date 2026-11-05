@@ -7,7 +7,7 @@ section: more
 
 `ttm` and `ttm-mcp` are released under the same version. Downloads: <https://github.com/toantranmei/ttm/releases>.
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-11-05)
 
 ### Breaking changes
 
@@ -28,6 +28,8 @@ section: more
   secrets, checks skills ([Configuration as code](as-code.md)).
 - Mei-er badges in `whoami`/`login` (+ `meta.membership` in `--json`), `workspace members`, `task show`, `agent list`.
 - `ttm login` also asks for the `factory:admin` scope.
+- `ttm workflow publish|upgrade` list the Automation rules left on removed, renamed or recategorised states and ask
+  before acknowledging them; with `--json` they need `--acknowledge-rules`.
 
 ### ttm-mcp
 
@@ -41,6 +43,10 @@ section: more
 - The agent's git identity, a `commit-msg` hook that removes every Claude/Anthropic line in every job; reviewed skills
   (SHA-256 checked); remote MCP through the gateway and local MCP `[mcp.local.*]`; isolation of teammates' jobs;
   `features` announced to the server ([Runner](runner.md)).
+- The token budget counts cache tokens by price (cache writes ×1.25, cache reads ×0.1); runs report
+  `cache_creation_tokens` and `cache_read_tokens`.
+- The runner pushes and opens the pull request itself, titled `<KEY>: <task title>`; an open pull request on the
+  branch is reused.
 
 ## 0.1.6 (2026-11-04)
 

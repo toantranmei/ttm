@@ -7,7 +7,7 @@ section: more
 
 `ttm` 和 `ttm-mcp` 以相同版本发布。下载：<https://github.com/toantranmei/ttm/releases>。
 
-## 0.2.0（未发布）
+## 0.2.0（2026-11-05）
 
 ### 不兼容变更
 
@@ -26,6 +26,8 @@ section: more
   （[配置即代码](as-code.md)）。
 - `whoami`/`login`（`--json` 中加 `meta.membership`）、`workspace members`、`task show`、`agent list` 显示 Mei-er 徽章。
 - `ttm login` 额外申请 `factory:admin` scope。
+- `ttm workflow publish|upgrade` 列出挂在被删除、重命名或更改类别的状态上的自动化规则，确认前先询问；使用
+  `--json` 时需要 `--acknowledge-rules`。
 
 ### ttm-mcp
 
@@ -37,6 +39,9 @@ section: more
 
 - agent 的 git 身份，`commit-msg` 钩子在每个作业中删除所有 Claude/Anthropic 行；经审核的 skill（校验 SHA-256）；经网关的远程 MCP
   和本地 MCP `[mcp.local.*]`；隔离队友的作业；向服务器报告 `features`（[Runner](runner.md)）。
+- token 预算按价格计算缓存 token（写缓存 ×1.25，读缓存 ×0.1）；运行会上报 `cache_creation_tokens` 和
+  `cache_read_tokens`。
+- Runner 自行推送并创建 pull request，标题为 `<KEY>: <任务标题>`；分支上已打开的 pull request 会被复用。
 
 ## 0.1.6（2026-11-04）
 
