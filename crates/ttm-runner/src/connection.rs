@@ -92,6 +92,33 @@ pub fn config_changed(
 }
 
 /// Whether the token should be renewed now.
+/// Whether the runner may take jobs given its `ttm-mcp` binary (the agents' `ttm` MCP server). Re-checked on every
+/// turn of the loop (one `stat`): while it is missing the runner takes no job (each would be refused), and it takes
+/// jobs again as soon as the binary is back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpGate {
+    pub ok: bool,
+}
+
+impl Default for McpGate {
+    fn default() -> Self {
+        Self { ok: true }
+    }
+}
+
+impl McpGate {
+    /// Re-checks `ttm_mcp`; returns what to tell the owner when it went missing or came back.
+    pub fn update(&mut self, ttm_mcp: &std::path::Path) -> Option<String> {
+        let now = crate::guard::check_ttm_mcp(ttm_mcp);
+        let was = std::mem::replace(&mut self.ok, now.is_ok());
+        match (was, now) {
+            (true, Err(refused)) => Some(format!("{}; not taking jobs until it is back", refused.message)),
+            (false, Ok(())) => Some(format!("ttm-mcp is back ({}); taking jobs again", ttm_mcp.display())),
+            _ => None,
+        }
+    }
+}
+
 pub fn needs_renewal(expires: Option<OffsetDateTime>, now: OffsetDateTime) -> bool {
     expires.is_some_and(|at| at - now <= RENEW_BEFORE)
 }
@@ -113,6 +140,7 @@ impl Runner {
         // Nothing announced yet: the first heartbeat sends the current `runner.toml` and the features (a restart with
         // a still valid token does not register again, so changes made while it was down would be missed).
         let mut config_seen = START_SEEN;
+        let mut mcp_gate = McpGate::default();
         tracing::info!(runner = %self.runner_id, capacity = self.capacity, "runner up");
         loop {
             if paused_until
@@ -121,7 +149,11 @@ impl Runner {
             {
                 paused_until = None;
             }
-            let can_take = running.len() < self.capacity && paused_until.is_none();
+            if let Some(change) = mcp_gate.update(&self.executor.ttm_mcp_exe) {
+                tracing::warn!("{change}");
+                self.executor.ui.eline(&change);
+            }
+            let can_take = running.len() < self.capacity && paused_until.is_none() && mcp_gate.ok;
             let client = self.client.get();
             if can_take && poll.is_none() {
                 let (c, id) = (client.clone(), self.runner_id.clone());
@@ -379,6 +411,25 @@ mod tests {
         let err = anyhow::Error::new(api).context("registering this runner");
         assert!(is_auth_error(&err));
         assert!(!is_auth_error(&anyhow::anyhow!("network down")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_jobs_while_ttm_mcp_is_missing() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("ttm-mcp");
+        let mut gate = McpGate::default();
+        let gone = gate.update(&exe).expect("reported once");
+        assert!(gone.contains("not taking jobs"), "{gone}");
+        assert!(!gate.ok);
+        assert_eq!(gate.update(&exe), None, "said once, still paused");
+        assert!(!gate.ok);
+        std::fs::write(&exe, "").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(gate.update(&exe).unwrap().contains("taking jobs again"));
+        assert!(gate.ok);
+        assert_eq!(gate.update(&exe), None);
     }
 
     #[test]

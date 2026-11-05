@@ -7,6 +7,9 @@ pub mod sim;
 
 use async_trait::async_trait;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use ttm_api::factory::{JobSpec, RunEvent};
 
@@ -17,7 +20,100 @@ pub struct RunContext {
     pub env: Vec<(String, String)>,
     /// `--settings` file (no Claude co-author or attribution lines).
     pub settings: Option<std::path::PathBuf>,
+    /// Tokens used so far, kept up to date by the harness while it runs: read when the run is dropped (job timeout),
+    /// so a timed out run still reports what it spent.
+    pub usage: Arc<UsageMeter>,
 }
+
+/// Running token totals of one harness run.
+#[derive(Debug, Default)]
+pub struct UsageMeter {
+    tokens_in: AtomicU64,
+    tokens_out: AtomicU64,
+}
+
+impl UsageMeter {
+    /// Sets the totals (the harness's running sum).
+    pub fn set(&self, tokens_in: u64, tokens_out: u64) {
+        self.tokens_in.store(tokens_in, Ordering::Relaxed);
+        self.tokens_out.store(tokens_out, Ordering::Relaxed);
+    }
+
+    /// `(tokens_in, tokens_out)` so far.
+    pub fn get(&self) -> (u64, u64) {
+        (
+            self.tokens_in.load(Ordering::Relaxed),
+            self.tokens_out.load(Ordering::Relaxed),
+        )
+    }
+}
+
+/// How long the agent's process group gets between SIGTERM and SIGKILL when a run is stopped.
+pub const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// The agent process and everything it started (dev servers, test runs, MCP servers): the agent is spawned as the
+/// leader of its own process group, and stopping the run signals the whole group, not only the agent. Dropping a
+/// guard that was not stopped or released (the run future dropped on a job timeout) stops the group too, in the
+/// background.
+#[derive(Debug)]
+pub struct ProcessGroup {
+    pgid: Option<u32>,
+}
+
+impl ProcessGroup {
+    /// Makes `command` start a new process group (Unix; elsewhere only the agent itself is stopped).
+    pub fn prepare(command: &mut tokio::process::Command) {
+        #[cfg(unix)]
+        command.process_group(0);
+        #[cfg(not(unix))]
+        let _ = command;
+    }
+
+    /// Guard of the group led by `child` (spawned after [`ProcessGroup::prepare`]).
+    pub fn of(child: &tokio::process::Child) -> Self {
+        Self { pgid: child.id() }
+    }
+
+    /// SIGTERM to the group, up to `grace` for the agent to exit, then SIGKILL to whatever is left of the group.
+    pub async fn stop(&mut self, child: &mut tokio::process::Child, grace: Duration) {
+        let pgid = self.pgid.take();
+        signal_group(pgid, false);
+        if tokio::time::timeout(grace, child.wait()).await.is_err() {
+            let _ = child.start_kill();
+        }
+        signal_group(pgid, true);
+        let _ = child.wait().await;
+    }
+
+    /// The agent ended by itself: leave the group alone.
+    pub fn release(&mut self) {
+        self.pgid = None;
+    }
+}
+
+impl Drop for ProcessGroup {
+    fn drop(&mut self) {
+        if let Some(pgid) = self.pgid.take() {
+            signal_group(Some(pgid), false);
+            std::thread::spawn(move || {
+                std::thread::sleep(STOP_GRACE);
+                signal_group(Some(pgid), true);
+            });
+        }
+    }
+}
+
+#[cfg(unix)]
+fn signal_group(pgid: Option<u32>, kill: bool) {
+    use rustix::process::{Pid, Signal, kill_process_group};
+    let Some(pid) = pgid.and_then(|p| Pid::from_raw(p as i32)) else {
+        return;
+    };
+    let _ = kill_process_group(pid, if kill { Signal::KILL } else { Signal::TERM });
+}
+
+#[cfg(not(unix))]
+fn signal_group(_pgid: Option<u32>, _kill: bool) {}
 
 /// How a harness run ended.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
