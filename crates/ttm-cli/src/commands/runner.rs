@@ -136,7 +136,7 @@ pub async fn ensure_registered(
     let fresh =
         |t: &StoredToken| !ttm_runner::connection::needs_renewal(t.expires_at, OffsetDateTime::now_utc());
     let (id, client, expires) = match (config.runner_id.clone(), saved) {
-        (Some(id), Some(token)) if fresh(&token) => {
+        (Some(id), Some(token)) if fresh(&token) && token_alive(&registrar, &id, &token).await? => {
             (id, registrar.client(token.access_token)?, token.expires_at)
         }
         _ => {
@@ -146,6 +146,22 @@ pub async fn ensure_registered(
         }
     };
     Ok((id, client, expires, registrar))
+}
+
+/// Whether the saved runner token still speaks for this runner: a runner turned off from the web loses its channel
+/// token (404 / 401 from then on), and a later `ttm runner up` must register again instead of polling 404 forever.
+async fn token_alive(registrar: &Registrar, id: &str, token: &StoredToken) -> Result<bool> {
+    let client = registrar.client(token.access_token.clone())?;
+    let beat = ttm_api::factory::Heartbeat { running: Vec::new(), capacity: 0, paused_until: None, local_mcp: None };
+    match client.heartbeat(id, &beat).await {
+        Ok(_) => Ok(true),
+        Err(err) if matches!(err.status(), Some(401 | 403 | 404)) => {
+            tracing::info!("the saved runner token no longer works ({err}); registering again");
+            Ok(false)
+        }
+        // offline or a server error: keep the token, the run loop retries
+        Err(_) => Ok(true),
+    }
 }
 
 /// `ttm-mcp` next to this `ttm`, else on PATH.
