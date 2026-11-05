@@ -379,8 +379,11 @@ mod tests {
             .and(header("authorization", "Bearer ttm_job_x"))
             .and(header("mcp-session-id", "s1"))
             .and(body_partial_json(json!({ "method": "tools/call", "params": { "name": "create_issue" } })))
-            .respond_with(ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(
+            // `set_body_raw`, not `insert_header` + `set_body_string`: the latter resets the mime to text/plain, so the
+            // answer would not be read as SSE.
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
                 "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"created\"}]}}\n\n",
+                "text/event-stream",
             ))
             .expect(1)
             .mount(&server)

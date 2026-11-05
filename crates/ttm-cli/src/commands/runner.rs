@@ -248,6 +248,8 @@ pub async fn run(app: App, command: RunnerCommand) -> Result<ExitCode> {
             };
             let shared = SharedClient::new(client);
             let executor = Arc::new(executor(&app, shared.clone(), config, false)?);
+            // Every job's agent talks to the factory through ttm-mcp; refuse to take jobs without it.
+            ttm_runner::guard::check_ttm_mcp(&executor.ttm_mcp_exe).map_err(|r| anyhow!(r.message))?;
             std::fs::create_dir_all(&app.ctx.paths.cache_dir)?;
             std::fs::write(pid_file(&app), std::process::id().to_string())?;
             app.ui.eprint(

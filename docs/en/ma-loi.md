@@ -180,8 +180,9 @@ Most are `409 conflict` with the following `rule`:
 | `repo_not_configured` | The job's project has no clone in `runner.toml`, or the clone's `origin` doesn't match the job's repo | `ttm runner config --repo KEY=<clone path>` |
 | `invalid_branch` | The job's branch name isn't valid for git | Fix the task/branch on the web |
 | `invalid_worktree` | The job's `worktree_hint` is an absolute path, has `..`, or leads out of `worktree_root` | Report it as a server bug; the runner never creates a worktree outside `worktree_root` |
+| `ttm_mcp_missing` | The runner cannot find the `ttm-mcp` binary (next to `ttm` or on `PATH`), which the agent's `ttm` MCP server runs | Reinstall ttm (it ships `ttm` and `ttm-mcp`); `ttm runner up` refuses to start without it, and a running runner takes no job until it is back |
 
-These two codes are reported to the server as `error` when the run finishes.
+These codes are reported to the server as `error` when the run finishes.
 
 ## MCP tools
 
@@ -425,6 +426,12 @@ The skill bundle is not a valid zip.
 The runner downloaded a skill whose SHA-256 does not match the job: the job is refused.
 
 **Fix:** the skill download is corrupt: run the job again
+
+### `ttm_mcp_missing`
+
+The runner cannot find an executable `ttm-mcp` (next to `ttm` or on `PATH`). Without it the agent has no Factory tools, so the job is refused before any agent starts; `ttm runner up` refuses to start, and a runner already up takes no job until the binary is back.
+
+**Fix:** ttm-mcp is missing next to ttm: reinstall ttm (it ships both), then restart the runner
 
 ### `secrets_disabled`
 

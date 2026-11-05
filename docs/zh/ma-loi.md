@@ -179,6 +179,7 @@ section: reference
 | `repo_not_configured` | 作业（job）所属项目在 `runner.toml` 中没有 clone，或 clone 的 `origin` 与作业的仓库不一致 | `ttm runner config --repo KEY=<đường dẫn clone>` |
 | `invalid_branch` | 作业的分支名不符合 git 规则 | 在网页上修改任务/分支 |
 | `invalid_worktree` | 作业的 `worktree_hint` 是绝对路径、含 `..`，或指向 `worktree_root` 之外 | 作为服务器问题反馈；runner 绝不会在 `worktree_root` 之外创建 worktree |
+| `ttm_mcp_missing` | runner 找不到 `ttm-mcp` 可执行文件（在 `ttm` 旁边或 `PATH` 上），它是 agent 的 `ttm` MCP server | 重新安装 ttm（同时包含 `ttm` 和 `ttm-mcp`）；缺少时 `ttm runner up` 不会启动，运行中的 runner 在它恢复前不接作业 |
 
 这两个错误码会在 run 结束时作为 `error` 上报给服务器。
 
@@ -424,6 +425,12 @@ skill 包不是有效的 zip。
 runner 下载的 skill 与作业的 SHA-256 不一致：作业被拒绝。
 
 **Fix:** the skill download is corrupt: run the job again
+
+### `ttm_mcp_missing`
+
+runner 找不到可执行的 `ttm-mcp`（在 `ttm` 旁边或 `PATH` 上）。没有它 agent 就没有 Factory 工具，因此作业在 agent 启动前被拒绝；`ttm runner up` 不会启动，已运行的 runner 在它恢复前不接作业。
+
+**Fix:** ttm-mcp is missing next to ttm: reinstall ttm (it ships both), then restart the runner
 
 ### `secrets_disabled`
 

@@ -179,8 +179,9 @@ Hầu hết là `409 conflict` với `rule` sau:
 | `repo_not_configured` | Project của job không có clone trong `runner.toml`, hoặc `origin` của clone không trùng repo của job | `ttm runner config --repo KEY=<đường dẫn clone>` |
 | `invalid_branch` | Tên nhánh của job không hợp lệ theo git | Sửa task/nhánh trên web |
 | `invalid_worktree` | `worktree_hint` của job là đường dẫn tuyệt đối, có `..`, hoặc dẫn ra ngoài `worktree_root` | Báo lỗi server; runner không bao giờ tạo worktree ngoài `worktree_root` |
+| `ttm_mcp_missing` | Runner không tìm thấy file chạy `ttm-mcp` (cạnh `ttm` hoặc trên `PATH`), là MCP server `ttm` của agent | Cài lại ttm (gói có cả `ttm` và `ttm-mcp`); thiếu nó thì `ttm runner up` không chạy, còn runner đang chạy sẽ ngừng nhận job cho tới khi có lại |
 
-Hai mã này được báo lên server làm `error` khi kết thúc run.
+Các mã này được báo lên server làm `error` khi kết thúc run.
 
 ## Tool MCP
 
@@ -424,6 +425,12 @@ Gói skill không phải zip hợp lệ.
 Runner tải skill nhưng SHA-256 không khớp với job: job bị từ chối.
 
 **Fix:** the skill download is corrupt: run the job again
+
+### `ttm_mcp_missing`
+
+Runner không tìm thấy file chạy được `ttm-mcp` (cạnh `ttm` hoặc trên `PATH`). Thiếu nó agent không có tool Factory, nên job bị từ chối trước khi agent chạy; `ttm runner up` không khởi động, còn runner đang chạy ngừng nhận job cho tới khi file có lại.
+
+**Fix:** ttm-mcp is missing next to ttm: reinstall ttm (it ships both), then restart the runner
 
 ### `secrets_disabled`
 

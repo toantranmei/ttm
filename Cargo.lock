@@ -3291,6 +3291,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "reqwest",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",
