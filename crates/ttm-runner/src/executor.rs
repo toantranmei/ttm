@@ -241,6 +241,10 @@ impl Executor {
         if let Err(refused) = guard::check_team_isolation(job, self.team_claude_token.is_some()) {
             return Err(self.refuse(job, refused));
         }
+        // Before any worktree or agent: an agent without its `ttm` MCP server runs blind and burns the budget.
+        if let Err(refused) = guard::check_ttm_mcp(&self.ttm_mcp_exe) {
+            return Err(self.refuse(job, refused));
+        }
         // Only the owner's configured clone, and only when it is the job's repository; never clone a URL.
         let current = self.current_config();
         let repo = guard::check(job, current.repo_for(&key, job.project_id.as_deref()), |dir| {
@@ -476,6 +480,7 @@ fn is_refusal(error: &str) -> bool {
             | guard::INVALID_BRANCH
             | guard::INVALID_WORKTREE
             | guard::UNSUPPORTED_FEATURE
+            | guard::TTM_MCP_MISSING
             | skills::SKILL_HASH_MISMATCH
     )
 }
@@ -594,6 +599,22 @@ mod tests {
                     "local": ["github-local", "notes", "secretless", "linear", "unknown"]}
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn ttm_server_command_is_the_checked_absolute_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("ttm-mcp");
+        std::fs::write(&exe, "").unwrap();
+        let (c, _) = mcp_config(&v2_job(false), "https://h", &exe, &local(), &|_| None);
+        let ttm = &c["mcpServers"]["ttm"];
+        let command = Path::new(ttm["command"].as_str().unwrap());
+        assert!(command.is_absolute() && command.is_file(), "{command:?}");
+        assert_eq!(guard::check_ttm_mcp(command), Ok(()));
+        assert_eq!(ttm["args"], json!(["--toolsets", "factory,notee"]));
+        // A bare name (ttm-mcp not built next to ttm, not on PATH) is refused before any agent runs.
+        assert!(guard::check_ttm_mcp(Path::new("ttm-mcp")).is_err());
+        assert!(is_refusal(guard::TTM_MCP_MISSING));
     }
 
     #[test]

@@ -300,7 +300,7 @@ mod tests {
         );
         assert!(s.contains("grep -viE"));
         assert!(s.contains("--trailer 'Co-authored-by: DEV <dev@x>'"));
-        assert!(s.contains("exec '/repo/.git/hooks/commit-msg'"));
+        assert!(s.contains("if [ -x '/repo/.git/hooks/commit-msg' ]; then '/repo/.git/hooks/commit-msg' \"$@\" || exit $?; fi"));
         assert_eq!(sh_quote("a'b"), "'a'\\''b'");
     }
 }

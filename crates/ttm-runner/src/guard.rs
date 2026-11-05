@@ -17,6 +17,24 @@ pub const INVALID_WORKTREE: &str = "invalid_worktree";
 /// Error code reported when a job needs a runner feature this runner does not have.
 pub const UNSUPPORTED_FEATURE: &str = "unsupported_feature";
 
+/// Error code reported when the `ttm-mcp` binary the agent's `ttm` MCP server runs is not found on this runner.
+pub const TTM_MCP_MISSING: &str = "ttm_mcp_missing";
+
+/// Refuses a job when `ttm_mcp` (the command of the agent's `ttm` MCP server) is not an absolute path to an existing
+/// file: without it the agent cannot read its task or report progress and would only spend tokens.
+pub fn check_ttm_mcp(ttm_mcp: &Path) -> Result<(), Refused> {
+    if ttm_mcp.is_absolute() && ttm_mcp.is_file() {
+        return Ok(());
+    }
+    Err(refuse(
+        TTM_MCP_MISSING,
+        format!(
+            "ttm-mcp not found ({}); install it next to ttm or on PATH, then restart the runner",
+            ttm_mcp.display()
+        ),
+    ))
+}
+
 /// Refuses a job whose `requires` names a feature outside `features` (the server should not send one).
 pub fn check_requires(job: &JobSpec, features: &[String]) -> Result<(), Refused> {
     let missing: Vec<&str> = job
@@ -247,6 +265,23 @@ pub fn worktree_for(job: &JobSpec, root: &Path) -> Result<PathBuf, Refused> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn ttm_mcp_must_be_an_existing_absolute_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("ttm-mcp");
+        std::fs::write(&exe, "").unwrap();
+        assert_eq!(check_ttm_mcp(&exe), Ok(()));
+        for bad in [
+            Path::new("ttm-mcp").to_path_buf(),
+            dir.path().join("missing"),
+            dir.path().to_path_buf(),
+        ] {
+            let err = check_ttm_mcp(&bad).unwrap_err();
+            assert_eq!(err.code, TTM_MCP_MISSING, "{bad:?}");
+            assert!(err.message.contains(&bad.display().to_string()));
+        }
+    }
 
     fn job(url: Option<&str>, provider: &str, branch: &str) -> JobSpec {
         serde_json::from_value(json!({
