@@ -435,10 +435,9 @@ async fn hooks_always_print_plain() {
     let (server, root) = signed_in().await;
     let host = server.uri();
     let repo = linked_repo(root.path(), &host);
-    let input = format!(
-        r#"{{"tool_input":{{"command":"git push --no-verify"}},"cwd":"{}"}}"#,
-        repo.display()
-    );
+    // serde_json escapes the path (Windows paths have backslashes, which a hand-written JSON string would not).
+    let input = serde_json::json!({"tool_input": {"command": "git push --no-verify"}, "cwd": repo.display().to_string()})
+        .to_string();
     let out = ttm_env(
         root.path(),
         &repo,
