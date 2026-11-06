@@ -468,15 +468,23 @@ async fn mcp_server_add_reads_the_secret_from_the_environment() {
 #[tokio::test]
 async fn cr_inbox_template_members() {
     let (server, root, repo) = setup(V2_FEATURES, me_body()).await;
+    // Ages in the table are relative to now, so the fixtures are too (the snapshot must not depend on the day it runs).
+    let ago = |days: i64| {
+        (time::OffsetDateTime::now_utc() - time::Duration::days(days) - time::Duration::hours(1))
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap()
+    };
     Mock::given(method("GET"))
         .and(path("/api/v1/factory/projects/p1/change-requests"))
-        .respond_with(ok(json!([{"id": "cr1-long-id", "status": "pending", "created_at": "2026-11-01T00:00:00Z", "changes": [{"key": "AUR-1"}]}])))
+        .respond_with(ok(json!([{"id": "cr1-long-id", "status": "pending", "created_at": ago(4), "changes": [{"key": "AUR-1"}]}])))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v1/factory/workspaces/w2/config-requests"))
-        .respond_with(ok(json!([{"id": "cfg1", "status": "pending", "kind": "agent", "target": "dev", "created_at": "2026-11-02T00:00:00Z",
-            "author": {"kind": "user", "id": "u1", "name": "An", "membership": {"tier": "mei-er"}}}])))
+        .respond_with(ok(
+            json!([{"id": "cfg1", "status": "pending", "kind": "agent", "target": "dev", "created_at": ago(3),
+            "author": {"kind": "user", "id": "u1", "name": "An", "membership": {"tier": "mei-er"}}}]),
+        ))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
