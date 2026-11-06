@@ -307,7 +307,14 @@ mod tests {
         );
         assert!(s.contains("grep -viE"));
         assert!(s.contains("--trailer 'Co-authored-by: DEV <dev@x>'"));
-        assert!(s.contains("if [ -x '/repo/.git/hooks/commit-msg' ]; then '/repo/.git/hooks/commit-msg' \"$@\" || exit $?; fi"));
+        // The hook path is joined with the platform separator (`\\` on Windows).
+        let hook = Path::new("/repo/.git/hooks")
+            .join("commit-msg")
+            .display()
+            .to_string();
+        assert!(s.contains(&format!(
+            "if [ -x '{hook}' ]; then '{hook}' \"$@\" || exit $?; fi"
+        )));
         assert_eq!(sh_quote("a'b"), "'a'\\''b'");
     }
 }
