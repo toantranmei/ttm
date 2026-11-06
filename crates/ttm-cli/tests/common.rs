@@ -168,7 +168,16 @@ pub fn normalize(text: &str, root: &Path, host: &str) -> String {
     for r in roots {
         out = out.replace(&r, "[ROOT]");
     }
-    out
+    // Paths under the root are written with `/`, so Windows (`[ROOT]\repo`) gives the same text as Unix.
+    out.split_inclusive(char::is_whitespace)
+        .map(|word| {
+            if word.contains("[ROOT]") {
+                word.replace('\\', "/")
+            } else {
+                word.to_owned()
+            }
+        })
+        .collect()
 }
 
 /// Key paths of a JSON value: `a`, `a.b`, `list[]`, `list[].c` (arrays through their first element).
