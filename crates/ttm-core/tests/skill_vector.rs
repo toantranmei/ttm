@@ -1,12 +1,14 @@
 //! Cross-check with the server (S3 `skill_bundle::pack`): the vector directory packs to `expected.sha256`.
 //! The server keeps a byte-identical copy at `ai-factory/crates/domain-factory/tests/fixtures/skill-vector/`.
 
-use std::path::Path;
 use ttm_core::skill_zip;
 
+// Unix only: the vector has an executable script, and Windows has no executable bit (and may check the files out
+// with CRLF), so the packed bytes, and the SHA, differ there by design.
+#[cfg(unix)]
 #[test]
 fn vector_packs_to_the_expected_sha() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/skill-vector");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/skill-vector");
     let expected = std::fs::read_to_string(dir.join("expected.sha256")).unwrap();
     let (zip, sha, manifest) = skill_zip::pack_dir(&dir.join("skill")).unwrap();
     assert_eq!(sha, expected.trim());
